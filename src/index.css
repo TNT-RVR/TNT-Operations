@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light theme; don't let the browser dark-render form controls. */
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Phones: the visible viewport can differ from 100vh (mobile browser chrome).
+   dvh tracks the VISIBLE viewport so bottom nav stays on-screen. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #1a1206;
+}
+
+/* Field/tablet friendly: prevent iOS zoom on input focus, big tap targets. */
+input,
+select,
+button,
+textarea {
+  font-size: 16px;
+}
+
+/* Checkboxes: white box, brand check, big enough to read outdoors. */
+input[type='checkbox'] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: #b8860b;
+  background: #fff;
+  border: 1px solid #94a3b8;
+  border-radius: 0.25rem;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 font-semibold min-h-touch transition active:scale-[0.98] disabled:opacity-50;
+  }
+  /* READABILITY RULE: primary = solid honey with WHITE text. */
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-dark;
+  }
+  /* Secondary = light surface, dark text on white. */
+  .btn-ghost {
+    @apply btn bg-white text-slate-800 border border-slate-300 hover:bg-slate-50;
+  }
+  /* Field-green variant for map/section CTAs. */
+  .btn-field {
+    @apply btn bg-field text-white hover:bg-field-dark;
+  }
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm;
+  }
+  .label {
+    @apply block text-sm font-medium text-slate-600 mb-1;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 min-h-touch focus:border-brand focus:ring-2 focus:ring-brand/30 outline-none;
+  }
+  /* Table headers use the brand accent → white text (readability rule). */
+  .th {
+    @apply bg-brand px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-white;
+  }
+}

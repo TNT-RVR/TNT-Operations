@@ -2,6 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
 import type { Inspection, SensorReading } from './types'
 import { seedFields, seedIncubators, seedInspections, seedReadings } from './seed'
+import { SupabaseProvider } from './SupabaseProvider'
+import { isSupabaseConfigured } from './supabaseClient'
 
 let idSeq = 1000
 const nextId = (prefix: string) => `${prefix}_${++idSeq}`
@@ -30,14 +32,18 @@ function MockProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Picks the backend from VITE_DATA_SOURCE. Only `mock` is implemented today;
- * `supabase` is the next phase (add SupabaseProvider and switch here).
+ * Picks the backend from VITE_DATA_SOURCE (`mock` | `supabase`). Falls back to
+ * mock — with a warning — when `supabase` is requested but the client isn't
+ * configured (missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).
  */
 export function DataProvider({ children }: { children: ReactNode }) {
   const source = import.meta.env.VITE_DATA_SOURCE ?? 'mock'
   if (source === 'supabase') {
-    // TODO(Phase 3): return <SupabaseProvider>{children}</SupabaseProvider>
-    console.warn('[data] VITE_DATA_SOURCE=supabase not implemented yet — falling back to mock.')
+    if (isSupabaseConfigured) return <SupabaseProvider>{children}</SupabaseProvider>
+    console.warn(
+      '[data] VITE_DATA_SOURCE=supabase but Supabase is not configured ' +
+        '(set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY) — falling back to mock.',
+    )
   }
   return <MockProvider>{children}</MockProvider>
 }

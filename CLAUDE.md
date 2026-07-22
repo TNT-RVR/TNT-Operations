@@ -37,10 +37,27 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
 
 ## Migration status (porting the two Python apps)
 - [x] Phase 1 — scaffold, design system, auth/roles, data seam, section shells.
-- [ ] Phase 2 — port math to `src/domain/`: `get_tent_positions` (from
-      `beetent-maps/maketentgrid.py`) → `tentGrid.ts` with golden-file tests from
-      real `fields/*.json`; reconcile `incubation.ts` with `incubation_calc.py`.
-- [ ] Phase 3 — Supabase schema + migrations + RLS + `SupabaseProvider`.
+- [x] Phase 2 — math ported to `src/domain/`:
+      - `get_tent_positions` → `tentGrid.ts` (+ UTM/ENU in `geo.ts`), locked by
+        golden-file tests over all 15 real `fields/*.json` (exact pin count, row
+        index, ≤1 m/pin). Manual + synthetic-grid paths ported; PASS-FOLLOWING
+        (imported JD planter passes) is deferred — throws `NotPortedError` if a
+        field ever hits it. Regenerate fixtures: `scripts/gen_tentgrid_golden.py`.
+      - `incubation_calc.py` → `incubation.ts` (weight/tray calcs, temp modes +
+        threshold checks, event extraction, unit conv), locked against Python
+        reference values. `incubationProgress` is an app-only helper (no Python
+        counterpart) and is NOT the authority for timing.
+- [x] Phase 3 — Supabase backend for the data seam:
+      - `supabase/migrations/0001_init.sql` — `profiles`(role) + `fields`,
+        `incubators`, `inspections`, `sensor_readings` (columns match
+        `types.ts`); role-based RLS mirroring the `MODULES` matrix via
+        SECURITY DEFINER helpers; realtime on `sensor_readings`/`inspections`.
+        `0002_seed.sql` = demo data matching `seed.ts`.
+      - `SupabaseProvider` implements `DataContextValue` 1:1 with `MockProvider`
+        (pure row↔type mappers in `data/mappers.ts`, tested). `DataProvider`
+        selects it when `VITE_DATA_SOURCE=supabase` AND configured, else warns +
+        falls back to mock. FOLLOW-UP: RLS needs a signed-in user — wire Supabase
+        Auth into `useSession()` (currently a mock user switcher).
 - [ ] Phase 4/5 — full Incubation & Shelter Maps UIs (field editor, inspections).
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
       email reports, PDF/KML/shapefile export.

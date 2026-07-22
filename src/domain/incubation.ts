@@ -1,11 +1,27 @@
 /**
- * Incubation timing math. Pure functions — no React, no DB.
+ * Incubation timing + weight/threshold math. Pure functions — no React, no DB.
  *
- * NOTE: this is the target home for the port of `incubation_calc.py` from the
- * old bee-incubation app. The calendar model below is a sane default; when we
- * port for real, reconcile the exact stage boundaries against that file and
- * lock them in with test cases here.
+ * TWO layers live here:
+ *
+ *  1. `incubationProgress` — an APP-side convenience (progress bar + coarse
+ *     stage) used by the dashboard and incubation screens. It has NO counterpart
+ *     in the old Python; the old app tracked "incubation day" and discrete event
+ *     dates instead (see layer 2). Keep it, but it is not the authority.
+ *
+ *  2. A faithful port of `bee-incubation/incubation_calc.py` — the authoritative
+ *     leafcutter-bee business math: raw-weight / tray-volume calculations, the
+ *     temperature-mode presets + threshold checks, upcoming-event extraction, and
+ *     unit conversion. Ported operation-for-operation and locked with tests.
+ *
+ * Day arithmetic difference from the Python: the old code compared against the
+ * machine's LOCAL `datetime.now()`. Because TNT Operations stores everything in
+ * UTC (see CLAUDE.md), the ported date helpers take an explicit `now: Date` and
+ * compare UTC calendar days — deterministic and testable, no hidden clock.
  */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Layer 1 — app progress helper (no Python counterpart)
+// ═══════════════════════════════════════════════════════════════════════════
 
 /** Default incubation length for leafcutter bees at ~30°C, in days. */
 export const DEFAULT_INCUBATION_DAYS = 21
@@ -51,4 +67,295 @@ export function incubationProgress(
     pct: Math.round(pct),
     stage,
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Layer 2 — faithful port of incubation_calc.py
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Python `round()` — round half to even ("banker's rounding"). */
+function pyRound(value: number, ndigits = 0): number {
+  if (!Number.isFinite(value)) return value
+  const m = 10 ** ndigits
+  const scaled = value * m
+  const floor = Math.floor(scaled)
+  const frac = scaled - floor
+  const rounded =
+    Math.abs(frac - 0.5) < 1e-9 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(scaled)
+  return rounded / m
+}
+
+/** Format a number the way Python's `str(float)` would (integers keep a `.0`). */
+function pyFloatStr(v: number): string {
+  return Number.isInteger(v) ? `${v}.0` : `${v}`
+}
+
+// ── Weight / Volume calculations ──────────────────────────────────────────────
+
+/**
+ * Pounds of raw (ungraded) bee cells needed to fill one tray with `targetGals`
+ * gallons of LIVE bees. `livePct` is a 0–1 fraction (e.g. 0.82 for 82% live).
+ * Mirrors `calc_raw_weight_per_tray`.
+ */
+export function calcRawWeightPerTray(livePct: number, targetGals = 2.0, lbsPerGal = 2.2): number {
+  if (livePct <= 0) return 0.0
+  const rawGalsNeeded = targetGals / livePct
+  return pyRound(rawGalsNeeded * lbsPerGal, 3)
+}
+
+export interface SampleSummary {
+  liveGalsTotal: number
+  trayCountExact: number
+  trayCount: number
+  rawGalsPerTray: number
+  rawLbsPerTray: number
+}
+
+/**
+ * From a sample's total raw volume + live %, derive live-bee gallons, how many
+ * trays it fills, and the raw load per tray. Mirrors `calc_sample_summary`.
+ */
+export function calcSampleSummary(
+  totalVolumeGal: number,
+  livePct: number,
+  targetGalsPerTray = 2.0,
+  lbsPerGal = 2.2,
+): SampleSummary {
+  if (!totalVolumeGal || !livePct || livePct <= 0) {
+    return {
+      liveGalsTotal: 0.0,
+      trayCountExact: 0.0,
+      trayCount: 0,
+      rawGalsPerTray: 0.0,
+      rawLbsPerTray: 0.0,
+    }
+  }
+  const liveGals = totalVolumeGal * livePct
+  const trayCountExact = liveGals / targetGalsPerTray
+  const trayCount = Math.trunc(trayCountExact)
+  const rawGalsPerTray = targetGalsPerTray / livePct
+  return {
+    liveGalsTotal: pyRound(liveGals, 2),
+    trayCountExact: pyRound(trayCountExact, 2),
+    trayCount,
+    rawGalsPerTray: pyRound(rawGalsPerTray, 3),
+    rawLbsPerTray: pyRound(rawGalsPerTray * lbsPerGal, 3),
+  }
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+interface Ymd {
+  year: number
+  month: number
+  day: number
+}
+
+/** UTC calendar-day number (days since the Unix epoch). */
+function utcDayNumber(y: number, m: number, d: number): number {
+  return Math.floor(Date.UTC(y, m - 1, d) / DAY_MS)
+}
+
+function nowDayNumber(now: Date): number {
+  return utcDayNumber(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate())
+}
+
+/** Build a validated Y-M-D, rejecting overflow (e.g. month 13, Feb 30). */
+function mkYmd(year: number, month: number, day: number): Ymd | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() + 1 !== month || dt.getUTCDate() !== day) {
+    return null
+  }
+  return { year, month, day }
+}
+
+/**
+ * Parse an ISO or common date string (uses the first 10 chars, like the Python).
+ * Tries `%Y-%m-%d`, then `%m/%d/%Y`, then `%d/%m/%Y`. Mirrors `parse_date`.
+ */
+export function parseDate(dateStr: string | null | undefined): Ymd | null {
+  if (!dateStr) return null
+  const s = dateStr.slice(0, 10)
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
+  if (m) {
+    const r = mkYmd(+m[1], +m[2], +m[3])
+    if (r) return r
+  }
+  m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s)
+  if (m) {
+    const md = mkYmd(+m[3], +m[1], +m[2]) // %m/%d/%Y
+    if (md) return md
+    const dm = mkYmd(+m[3], +m[2], +m[1]) // %d/%m/%Y
+    if (dm) return dm
+  }
+  return null
+}
+
+/** Signed whole days from `now` to `dateStr` (negative = past). Mirrors `days_from_now`. */
+export function daysFromNow(dateStr: string | null | undefined, now: Date): number | null {
+  const d = parseDate(dateStr)
+  if (d === null) return null
+  return utcDayNumber(d.year, d.month, d.day) - nowDayNumber(now)
+}
+
+/** Human-readable relative day. Mirrors `format_days` (its code, not its docstring). */
+export function formatDays(days: number | null): string {
+  if (days === null) return '—'
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Tomorrow'
+  if (days === -1) return 'Yesterday'
+  if (days > 0) return `in ${days}d`
+  return `${Math.abs(days)}d ago`
+}
+
+// ── Event extraction ──────────────────────────────────────────────────────────
+
+/** A leafcutter incubation batch — the fields the calc reads (all optional). */
+export interface Batch {
+  id?: string | number
+  name?: string | null
+  incubatorName?: string | null
+  startDate?: string | null
+  vaponaIn?: string | null
+  vaponaOut?: string | null
+  airOut?: string | null
+  male10pctEmergence?: string | null
+  earliestCool?: string | null
+  estimatedRelease?: string | null
+  latestRelease?: string | null
+}
+
+export interface BatchEvent {
+  label: string
+  date: string
+  daysAway: number
+  urgent: boolean
+  batchName: string
+  batchId: string | number | undefined
+  incubatorName: string
+}
+
+/** (batch field, display label) pairs, in the Python's order. */
+export const BATCH_EVENT_FIELDS: Array<[keyof Batch, string]> = [
+  ['vaponaIn', 'Vapona In'],
+  ['vaponaOut', 'Vapona Out'],
+  ['airOut', 'Air Out'],
+  ['male10pctEmergence', '10% Male Emergence'],
+  ['earliestCool', 'Earliest Cool'],
+  ['estimatedRelease', 'Est. Release'],
+  ['latestRelease', 'Latest Release'],
+]
+
+/** Stable ascending sort by `daysAway` (ties keep insertion order). */
+function sortByDaysAway(events: BatchEvent[]): BatchEvent[] {
+  return events
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => a.e.daysAway - b.e.daysAway || a.i - b.i)
+    .map((x) => x.e)
+}
+
+/** Events on a batch within `lookaheadDays` of `now`. Mirrors `get_upcoming_events`. */
+export function getUpcomingEvents(batch: Batch, now: Date, lookaheadDays = 30): BatchEvent[] {
+  const events: BatchEvent[] = []
+  for (const [field, label] of BATCH_EVENT_FIELDS) {
+    const val = batch[field] as string | null | undefined
+    if (!val) continue
+    const days = daysFromNow(val, now)
+    if (days !== null && days >= -1 && days <= lookaheadDays) {
+      events.push({
+        label,
+        date: val.slice(0, 10),
+        daysAway: days,
+        urgent: days <= 1,
+        batchName: batch.name || '—',
+        batchId: batch.id,
+        incubatorName: batch.incubatorName || '—',
+      })
+    }
+  }
+  return sortByDaysAway(events)
+}
+
+/** Upcoming events across many batches, sorted. Mirrors `get_all_events`. */
+export function getAllEvents(batches: Batch[], now: Date, lookaheadDays = 30): BatchEvent[] {
+  const events: BatchEvent[] = []
+  for (const batch of batches) events.push(...getUpcomingEvents(batch, now, lookaheadDays))
+  return sortByDaysAway(events)
+}
+
+/** Which day of incubation the batch is on (Day 1 = start date). Mirrors `get_incubation_day`. */
+export function getIncubationDay(batch: Batch, now: Date): number | null {
+  const start = parseDate(batch.startDate)
+  if (start === null) return null
+  return nowDayNumber(now) - utcDayNumber(start.year, start.month, start.day) + 1
+}
+
+// ── Temperature-mode presets + threshold checks ───────────────────────────────
+
+export type TempMode = 'off' | 'cool_storage' | 'incubation' | 'holding'
+
+export interface TempModeConfig {
+  label: string
+  min: number | null
+  max: number | null
+}
+
+export const TEMP_MODES: Record<TempMode, TempModeConfig> = {
+  off: { label: 'Off', min: null, max: null },
+  cool_storage: { label: 'Cool Storage', min: 0.0, max: 12.0 },
+  incubation: { label: 'Incubation', min: 25.0, max: 35.0 },
+  holding: { label: 'Holding Temp', min: 10.0, max: 18.0 },
+}
+
+/** An incubator as the temp checks read it (the fields they touch). */
+export interface IncubatorTemp {
+  id?: string | number
+  name?: string
+  tempMode?: TempMode | string | null
+}
+
+/** [min, max] °C for the incubator's current mode, [null, null] when Off. Mirrors `get_temp_range`. */
+export function getTempRange(incubator: IncubatorTemp): [number | null, number | null] {
+  const mode = (incubator.tempMode || 'incubation') as string
+  const cfg = (TEMP_MODES as Record<string, TempModeConfig>)[mode] ?? TEMP_MODES.incubation
+  return [cfg.min, cfg.max]
+}
+
+/**
+ * Out-of-range problems for a reading (empty = OK). Off mode → no alerts.
+ * Note: like the Python, `humidity` is accepted but not yet checked.
+ * Mirrors `check_temp_humidity`.
+ */
+export function checkTempHumidity(
+  incubator: IncubatorTemp,
+  tempC: number,
+  _humidity: number,
+): string[] {
+  const problems: string[] = []
+  const name = incubator.name ?? `Incubator ${incubator.id ?? '?'}`
+  const [tMin, tMax] = getTempRange(incubator)
+  if (tMin === null || tMax === null) return problems // Off mode
+
+  if (tempC < tMin) {
+    problems.push(`${name}: Temp ${tempC.toFixed(1)}°C below minimum ${pyFloatStr(tMin)}°C`)
+  } else if (tempC > tMax) {
+    problems.push(`${name}: Temp ${tempC.toFixed(1)}°C above maximum ${pyFloatStr(tMax)}°C`)
+  }
+  return problems
+}
+
+// ── Unit conversion ───────────────────────────────────────────────────────────
+
+export function cToF(c: number): number {
+  return pyRound((c * 9) / 5 + 32, 1)
+}
+
+export function fToC(f: number): number {
+  return pyRound(((f - 32) * 5) / 9, 1)
+}
+
+export function formatTemp(tempC: number, unit: 'C' | 'F' = 'C'): string {
+  if (unit === 'F') return `${cToF(tempC).toFixed(1)}°F`
+  return `${tempC.toFixed(1)}°C`
 }

@@ -1,0 +1,125 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { DataContext, type DataContextValue } from './context'
+import type { Field, Incubator, Inspection, SensorReading } from './types'
+import { supabase } from './supabaseClient'
+import {
+  toField,
+  toIncubator,
+  toInspection,
+  toSensorReading,
+  inspectionInsert,
+  type FieldRow,
+  type IncubatorRow,
+  type InspectionRow,
+  type SensorReadingRow,
+} from './mappers'
+
+/**
+ * Live Supabase backend. Implements the SAME `DataContextValue` seam as
+ * MockProvider (src/data/AppData.tsx) — screens can't tell them apart.
+ *
+ * Data is hydrated once on mount and held in local state (so `latestReading`
+ * stays synchronous, matching the mock). New sensor readings stream in over
+ * Realtime; new inspections are inserted and prepended optimistically.
+ *
+ * NOTE: RLS is keyed to `auth.uid()`, so without a signed-in Supabase Auth
+ * session the queries return empty by design. Wiring auth into `useSession()`
+ * is the Phase 3 follow-up (see supabase/README.md).
+ */
+export function SupabaseProvider({ children }: { children: ReactNode }) {
+  const [fields, setFields] = useState<Field[]>([])
+  const [incubators, setIncubators] = useState<Incubator[]>([])
+  const [inspections, setInspections] = useState<Inspection[]>([])
+  const [readings, setReadings] = useState<SensorReading[]>([])
+
+  // Keep a ref of readings so the realtime handler appends without re-subscribing.
+  const readingsRef = useRef<SensorReading[]>([])
+  readingsRef.current = readings
+
+  useEffect(() => {
+    if (!supabase) return
+    let cancelled = false
+
+    async function hydrate() {
+      const sb = supabase!
+      const { data: session } = await sb.auth.getSession()
+      if (!session.session) {
+        console.warn(
+          '[data] Supabase has no signed-in session; RLS will return no rows. ' +
+            'Sign-in wiring is the Phase 3 follow-up (see supabase/README.md).',
+        )
+      }
+
+      const [f, i, insp, r] = await Promise.all([
+        sb.from('fields').select('*').order('updated_at', { ascending: false }),
+        sb.from('incubators').select('*').order('name', { ascending: true }),
+        sb.from('inspections').select('*').order('at', { ascending: false }),
+        sb.from('sensor_readings').select('*').order('at', { ascending: false }),
+      ])
+      if (cancelled) return
+
+      if (f.error) console.error('[data] load fields:', f.error.message)
+      if (i.error) console.error('[data] load incubators:', i.error.message)
+      if (insp.error) console.error('[data] load inspections:', insp.error.message)
+      if (r.error) console.error('[data] load readings:', r.error.message)
+
+      setFields(((f.data as FieldRow[]) ?? []).map(toField))
+      setIncubators(((i.data as IncubatorRow[]) ?? []).map(toIncubator))
+      setInspections(((insp.data as InspectionRow[]) ?? []).map(toInspection))
+      setReadings(((r.data as SensorReadingRow[]) ?? []).map(toSensorReading))
+    }
+
+    hydrate()
+
+    // Stream new sensor readings into local state.
+    const channel = supabase
+      .channel('sensor_readings')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'sensor_readings' },
+        (payload) => {
+          const reading = toSensorReading(payload.new as SensorReadingRow)
+          if (!readingsRef.current.some((r) => r.id === reading.id)) {
+            setReadings((prev) => [reading, ...prev])
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      supabase!.removeChannel(channel)
+    }
+  }, [])
+
+  const value = useMemo<DataContextValue>(
+    () => ({
+      fields,
+      incubators,
+      inspections,
+      readings,
+      addInspection: (input: Omit<Inspection, 'id'>) => {
+        if (!supabase) return
+        supabase
+          .from('inspections')
+          .insert(inspectionInsert(input))
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('[data] addInspection:', error.message)
+              return
+            }
+            setInspections((prev) => [toInspection(data as InspectionRow), ...prev])
+          })
+      },
+      latestReading: (incubatorId: string) =>
+        readings
+          .filter((r) => r.incubatorId === incubatorId)
+          .sort((a, b) => b.at.localeCompare(a.at))[0],
+    }),
+    [fields, incubators, inspections, readings],
+  )
+
+  return <DataContext.Provider value={value}>{children}</DataContext.Provider>
+}

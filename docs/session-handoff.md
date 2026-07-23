@@ -16,10 +16,10 @@ and "Next" sections as work progresses.
 - Incubation math: `C:\Users\tyler\bee-incubation\incubation_calc.py`.
 - Read these by absolute path; do not build in those folders.
 
-## Left off (2026-07-22) — Phase 3 COMPLETE ✅ (Phases 1–2 also complete)
-Supabase backend built for the data seam. `npm run typecheck && npm test &&
-npm run build` all green — **44/44 tests**; app verified still rendering in mock
-mode (dashboard live, 0 console errors).
+## Left off (2026-07-22) — Phase 3 COMPLETE ✅ + Auth wired (Phases 1–2 also complete)
+Supabase backend + real-auth session built for both seams. `npm run typecheck &&
+npm test && npm run build` all green — **48/48 tests**; app verified still
+rendering in mock mode (switcher intact, dashboard live, 0 console errors).
 - **`supabase/migrations/0001_init.sql`** — `profiles`(role) + `fields`,
   `incubators`, `inspections`, `sensor_readings`; role-based RLS mirroring the
   `MODULES` matrix (SECURITY DEFINER `app_role()`/`can_edit()`/`is_admin()`);
@@ -28,9 +28,13 @@ mode (dashboard live, 0 console errors).
 - **`SupabaseProvider`** implements `DataContextValue` identically to
   `MockProvider` (mappers in `data/mappers.ts`, tested). `DataProvider` picks it
   when `VITE_DATA_SOURCE=supabase` and configured, else warns + mock fallback.
-- **Auth follow-up (do before supabase mode is usable):** RLS is keyed to
-  `auth.uid()`, so a signed-in Supabase Auth user is required. `useSession()` is
-  still the mock user switcher — wire Supabase Auth into it next.
+- **Auth wired:** `useSession()` splits like the data seam —
+  `SupabaseSessionProvider` (real Supabase Auth via `LoginScreen`, role from
+  `profiles`, sign-out in the header) vs the mock user switcher, selected the
+  same way. So `supabase` mode now pairs a real session with the RLS-guarded
+  data. Permission matrix locked by `auth/session.test.ts`. **First run:** after
+  the first admin signs in, set their `profiles.role = 'admin'` directly (the
+  signup trigger defaults new users to `viewer`).
 
 ### Earlier — Phase 2 (math port)
 Ported the two apps' math into `src/domain/` as pure, tested functions.
@@ -53,13 +57,13 @@ Ported the two apps' math into `src/domain/` as pure, tested functions.
   hidden local clock. `incubationProgress` kept as an app-only UI helper.
 
 ## Next
-1. **Wire Supabase Auth into `useSession()`** (replace the mock user switcher):
-   sign-in, read role/name from `profiles`, expose the same `SessionValue`. This
-   is the prerequisite that makes `supabase` mode actually return rows under RLS.
-   Then create a real Supabase project, apply `supabase/migrations/*`, and smoke
-   test `VITE_DATA_SOURCE=supabase`.
-2. Phases 4/5 = full Incubation & Shelter Maps UIs (field editor, inspections)
-   — these consume the now-locked `src/domain/` functions + the data seam.
+1. **Smoke-test `supabase` mode end to end:** create a real Supabase project,
+   apply `supabase/migrations/*`, set `VITE_SUPABASE_URL`/`ANON_KEY` +
+   `VITE_DATA_SOURCE=supabase`, sign in, promote your `profiles.role` to `admin`.
+   (Only the pure pieces are unit-tested; the live auth/query path is untested.)
+2. Phases 4/5 = full Incubation & Shelter Maps UIs (field editor, inspections,
+   rendering `getTentPositions` on the map) — consume the locked `src/domain/`
+   functions + the data seam.
 3. When a real field with imported planter passes appears, port PASS-FOLLOWING
    (see `NotPortedError` note above) and add its golden fixtures.
 

@@ -56,8 +56,13 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
       - `SupabaseProvider` implements `DataContextValue` 1:1 with `MockProvider`
         (pure row↔type mappers in `data/mappers.ts`, tested). `DataProvider`
         selects it when `VITE_DATA_SOURCE=supabase` AND configured, else warns +
-        falls back to mock. FOLLOW-UP: RLS needs a signed-in user — wire Supabase
-        Auth into `useSession()` (currently a mock user switcher).
+        falls back to mock.
+      - **Auth:** `useSession()` splits the same way — `SupabaseSessionProvider`
+        (real Supabase Auth: `LoginScreen` gate, profile role from `profiles`,
+        sign-out) vs the mock user switcher, selected identically so a real
+        session always pairs with the RLS-guarded data. Permission matrix locked
+        by `auth/session.test.ts`. First admin: set your `profiles.role` to
+        `admin` directly after first sign-in (see `supabase/README.md`).
 - [ ] Phase 4/5 — full Incubation & Shelter Maps UIs (field editor, inspections).
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
       email reports, PDF/KML/shapefile export.

@@ -1,4 +1,6 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
+import { LoginScreen } from './LoginScreen'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
 export const MODULES = ['dashboard', 'maps', 'incubation', 'sensors', 'users'] as const
@@ -25,14 +27,15 @@ const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   viewer: { dashboard: 'view', maps: 'view', incubation: 'view', sensors: 'view' },
 }
 
-function grants(role: Role, module: Module, action: Action): boolean {
+/** Whether `role` may perform `action` on `module`. Exported for the matrix test. */
+export function grants(role: Role, module: Module, action: Action): boolean {
   const have = MATRIX[role][module]
   if (!have) return false
   if (action === 'view') return true // edit or view both satisfy view
   return have === 'edit'
 }
 
-/** Seed users for mock mode. Real users come from the backend in supabase mode. */
+/** Seed users for mock mode. Real users come from Supabase `profiles` in supabase mode. */
 const SEED_USERS: User[] = [
   { id: 'u_admin', name: 'Tyler (Admin)', email: 'tyler.torrie@gmail.com', role: 'admin' },
   { id: 'u_dev', name: 'Darren (Developer)', email: 'darren@example.com', role: 'developer' },
@@ -42,16 +45,30 @@ const SEED_USERS: User[] = [
 
 const LS_KEY = 'tnt.session.userId'
 
+export type AuthMode = 'mock' | 'supabase'
+
 export interface SessionValue {
   user: User
+  /** Roster shown in the Users screen. Mock: seeds; supabase: profiles you can read. */
   users: User[]
   can: (module: Module, action?: Action) => boolean
+  /** Mock: switch the active seed user. Supabase: no-op (identity is the login). */
   switchUser: (id: string) => void
+  /** Mock: no-op. Supabase: sign out of the Supabase session. */
+  signOut: () => void | Promise<void>
+  authMode: AuthMode
 }
 
 const SessionCtx = createContext<SessionValue | null>(null)
 
-export function SessionProvider({ children }: { children: ReactNode }) {
+export function useSession(): SessionValue {
+  const ctx = useContext(SessionCtx)
+  if (!ctx) throw new Error('useSession must be used within <SessionProvider>')
+  return ctx
+}
+
+// ── Mock session: the seeded user switcher (no backend) ───────────────────────
+function MockSessionProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string>(() => localStorage.getItem(LS_KEY) ?? SEED_USERS[0].id)
 
   const value = useMemo<SessionValue>(() => {
@@ -64,14 +81,120 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LS_KEY, id)
         setUserId(id)
       },
+      signOut: () => {},
+      authMode: 'mock',
     }
   }, [userId])
 
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }
 
-export function useSession(): SessionValue {
-  const ctx = useContext(SessionCtx)
-  if (!ctx) throw new Error('useSession must be used within <SessionProvider>')
-  return ctx
+// ── Supabase session: real auth backed by the `profiles` table ────────────────
+interface ProfileRow {
+  id: string
+  name: string
+  email: string
+  role: Role
+}
+
+function mapProfile(row: ProfileRow, fallbackEmail: string): User {
+  return {
+    id: row.id,
+    name: row.name || fallbackEmail || 'User',
+    email: row.email || fallbackEmail || '',
+    role: row.role,
+  }
+}
+
+type AuthStatus = 'loading' | 'signed-out' | 'ready'
+
+function SupabaseSessionProvider({ children }: { children: ReactNode }) {
+  const sb = supabase! // guaranteed non-null: selector only mounts this when configured
+  const [status, setStatus] = useState<AuthStatus>('loading')
+  const [user, setUser] = useState<User | null>(null)
+  const [users, setUsers] = useState<User[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadProfile(session: Awaited<ReturnType<typeof sb.auth.getSession>>['data']['session']) {
+      if (!session) {
+        if (cancelled) return
+        setUser(null)
+        setUsers([])
+        setStatus('signed-out')
+        return
+      }
+      const authEmail = session.user.email ?? ''
+      const { data, error } = await sb
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+      if (cancelled) return
+
+      // The signup trigger creates the profile; if we race it, fall back to a
+      // minimal viewer so the app still renders (an admin sets the real role).
+      const u: User =
+        error || !data
+          ? { id: session.user.id, name: authEmail, email: authEmail, role: 'viewer' }
+          : mapProfile(data as ProfileRow, authEmail)
+      setUser(u)
+
+      // Admins/devs manage users, so hydrate the full roster for the Users screen;
+      // everyone else can only see themselves (RLS enforces this too).
+      if (u.role === 'admin' || u.role === 'developer') {
+        const { data: all } = await sb.from('profiles').select('*').order('email', { ascending: true })
+        if (!cancelled) setUsers(((all as ProfileRow[]) ?? []).map((r) => mapProfile(r, '')))
+      } else {
+        setUsers([u])
+      }
+      if (!cancelled) setStatus('ready')
+    }
+
+    sb.auth.getSession().then(({ data }) => loadProfile(data.session))
+    const { data: sub } = sb.auth.onAuthStateChange((_event, session) => {
+      setStatus('loading')
+      loadProfile(session)
+    })
+
+    return () => {
+      cancelled = true
+      sub.subscription.unsubscribe()
+    }
+  }, [sb])
+
+  const value = useMemo<SessionValue | null>(() => {
+    if (!user) return null
+    return {
+      user,
+      users,
+      can: (module, action = 'view') => grants(user.role, module, action),
+      switchUser: () => {},
+      signOut: async () => {
+        await sb.auth.signOut()
+      },
+      authMode: 'supabase',
+    }
+  }, [user, users, sb])
+
+  if (status === 'loading') {
+    return <div className="grid min-h-full place-items-center bg-slate-50 text-sm text-slate-500">Loading…</div>
+  }
+  if (!value) return <LoginScreen />
+  return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
+}
+
+/**
+ * Picks the session backend the SAME way `DataProvider` picks its data source:
+ * real Supabase Auth when `VITE_DATA_SOURCE=supabase` AND the client is
+ * configured, else the mock user switcher. Keeping the two seams aligned means
+ * `supabase` mode always pairs a real session with the RLS-guarded data.
+ */
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const source = import.meta.env.VITE_DATA_SOURCE ?? 'mock'
+  if (source === 'supabase' && isSupabaseConfigured) {
+    return <SupabaseSessionProvider>{children}</SupabaseSessionProvider>
+  }
+  return <MockSessionProvider>{children}</MockSessionProvider>
 }

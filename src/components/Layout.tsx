@@ -28,6 +28,23 @@ function BeeMark() {
 
 function UserSwitcher() {
   const s = useSession()
+
+  // Real auth: show who's signed in + a sign-out button (no identity switching).
+  if (s.authMode === 'supabase') {
+    return (
+      <div className="flex items-center gap-3 text-sm">
+        <span className="hidden text-slate-600 sm:inline">
+          {s.user.name}
+          <span className="text-slate-400"> · {s.user.role}</span>
+        </span>
+        <button className="btn-ghost" onClick={() => s.signOut()}>
+          Sign out
+        </button>
+      </div>
+    )
+  }
+
+  // Mock: switch between the seeded users.
   return (
     <label className="flex items-center gap-2 text-sm">
       <span className="hidden text-slate-500 sm:inline">Signed in as</span>

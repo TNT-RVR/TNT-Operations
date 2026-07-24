@@ -16,8 +16,21 @@ and "Next" sections as work progresses.
 - Incubation math: `C:\Users\tyler\bee-incubation\incubation_calc.py`.
 - Read these by absolute path; do not build in those folders.
 
-## Left off — Phases 1–3 COMPLETE ✅ + Auth wired; Phase 4/5 STARTED
+## Left off — LIVE on Supabase ✅ (Phases 1–5 + real backend)
 `npm run typecheck && npm test && npm run build` green — **49/49 tests**.
+
+**GONE LIVE (2026-07-24):** app runs on the shared Supabase project
+`pmqbkezevsuwkoryxief` (VITE_DATA_SOURCE=supabase, creds in gitignored `.env`).
+Migrations 0001–0004 applied; the real incubation DB imported (~22,218 rows: 8
+incubators, 61 samples, 4,643 trays, 16,387 readings, 17 inspections, 319
+alerts, VOC). Admin auth verified in-browser (sign-in + `profiles.role='admin'`).
+- **Display follow-ups (data is correct; the app just doesn't READ the rich
+  columns yet):** map real incubator `status`/`temp_mode`/`incubation_start` +
+  targets into the UI; the old `inspections` schema (thermometer/checklist, no
+  health_score) into the detail; Dashboard "active"/"avg health" tiles;
+  incubation model to use batches/samples/trays. Also: UsersHome shows a stale
+  "mock mode" note + profile name falls back to "User" (no name metadata).
+  Perf: SupabaseProvider loads ALL 16k readings on mount — add pagination.
 
 **Phase 4/5 (Shelter Maps slice) — done + verified in-browser:**
 - `Field.geometry` (the raw `getTentPositions` dict) now flows through the data

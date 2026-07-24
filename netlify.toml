@@ -1,0 +1,18 @@
+# Netlify build + hosting config for TNT Operations.
+# Used when Netlify builds from a connected Git repo. For a manual "drag the dist
+# folder" deploy, the SPA redirect in public/_redirects (copied into dist) is what
+# matters.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Single-page app: every path serves index.html so client-side routes (e.g.
+# /maps, /incubation) work on refresh / direct link.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

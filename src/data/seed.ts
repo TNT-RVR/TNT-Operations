@@ -2,10 +2,80 @@ import type { Field, Incubator, Inspection, SensorReading } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
+// Southern-Alberta demo location for the polygon field's boundary.
+const BOW_LAT = 49.86
+const BOW_LON = -111.52
+const BOW_DLAT = 0.0036 // ~ ±400 m
+const BOW_DLON = 0.0056
+
 export const seedFields: Field[] = [
-  { id: 'f1', name: 'Grassy Lake NW Pivot', client: 'Corteva', region: 'Grassy Lake, AB', shapeType: 'pivot', shelterCount: 24, updatedAt: '2026-07-18T15:00:00Z' },
-  { id: 'f2', name: 'Bow Island Quarter', client: 'Corteva', region: 'Bow Island, AB', shapeType: 'polygon', shelterCount: 16, updatedAt: '2026-07-19T18:30:00Z' },
-  { id: 'f3', name: 'Taber South Pivot', client: 'Corteva', region: 'Taber, AB', shapeType: 'pivot', shelterCount: 30, updatedAt: '2026-07-20T13:10:00Z' },
+  {
+    id: 'f1',
+    name: 'Grassy Lake NW Pivot',
+    client: 'Demo Seed Co.',
+    region: 'Grassy Lake, AB',
+    shapeType: 'pivot',
+    shelterCount: 24,
+    updatedAt: '2026-07-18T15:00:00Z',
+    // 400 m radius centre-pivot, 8F/2M bays, 24 shelters. Synthetic demo geometry.
+    geometry: {
+      PP_Longitude: '-111.6',
+      PP_Latitude: '49.83',
+      Radius: '400',
+      Sprayer_width: '120',
+      num_female_rows: '8',
+      num_male_rows: '2',
+      row_spacing_in: '22',
+      total_rows: '10',
+      row_layout: 'centered',
+      custom_row_mask: '',
+      use_bays: true,
+      shelter_mode: 'total',
+      num_structures: '24',
+      Planting_angle: '0',
+      shelters_in_outside_pass: 'Yes',
+      pivot_tracks: [],
+      track_exclusion_ft: '10',
+      pass_edge_buffer_ft: '25',
+    },
+  },
+  {
+    id: 'f2',
+    name: 'Bow Island Quarter',
+    client: 'Demo Seed Co.',
+    region: 'Bow Island, AB',
+    shapeType: 'polygon',
+    shelterCount: 16,
+    updatedAt: '2026-07-19T18:30:00Z',
+    // ~800 m square boundary, green-compliant (no shelters in the outside pass).
+    geometry: {
+      PP_Longitude: String(BOW_LON),
+      PP_Latitude: String(BOW_LAT),
+      boundary_polygon: [
+        [BOW_LAT - BOW_DLAT, BOW_LON - BOW_DLON],
+        [BOW_LAT - BOW_DLAT, BOW_LON + BOW_DLON],
+        [BOW_LAT + BOW_DLAT, BOW_LON + BOW_DLON],
+        [BOW_LAT + BOW_DLAT, BOW_LON - BOW_DLON],
+      ],
+      Sprayer_width: '120',
+      num_female_rows: '8',
+      num_male_rows: '2',
+      row_spacing_in: '22',
+      total_rows: '10',
+      row_layout: 'centered',
+      custom_row_mask: '',
+      use_bays: true,
+      shelter_mode: 'total',
+      num_structures: '16',
+      Planting_angle: '0',
+      shelters_in_outside_pass: 'No',
+      pivot_tracks: [],
+      track_exclusion_ft: '10',
+      pass_edge_buffer_ft: '25',
+    },
+  },
+  // Summary-only field (no geometry yet) — the map shows an "import needed" state.
+  { id: 'f3', name: 'Taber South Pivot', client: 'Demo Seed Co.', region: 'Taber, AB', shapeType: 'pivot', shelterCount: 30, updatedAt: '2026-07-20T13:10:00Z' },
 ]
 
 export const seedIncubators: Incubator[] = [

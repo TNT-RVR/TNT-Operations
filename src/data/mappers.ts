@@ -48,6 +48,11 @@ export interface SensorReadingRow {
 }
 
 export function toField(row: FieldRow): Field {
+  // `data` jsonb defaults to '{}' — treat an empty object as "no geometry yet".
+  const geometry =
+    row.data && typeof row.data === 'object' && Object.keys(row.data as object).length > 0
+      ? (row.data as Field['geometry'])
+      : undefined
   return {
     id: row.id,
     name: row.name,
@@ -56,6 +61,7 @@ export function toField(row: FieldRow): Field {
     shapeType: row.shape_type as ShapeType,
     shelterCount: Number(row.shelter_count),
     updatedAt: row.updated_at,
+    geometry,
   }
 }
 

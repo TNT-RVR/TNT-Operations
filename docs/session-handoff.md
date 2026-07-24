@@ -16,10 +16,21 @@ and "Next" sections as work progresses.
 - Incubation math: `C:\Users\tyler\bee-incubation\incubation_calc.py`.
 - Read these by absolute path; do not build in those folders.
 
-## Left off (2026-07-22) — Phase 3 COMPLETE ✅ + Auth wired (Phases 1–2 also complete)
-Supabase backend + real-auth session built for both seams. `npm run typecheck &&
-npm test && npm run build` all green — **48/48 tests**; app verified still
-rendering in mock mode (switcher intact, dashboard live, 0 console errors).
+## Left off — Phases 1–3 COMPLETE ✅ + Auth wired; Phase 4/5 STARTED
+`npm run typecheck && npm test && npm run build` green — **49/49 tests**.
+
+**Phase 4/5 (Shelter Maps slice) — done + verified in-browser:**
+- `Field.geometry` (the raw `getTentPositions` dict) now flows through the data
+  seam; Supabase maps it from `fields.data` jsonb; `seed.ts` has 2 synthetic
+  demo fields with geometry (pivot 24 / polygon 16) + 1 without.
+- `MapsHome` rewritten: pick a field → live shelter pins + boundary + pivot on
+  MapLibre (`@turf/turf` for the pivot circle + fit-bounds), detail overlay with
+  live count, graceful "no geometry" state. Verified: 24 / 16 pins, 0 console errors.
+- **Next in Maps:** field editor (draw/import boundary, edit bay params), shelter
+  list + export. **Then** the Incubation slice (detail, inspections, chart, alerts).
+
+### Earlier — Phase 3 + Auth
+Supabase backend + real-auth session built for both seams (mock mode unchanged).
 - **`supabase/migrations/0001_init.sql`** — `profiles`(role) + `fields`,
   `incubators`, `inspections`, `sensor_readings`; role-based RLS mirroring the
   `MODULES` matrix (SECURITY DEFINER `app_role()`/`can_edit()`/`is_admin()`);

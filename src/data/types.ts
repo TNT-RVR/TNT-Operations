@@ -2,6 +2,14 @@
 
 export type ShapeType = 'pivot' | 'polygon'
 
+/**
+ * Full field-authoring definition (pivot/boundary, bay layout, tracks, shelter
+ * mode…) — the raw dict the shelter-grid engine `getTentPositions` consumes.
+ * Loosely typed on purpose; it mirrors the old app's field JSON and is stored in
+ * the Supabase `fields.data` jsonb column.
+ */
+export type FieldGeometry = Record<string, unknown>
+
 /** A pollination field with placed bee-shelter positions (Shelter Maps section). */
 export interface Field {
   id: string
@@ -12,6 +20,8 @@ export interface Field {
   shelterCount: number
   /** ISO UTC. */
   updatedAt: string
+  /** Full authoring geometry for map rendering; absent until a field is drawn/imported. */
+  geometry?: FieldGeometry
 }
 
 export type IncubatorStatus = 'active' | 'idle'

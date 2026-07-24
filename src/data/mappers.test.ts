@@ -30,6 +30,32 @@ describe('supabase row mappers', () => {
     })
   })
 
+  it('exposes non-empty data jsonb as geometry, empty/absent as undefined', () => {
+    const withGeom = toField({
+      id: 'f1',
+      name: 'NW Pivot',
+      client: 'c',
+      region: 'r',
+      shape_type: 'pivot',
+      shelter_count: 24,
+      data: { PP_Latitude: '49.83', Radius: '400' },
+      updated_at: '2026-07-18T15:00:00Z',
+    })
+    expect(withGeom.geometry).toEqual({ PP_Latitude: '49.83', Radius: '400' })
+
+    const emptyData = toField({
+      id: 'f2',
+      name: 'x',
+      client: 'c',
+      region: 'r',
+      shape_type: 'polygon',
+      shelter_count: 0,
+      data: {},
+      updated_at: '2026-07-18T15:00:00Z',
+    })
+    expect(emptyData.geometry).toBeUndefined()
+  })
+
   it('coerces numeric-as-string (PostgREST) and null started_at', () => {
     const inc = toIncubator({
       id: 'i3',

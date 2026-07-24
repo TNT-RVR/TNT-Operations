@@ -63,7 +63,15 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
         session always pairs with the RLS-guarded data. Permission matrix locked
         by `auth/session.test.ts`. First admin: set your `profiles.role` to
         `admin` directly after first sign-in (see `supabase/README.md`).
-- [ ] Phase 4/5 — full Incubation & Shelter Maps UIs (field editor, inspections).
+- [~] Phase 4/5 — feature UIs (in progress):
+      - Shelter Maps: field geometry now flows through the data seam
+        (`Field.geometry`, mapped from Supabase `fields.data`); `MapsHome`
+        renders live `getTentPositions` pins + boundary/pivot on MapLibre with a
+        field-select detail panel. Verified in-browser (24/16 pins + graceful
+        no-geometry state). TODO: field editor (draw/import boundary, edit bay
+        params), shelter list/export.
+      - Incubation: still the read-only shell — TODO incubator detail, inspection
+        history + add-inspection flow, readings chart, threshold alerts.
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
       email reports, PDF/KML/shapefile export.
 - [ ] Phase 7 — data import from old SQLite / `fields/*.json` / Firebase.

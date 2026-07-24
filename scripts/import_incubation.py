@@ -21,8 +21,11 @@ editor. Column names match supabase/migrations/0003_incubation_full.sql.
 NOTE: the old app stored naive LOCAL (America/Edmonton) timestamps; they import
 as-is (treated as UTC). A timezone normalization pass can follow later.
 """
-import sys, os, sqlite3, uuid
+import sys, os, sqlite3, uuid, re
 from datetime import datetime
+
+# A date/timestamp value must start YYYY-MM-DD; anything else (''/'none'/junk) -> NULL.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 NS = uuid.UUID("6f1a0b3e-0000-4000-8000-746e74696e63")
 BATCH = 1000  # rows per INSERT statement
@@ -49,14 +52,32 @@ def lit(v):
 
 
 def dt(v):
-    """Date/timestamp literal: empty string or None -> NULL."""
-    if v is None or (isinstance(v, str) and v.strip() == ""):
+    """Date/timestamp literal. Anything not starting with a real date -> NULL
+    (handles ''/'none'/'null'/junk the old free-text date fields collected)."""
+    if v is None:
         return "NULL"
-    return "'" + str(v).replace("'", "''") + "'"
+    s = str(v).strip()
+    if not _DATE_RE.match(s):
+        return "NULL"
+    return "'" + s.replace("'", "''") + "'"
 
 
 def b(v):
     return "NULL" if v is None else ("true" if int(v) else "false")
+
+
+def num(v):
+    """Numeric literal; ''/non-numeric -> NULL (old free-text numeric fields)."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    s = str(v).strip()
+    try:
+        float(s)
+        return s
+    except ValueError:
+        return "NULL"
 
 
 def fk(table, old_id):
@@ -103,8 +124,8 @@ def main():
           "is_hidden", "sensibo_device_id", "incubation_start"],
          [[lit(uid("incubators", r["id"])), lit(r["name"]), lit(r["capacity"]),
            lit(r["govee_device_id"]), lit(r["govee_sku"]), lit(r["temp_mode"]),
-           b(r["temp_alerts_enabled"]), lit(r["humidity_min"]), lit(r["humidity_max"]),
-           lit(r["sort_order"]), b(r["is_hidden"]), lit(r["sensibo_device_id"]),
+           b(r["temp_alerts_enabled"]), num(r["humidity_min"]), num(r["humidity_max"]),
+           num(r["sort_order"]), b(r["is_hidden"]), lit(r["sensibo_device_id"]),
            dt(r["incubation_start"])] for r in rows("incubators")])
 
     # ── samples ───────────────────────────────────────────────────────────────
@@ -114,12 +135,12 @@ def main():
           "total_weight_kg", "live_bees_per_lb", "live_bees_per_kg", "parasites",
           "chalkbrood", "kg_per_2gal", "lbs_per_2gal", "total_trays", "incubator_space"],
          [[lit(uid("samples", r["id"])), lit(r["name"]), lit(r["source"]), lit(r["lot_number"]),
-           lit(r["xray_live_pct"]), lit(r["xray_parasite_pct"]), lit(r["xray_dead_pct"]),
-           lit(r["total_volume_gal"]), lit(r["total_weight_lbs"]), lit(r["notes"]),
-           dt(r["import_date"]), lit(r["total_weight_kg"]), lit(r["live_bees_per_lb"]),
-           lit(r["live_bees_per_kg"]), lit(r["parasites"]), lit(r["chalkbrood"]),
-           lit(r["kg_per_2gal"]), lit(r["lbs_per_2gal"]), lit(r["total_trays"]),
-           lit(r["incubator_space"])] for r in rows("samples")])
+           num(r["xray_live_pct"]), num(r["xray_parasite_pct"]), num(r["xray_dead_pct"]),
+           num(r["total_volume_gal"]), num(r["total_weight_lbs"]), lit(r["notes"]),
+           dt(r["import_date"]), num(r["total_weight_kg"]), num(r["live_bees_per_lb"]),
+           num(r["live_bees_per_kg"]), num(r["parasites"]), num(r["chalkbrood"]),
+           num(r["kg_per_2gal"]), num(r["lbs_per_2gal"]), num(r["total_trays"]),
+           num(r["incubator_space"])] for r in rows("samples")])
 
     # ── incubation_batches ────────────────────────────────────────────────────
     emit("incubation_batches",

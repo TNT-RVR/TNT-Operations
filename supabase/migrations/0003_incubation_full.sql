@@ -19,9 +19,11 @@ alter table public.incubators add column if not exists govee_sku           text 
 alter table public.incubators add column if not exists temp_mode           text    not null default 'incubation'
   check (temp_mode in ('off', 'cool_storage', 'incubation', 'holding'));
 alter table public.incubators add column if not exists temp_alerts_enabled boolean not null default true;
-alter table public.incubators add column if not exists humidity_min        numeric not null default 55;
-alter table public.incubators add column if not exists humidity_max        numeric not null default 75;
-alter table public.incubators add column if not exists sort_order          integer not null default 0;
+-- Nullable (with a default for app-created rows) so a legacy incubator that
+-- never had these set imports as a real blank rather than an invented value.
+alter table public.incubators add column if not exists humidity_min        numeric default 55;
+alter table public.incubators add column if not exists humidity_max        numeric default 75;
+alter table public.incubators add column if not exists sort_order          integer default 0;
 alter table public.incubators add column if not exists is_hidden           boolean not null default false;
 alter table public.incubators add column if not exists sensibo_device_id   text    not null default '';
 alter table public.incubators add column if not exists incubation_start    date;

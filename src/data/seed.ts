@@ -85,8 +85,18 @@ export const seedIncubators: Incubator[] = [
 ]
 
 export const seedInspections: Inspection[] = [
-  { id: 'in1', incubatorId: 'i1', at: '2026-07-20T16:00:00Z', inspector: 'Tyler', healthScore: 92, notes: 'Emergence starting, looks strong.' },
-  { id: 'in2', incubatorId: 'i2', at: '2026-07-21T16:00:00Z', inspector: 'Tyler', healthScore: 88, notes: 'On track. Humidity a touch low.' },
+  {
+    id: 'in1', incubatorId: 'i1', at: '2026-07-20T16:00:00Z', inspector: 'Tyler', healthScore: 92,
+    notes: 'Emergence starting, looks strong.',
+    period: 'morning', thermometerTempC: 30.0, goveeTempC: 30.3, tempDiffC: 0.3, tempAlert: false,
+    heatPumpsOk: true, fansOk: true, blackLightsOk: true, beesEmerging: true, parasitesEmerging: false,
+  },
+  {
+    id: 'in2', incubatorId: 'i2', at: '2026-07-21T16:00:00Z', inspector: 'Tyler', healthScore: 88,
+    notes: 'On track. Humidity a touch low.',
+    period: 'evening', thermometerTempC: 29.6, goveeTempC: 29.6, tempDiffC: 0.0, tempAlert: false,
+    heatPumpsOk: true, fansOk: true, blackLightsOk: true, beesEmerging: false, parasitesEmerging: false,
+  },
 ]
 
 export const seedReadings: SensorReading[] = [

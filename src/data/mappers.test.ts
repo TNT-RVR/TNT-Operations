@@ -111,6 +111,11 @@ describe('supabase row mappers', () => {
       inspector: 'Tyler',
       healthScore: 92,
       notes: 'strong',
+      // rich fields absent on the row → null/undefined
+      thermometerTempC: null,
+      goveeTempC: null,
+      tempDiffC: null,
+      batchId: null,
     })
 
     expect(
@@ -130,6 +135,70 @@ describe('supabase row mappers', () => {
       humidityPct: 54,
       source: 'govee',
     })
+  })
+
+  it('maps the rich inspection checklist (period, thermometer vs govee, checks)', () => {
+    const insp = toInspection({
+      id: 'in9',
+      incubator_id: 'i3',
+      at: '2026-06-25T09:27:00Z',
+      inspector: '',
+      health_score: 0,
+      notes: 'looks good',
+      period: 'morning',
+      thermometer_temp_c: '15.0',
+      govee_temp_c: '15.6',
+      temp_diff_c: '0.6',
+      temp_alert: false,
+      heat_pumps_ok: true,
+      parasites_emerging: false,
+      bees_emerging: true,
+      fans_ok: true,
+      black_lights_ok: true,
+      batch_id: null,
+    })
+    expect(insp.period).toBe('morning')
+    expect(insp.thermometerTempC).toBe(15)
+    expect(insp.goveeTempC).toBe(15.6)
+    expect(insp.tempDiffC).toBe(0.6)
+    expect(insp.tempAlert).toBe(false)
+    expect(insp.beesEmerging).toBe(true)
+    expect(insp.blackLightsOk).toBe(true)
+    expect(insp.batchId).toBeNull()
+  })
+
+  it('includes rich checklist fields in the insert payload when provided', () => {
+    const payload = inspectionInsert({
+      incubatorId: 'i3',
+      at: '2026-06-25T09:27:00Z',
+      inspector: 'Darren',
+      healthScore: 0,
+      notes: '',
+      period: 'evening',
+      thermometerTempC: 15,
+      goveeTempC: 15.6,
+      tempDiffC: 0.6,
+      tempAlert: false,
+      heatPumpsOk: true,
+      fansOk: true,
+      blackLightsOk: true,
+      beesEmerging: true,
+      parasitesEmerging: false,
+    })
+    expect(payload).toMatchObject({
+      incubator_id: 'i3',
+      period: 'evening',
+      thermometer_temp_c: 15,
+      govee_temp_c: 15.6,
+      temp_diff_c: 0.6,
+      temp_alert: false,
+      heat_pumps_ok: true,
+      fans_ok: true,
+      black_lights_ok: true,
+      bees_emerging: true,
+      parasites_emerging: false,
+    })
+    expect('batch_id' in payload).toBe(false)
   })
 
   it('builds an insert payload from an app inspection (no id, snake_case)', () => {

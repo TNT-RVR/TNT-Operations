@@ -46,15 +46,37 @@ export interface Incubator {
   capacity?: number | null
 }
 
+/** Time-of-day slot for a routine inspection (matches the old app's schema). */
+export type InspectionPeriod = 'morning' | 'evening' | 'manual'
+
 export interface Inspection {
   id: string
   incubatorId: string
   /** ISO UTC. */
   at: string
   inspector: string
-  /** 0–100 subjective health score. */
+  /** 0–100 subjective health score. Legacy/optional — the real checklist below
+   *  is the operational record; imported rows carry 0 here. */
   healthScore: number
   notes: string
+  // ── Rich checklist (ported from the original bee-incubation app) ─────────────
+  /** morning / evening routine, or an ad-hoc `manual` check. */
+  period?: InspectionPeriod
+  /** Hand thermometer reading (°C) taken during the inspection. */
+  thermometerTempC?: number | null
+  /** The Govee sensor's reading (°C) at inspection time, for comparison. */
+  goveeTempC?: number | null
+  /** thermometer − govee (°C); surfaces sensor drift. */
+  tempDiffC?: number | null
+  /** Set when the thermometer/Govee gap is large enough to flag. */
+  tempAlert?: boolean
+  heatPumpsOk?: boolean
+  parasitesEmerging?: boolean
+  beesEmerging?: boolean
+  fansOk?: boolean
+  blackLightsOk?: boolean
+  /** Optional link to an incubation batch. */
+  batchId?: string | null
 }
 
 export type SensorSource = 'govee' | 'esp32'

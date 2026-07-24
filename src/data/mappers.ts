@@ -6,7 +6,16 @@
  * back as strings depending on config — so every numeric field is coerced with
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
-import type { Field, Incubator, Inspection, SensorReading, ShapeType, IncubatorStatus, SensorSource } from './types'
+import type {
+  Field,
+  Incubator,
+  Inspection,
+  InspectionPeriod,
+  SensorReading,
+  ShapeType,
+  IncubatorStatus,
+  SensorSource,
+} from './types'
 
 export interface FieldRow {
   id: string
@@ -41,6 +50,17 @@ export interface InspectionRow {
   inspector: string
   health_score: number | string
   notes: string
+  period?: string
+  thermometer_temp_c?: number | string | null
+  govee_temp_c?: number | string | null
+  temp_diff_c?: number | string | null
+  temp_alert?: boolean
+  heat_pumps_ok?: boolean
+  parasites_emerging?: boolean
+  bees_emerging?: boolean
+  fans_ok?: boolean
+  black_lights_ok?: boolean
+  batch_id?: string | null
 }
 
 export interface SensorReadingRow {
@@ -99,6 +119,17 @@ export function toInspection(row: InspectionRow): Inspection {
     inspector: row.inspector,
     healthScore: Number(row.health_score),
     notes: row.notes,
+    period: (row.period as InspectionPeriod | undefined) ?? undefined,
+    thermometerTempC: numOrNull(row.thermometer_temp_c),
+    goveeTempC: numOrNull(row.govee_temp_c),
+    tempDiffC: numOrNull(row.temp_diff_c),
+    tempAlert: row.temp_alert ?? undefined,
+    heatPumpsOk: row.heat_pumps_ok ?? undefined,
+    parasitesEmerging: row.parasites_emerging ?? undefined,
+    beesEmerging: row.bees_emerging ?? undefined,
+    fansOk: row.fans_ok ?? undefined,
+    blackLightsOk: row.black_lights_ok ?? undefined,
+    batchId: row.batch_id ?? null,
   }
 }
 
@@ -113,13 +144,29 @@ export function toSensorReading(row: SensorReadingRow): SensorReading {
   }
 }
 
-/** App inspection (sans id) → the row shape for an insert. */
-export function inspectionInsert(input: Omit<Inspection, 'id'>): Omit<InspectionRow, 'id'> {
-  return {
+/**
+ * App inspection (sans id) → the row shape for an insert. Rich checklist fields
+ * are only included when provided, so the DB defaults (period='manual', booleans
+ * false, etc.) apply for a bare insert.
+ */
+export function inspectionInsert(input: Omit<Inspection, 'id'>): Record<string, unknown> {
+  const row: Record<string, unknown> = {
     incubator_id: input.incubatorId,
     at: input.at,
     inspector: input.inspector,
     health_score: input.healthScore,
     notes: input.notes,
   }
+  if (input.period !== undefined) row.period = input.period
+  if (input.thermometerTempC !== undefined) row.thermometer_temp_c = input.thermometerTempC
+  if (input.goveeTempC !== undefined) row.govee_temp_c = input.goveeTempC
+  if (input.tempDiffC !== undefined) row.temp_diff_c = input.tempDiffC
+  if (input.tempAlert !== undefined) row.temp_alert = input.tempAlert
+  if (input.heatPumpsOk !== undefined) row.heat_pumps_ok = input.heatPumpsOk
+  if (input.parasitesEmerging !== undefined) row.parasites_emerging = input.parasitesEmerging
+  if (input.beesEmerging !== undefined) row.bees_emerging = input.beesEmerging
+  if (input.fansOk !== undefined) row.fans_ok = input.fansOk
+  if (input.blackLightsOk !== undefined) row.black_lights_ok = input.blackLightsOk
+  if (input.batchId != null) row.batch_id = input.batchId
+  return row
 }

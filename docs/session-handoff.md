@@ -36,9 +36,12 @@ and "Next" sections as work progresses.
   `IncubatorDetail` modal (progress + `getIncubationDay`, latest reading +
   threshold alerts, dependency-free SVG `ReadingsChart`, inspection history, and
   an add-inspection form via `addInspection` gated by `can('incubation','edit')`).
+- **Robustness:** `ErrorBoundary` (`src/components/ErrorBoundary.tsx`) wraps the
+  whole app (main.tsx) AND the routed `<Outlet>` in Layout, keyed by pathname so
+  a crashed screen shows a recoverable fallback while the nav stays usable and
+  navigating away resets it. Verified with a temporary throw.
 - **Next:** freehand boundary DRAWING in Maps (needs a draw lib e.g. terra-draw)
-  + shelter export (KML/CSV); a top-level ErrorBoundary (React suggested one);
-  then Phase 6 integrations / Phase 3 live smoke-test.
+  + shelter export (KML/CSV); Phase 3 live smoke-test; Phase 6 integrations.
 
 ### Earlier — Phase 3 + Auth
 Supabase backend + real-auth session built for both seams (mock mode unchanged).

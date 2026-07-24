@@ -1,6 +1,7 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Map, Bug, Thermometer, Users, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
+import { ErrorBoundary } from './ErrorBoundary'
 
 interface NavItem {
   to: string
@@ -65,7 +66,9 @@ function UserSwitcher() {
 
 export default function Layout() {
   const s = useSession()
+  const { pathname } = useLocation()
   const items = NAV.filter((n) => s.can(n.module, 'view'))
+  const currentLabel = NAV.find((n) => n.to === pathname)?.label
 
   return (
     <div className="flex h-full flex-col">
@@ -83,9 +86,11 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Content */}
+        {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}
         <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
-          <Outlet />
+          <ErrorBoundary key={pathname} label={currentLabel}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

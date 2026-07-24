@@ -222,11 +222,14 @@ def main():
          [[lit(uid("sensor_positions", r["id"])), fk("incubators", r["incubator_id"]),
            lit(r["position"]), lit(r["sensor_serial"])] for r in rows("sensor_positions")])
 
+    # preset_id is linked by chemical_name (built-in presets are seeded by the
+    # migration with their own ids, so the old id can't be reused); no match -> NULL.
     emit("voc_runs",
          ["id", "incubator_id", "preset_id", "chemical_name", "preset_snapshot", "start_time",
           "end_time", "notes", "status"],
          [[lit(uid("voc_runs", r["id"])), fk("incubators", r["incubator_id"]),
-           fk("presets", r["preset_id"]), lit(r["chemical_name"]), lit(r["preset_snapshot"]),
+           f"(select id from public.presets where chemical_name = {lit(r['chemical_name'])} limit 1)",
+           lit(r["chemical_name"]), lit(r["preset_snapshot"]),
            dt(r["start_time"]), dt(r["end_time"]), lit(r["notes"]), lit(r["status"])]
           for r in rows("voc_runs")])
 

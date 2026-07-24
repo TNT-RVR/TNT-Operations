@@ -50,23 +50,42 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         )
       }
 
-      const [f, i, insp, r] = await Promise.all([
+      const [f, i, insp] = await Promise.all([
         sb.from('shelter_fields').select('*').order('updated_at', { ascending: false }),
         sb.from('incubators').select('*').order('name', { ascending: true }),
-        sb.from('inspections').select('*').order('at', { ascending: false }),
-        sb.from('sensor_readings').select('*').order('at', { ascending: false }),
+        sb.from('inspections').select('*').order('at', { ascending: false }).limit(500),
       ])
       if (cancelled) return
 
       if (f.error) console.error('[data] load fields:', f.error.message)
       if (i.error) console.error('[data] load incubators:', i.error.message)
       if (insp.error) console.error('[data] load inspections:', insp.error.message)
-      if (r.error) console.error('[data] load readings:', r.error.message)
 
+      const incs = ((i.data as IncubatorRow[]) ?? []).map(toIncubator)
       setFields(((f.data as FieldRow[]) ?? []).map(toField))
-      setIncubators(((i.data as IncubatorRow[]) ?? []).map(toIncubator))
+      setIncubators(incs)
       setInspections(((insp.data as InspectionRow[]) ?? []).map(toInspection))
-      setReadings(((r.data as SensorReadingRow[]) ?? []).map(toSensorReading))
+
+      // Readings: PostgREST caps a query at 1000 rows, and there are ~16k, so a
+      // single global "recent" query only covers whichever incubators logged most
+      // recently. Fetch each incubator's recent window instead — guarantees every
+      // card shows its latest reading and every chart has real recent data.
+      const perIncubator = await Promise.all(
+        incs.map((inc) =>
+          sb
+            .from('sensor_readings')
+            .select('*')
+            .eq('incubator_id', inc.id)
+            .order('at', { ascending: false })
+            .limit(200),
+        ),
+      )
+      if (cancelled) return
+      const readings = perIncubator.flatMap((res, idx) => {
+        if (res.error) console.error(`[data] load readings[${incs[idx]?.name}]:`, res.error.message)
+        return ((res.data as SensorReadingRow[]) ?? []).map(toSensorReading)
+      })
+      setReadings(readings)
     }
 
     hydrate()

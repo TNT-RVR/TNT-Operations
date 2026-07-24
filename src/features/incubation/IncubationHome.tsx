@@ -1,10 +1,14 @@
+import { useState } from 'react'
 import { PageHeader, Badge, Gauge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { incubationProgress } from '@/domain/incubation'
+import { IncubatorDetail } from './IncubatorDetail'
 
 export default function IncubationHome() {
   const { incubators, latestReading } = useData()
   const now = new Date().toISOString()
+  const [openId, setOpenId] = useState<string | null>(null)
+  const open = incubators.find((i) => i.id === openId) ?? null
 
   return (
     <div>
@@ -15,7 +19,11 @@ export default function IncubationHome() {
           const r = latestReading(i.id)
           const tempOff = r ? Math.abs(r.tempC - i.tempTargetC) : 0
           return (
-            <div key={i.id} className="card">
+            <button
+              key={i.id}
+              onClick={() => setOpenId(i.id)}
+              className="card block w-full text-left transition hover:border-brand hover:shadow-md"
+            >
               <div className="mb-2 flex items-center justify-between">
                 <div>
                   <h2 className="font-bold">{i.name}</h2>
@@ -48,11 +56,15 @@ export default function IncubationHome() {
                   </dd>
                 </div>
               </dl>
-            </div>
+
+              <p className="mt-3 text-xs font-medium text-brand">View details →</p>
+            </button>
           )
         })}
         {incubators.length === 0 && <EmptyState>No incubators yet.</EmptyState>}
       </div>
+
+      {open && <IncubatorDetail incubator={open} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

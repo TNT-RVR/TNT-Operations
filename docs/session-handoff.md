@@ -32,9 +32,13 @@ and "Next" sections as work progresses.
   `fields` in state); click map to move the pivot; "Add pivot geometry"
   bootstraps a geometry-less field. Gated by `can('maps','edit')`.
   Verified in-browser: live recompute, save persists, SPA remount — 0 errors.
-- **Next in Maps:** freehand boundary DRAWING (needs a draw lib e.g. terra-draw),
-  shelter list + export. **Then** the Incubation slice (detail, inspections,
-  chart, alerts).
+- **Incubation slice — done + verified:** incubator cards open an
+  `IncubatorDetail` modal (progress + `getIncubationDay`, latest reading +
+  threshold alerts, dependency-free SVG `ReadingsChart`, inspection history, and
+  an add-inspection form via `addInspection` gated by `can('incubation','edit')`).
+- **Next:** freehand boundary DRAWING in Maps (needs a draw lib e.g. terra-draw)
+  + shelter export (KML/CSV); a top-level ErrorBoundary (React suggested one);
+  then Phase 6 integrations / Phase 3 live smoke-test.
 
 ### Earlier — Phase 3 + Auth
 Supabase backend + real-auth session built for both seams (mock mode unchanged).

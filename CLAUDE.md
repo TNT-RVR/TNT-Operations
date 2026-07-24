@@ -73,8 +73,11 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
         fields. Gated by `can('maps','edit')`. Verified in-browser (live
         recompute + save + SPA remount, 0 errors). TODO: freehand boundary
         DRAWING (needs a draw lib), shelter list/export.
-      - Incubation: still the read-only shell — TODO incubator detail, inspection
-        history + add-inspection flow, readings chart, threshold alerts.
+      - Incubation: clickable incubator cards open an `IncubatorDetail` modal —
+        progress + incubation day (`getIncubationDay`), latest reading + target,
+        threshold alerts, a dependency-free SVG `ReadingsChart` (temp vs target),
+        inspection history, and an add-inspection form (`addInspection`, inspector
+        = session user, gated by `can('incubation','edit')`). Verified in-browser.
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
       email reports, PDF/KML/shapefile export.
 - [ ] Phase 7 — data import from old SQLite / `fields/*.json` / Firebase.

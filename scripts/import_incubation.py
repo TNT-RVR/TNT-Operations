@@ -8,25 +8,37 @@ as postgres (bypasses RLS), so the data lands regardless of policies.
 Old integer PKs are mapped to stable UUIDs (uuid5), so foreign keys are preserved
 and re-running produces the same ids (safe to re-run with the ON CONFLICT guards).
 
-Usage:
-    python scripts/import_incubation.py "C:\\Users\\tyler\\My Drive\\BeeIncubation\\incubation.db"
-    # → writes scripts/incubation_import.sql
+SECURITY: secret `settings` keys (API keys, SMTP password, tokens…) are NOT
+exported — those belong in server env, not a table any signed-in user can read.
 
-Apply 0001 + 0002 + 0003 migrations FIRST, then paste the generated file.
-Column names match supabase/migrations/0003_incubation_full.sql.
+Usage:
+    python scripts/import_incubation.py "G:\\My Drive\\TNT Pollination\\Incubation App\\incubation.db"
+    # -> writes scripts/incubation_import.sql
+
+Apply migrations 0001–0003 FIRST, then paste the generated file into the SQL
+editor. Column names match supabase/migrations/0003_incubation_full.sql.
+
+NOTE: the old app stored naive LOCAL (America/Edmonton) timestamps; they import
+as-is (treated as UTC). A timezone normalization pass can follow later.
 """
 import sys, os, sqlite3, uuid
 from datetime import datetime
 
-NS = uuid.UUID("6f1a0b3e-0000-4000-8000-746e74696e63")  # fixed namespace for this app
+NS = uuid.UUID("6f1a0b3e-0000-4000-8000-746e74696e63")
+BATCH = 1000  # rows per INSERT statement
+
+# settings keys that are secrets — never export to a readable table
+SECRET_KEYS = {
+    "govee_api_key", "sensibo_api_key", "smtp_password", "smtp_username",
+    "flask_secret", "mobile_passcode", "voc_ingest_token", "gcal_credentials_path",
+}
 
 
-def uid(table: str, old_id) -> str:
+def uid(table, old_id):
     return str(uuid.uuid5(NS, f"{table}:{old_id}"))
 
 
-def lit(v) -> str:
-    """Python value → SQL literal."""
+def lit(v):
     if v is None:
         return "NULL"
     if isinstance(v, bool):
@@ -36,16 +48,22 @@ def lit(v) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
-def b(v) -> str:
-    """SQLite 0/1 → SQL boolean."""
+def dt(v):
+    """Date/timestamp literal: empty string or None -> NULL."""
+    if v is None or (isinstance(v, str) and v.strip() == ""):
+        return "NULL"
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def b(v):
     return "NULL" if v is None else ("true" if int(v) else "false")
 
 
-def fk(table: str, old_id) -> str:
+def fk(table, old_id):
     return "NULL" if old_id is None else "'" + uid(table, old_id) + "'"
 
 
-def main() -> None:
+def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -56,42 +74,52 @@ def main() -> None:
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    out: list[str] = []
-    counts: dict[str, int] = {}
+    out = []
+    counts = {}
 
-    def has(table: str) -> bool:
+    def has(t):
         return bool(conn.execute(
-            "select 1 from sqlite_master where type='table' and name=?", (table,)).fetchone())
+            "select 1 from sqlite_master where type='table' and name=?", (t,)).fetchone())
 
-    def rows(table: str):
-        return conn.execute(f'select * from "{table}"').fetchall() if has(table) else []
+    def rows(t):
+        return conn.execute(f'select * from "{t}"').fetchall() if has(t) else []
 
-    def emit(table: str, cols: list[str], values_rows: list[list[str]]):
-        counts[table] = len(values_rows)
-        if not values_rows:
+    def emit(table, cols, value_rows, conflict="(id) do nothing"):
+        counts[table] = len(value_rows)
+        if not value_rows:
             out.append(f"-- {table}: no rows\n")
             return
-        out.append(f"insert into public.{table} ({', '.join(cols)}) values")
-        out.append(",\n".join("  (" + ", ".join(vr) + ")" for vr in values_rows))
-        out.append("on conflict (id) do nothing;\n")
+        collist = ", ".join(cols)
+        for i in range(0, len(value_rows), BATCH):
+            chunk = value_rows[i:i + BATCH]
+            out.append(f"insert into public.{table} ({collist}) values")
+            out.append(",\n".join("  (" + ", ".join(vr) + ")" for vr in chunk))
+            out.append(f"on conflict {conflict};\n")
 
     # ── incubators ────────────────────────────────────────────────────────────
     emit("incubators",
          ["id", "name", "capacity", "govee_device_id", "govee_sku", "temp_mode",
-          "temp_alerts_enabled", "humidity_min", "humidity_max", "sort_order", "is_hidden"],
+          "temp_alerts_enabled", "humidity_min", "humidity_max", "sort_order",
+          "is_hidden", "sensibo_device_id", "incubation_start"],
          [[lit(uid("incubators", r["id"])), lit(r["name"]), lit(r["capacity"]),
            lit(r["govee_device_id"]), lit(r["govee_sku"]), lit(r["temp_mode"]),
            b(r["temp_alerts_enabled"]), lit(r["humidity_min"]), lit(r["humidity_max"]),
-           lit(r["sort_order"]), b(r["is_hidden"])] for r in rows("incubators")])
+           lit(r["sort_order"]), b(r["is_hidden"]), lit(r["sensibo_device_id"]),
+           dt(r["incubation_start"])] for r in rows("incubators")])
 
     # ── samples ───────────────────────────────────────────────────────────────
     emit("samples",
          ["id", "name", "source", "lot_number", "xray_live_pct", "xray_parasite_pct",
-          "xray_dead_pct", "total_volume_gal", "total_weight_lbs", "notes", "import_date"],
+          "xray_dead_pct", "total_volume_gal", "total_weight_lbs", "notes", "import_date",
+          "total_weight_kg", "live_bees_per_lb", "live_bees_per_kg", "parasites",
+          "chalkbrood", "kg_per_2gal", "lbs_per_2gal", "total_trays", "incubator_space"],
          [[lit(uid("samples", r["id"])), lit(r["name"]), lit(r["source"]), lit(r["lot_number"]),
            lit(r["xray_live_pct"]), lit(r["xray_parasite_pct"]), lit(r["xray_dead_pct"]),
            lit(r["total_volume_gal"]), lit(r["total_weight_lbs"]), lit(r["notes"]),
-           lit(r["import_date"])] for r in rows("samples")])
+           dt(r["import_date"]), lit(r["total_weight_kg"]), lit(r["live_bees_per_lb"]),
+           lit(r["live_bees_per_kg"]), lit(r["parasites"]), lit(r["chalkbrood"]),
+           lit(r["kg_per_2gal"]), lit(r["lbs_per_2gal"]), lit(r["total_trays"]),
+           lit(r["incubator_space"])] for r in rows("samples")])
 
     # ── incubation_batches ────────────────────────────────────────────────────
     emit("incubation_batches",
@@ -99,47 +127,64 @@ def main() -> None:
           "air_out", "male_10pct_emergence", "earliest_cool", "estimated_release",
           "latest_release", "status", "notes"],
          [[lit(uid("incubation_batches", r["id"])), fk("incubators", r["incubator_id"]),
-           fk("samples", r["sample_id"]), lit(r["name"]), lit(r["start_date"]), lit(r["vapona_in"]),
-           lit(r["vapona_out"]), lit(r["air_out"]), lit(r["male_10pct_emergence"]),
-           lit(r["earliest_cool"]), lit(r["estimated_release"]), lit(r["latest_release"]),
+           fk("samples", r["sample_id"]), lit(r["name"]), dt(r["start_date"]), dt(r["vapona_in"]),
+           dt(r["vapona_out"]), dt(r["air_out"]), dt(r["male_10pct_emergence"]),
+           dt(r["earliest_cool"]), dt(r["estimated_release"]), dt(r["latest_release"]),
            lit(r["status"]), lit(r["notes"])] for r in rows("incubation_batches")])
 
     # ── trays ─────────────────────────────────────────────────────────────────
     emit("trays",
          ["id", "tray_number", "sample_id", "incubation_batch_id", "incubator_id", "weight_lbs",
-          "live_count", "parasite_level_pct", "volume_gal", "in_date", "out_date", "status", "notes"],
+          "live_count", "parasite_level_pct", "volume_gal", "in_date", "out_date", "cool_date",
+          "status", "notes"],
          [[lit(uid("trays", r["id"])), lit(r["tray_number"]), fk("samples", r["sample_id"]),
            fk("incubation_batches", r["incubation_batch_id"]), fk("incubators", r["incubator_id"]),
            lit(r["weight_lbs"]), lit(r["live_count"]), lit(r["parasite_level_pct"]),
-           lit(r["volume_gal"]), lit(r["in_date"]), lit(r["out_date"]), lit(r["status"]),
-           lit(r["notes"])] for r in rows("trays")])
+           lit(r["volume_gal"]), dt(r["in_date"]), dt(r["out_date"]), dt(r["cool_date"]),
+           lit(r["status"]), lit(r["notes"])] for r in rows("trays")])
 
     # ── inspections (old rich schema → superset table) ────────────────────────
     emit("inspections",
          ["id", "incubator_id", "at", "period", "thermometer_temp_c", "govee_temp_c", "temp_diff_c",
           "temp_alert", "heat_pumps_ok", "parasites_emerging", "bees_emerging", "fans_ok",
           "black_lights_ok", "notes"],
-         [[lit(uid("inspections", r["id"])), fk("incubators", r["incubator_id"]), lit(r["timestamp"]),
+         [[lit(uid("inspections", r["id"])), fk("incubators", r["incubator_id"]), dt(r["timestamp"]),
            lit(r["period"]), lit(r["thermometer_temp_c"]), lit(r["govee_temp_c"]), lit(r["temp_diff_c"]),
            b(r["temp_alert"]), b(r["heat_pumps_ok"]), b(r["parasites_emerging"]), b(r["bees_emerging"]),
            b(r["fans_ok"]), b(r["black_lights_ok"]), lit(r["notes"])] for r in rows("inspections")])
 
-    # ── temp_humidity_readings → sensor_readings ──────────────────────────────
+    # ── tray_inspections ──────────────────────────────────────────────────────
+    emit("tray_inspections",
+         ["id", "inspection_id", "tray_id", "tray_number", "incubator_id", "timestamp",
+          "stack_position", "depth_position", "cells_opened", "dev_stage", "notes"],
+         [[lit(uid("tray_inspections", r["id"])), fk("inspections", r["inspection_id"]),
+           fk("trays", r["tray_id"]), lit(r["tray_number"]), fk("incubators", r["incubator_id"]),
+           dt(r["timestamp"]), lit(r["stack_position"]), lit(r["depth_position"]),
+           lit(r["cells_opened"]), lit(r["dev_stage"]), lit(r["notes"])]
+          for r in rows("tray_inspections")])
+
+    # ── temp_humidity_readings -> sensor_readings ─────────────────────────────
     emit("sensor_readings",
          ["id", "incubator_id", "at", "temp_c", "humidity_pct", "source"],
          [[lit(uid("temp_humidity_readings", r["id"])), fk("incubators", r["incubator_id"]),
-           lit(r["timestamp"]), lit(r["temperature_c"]), lit(r["humidity_pct"]), "'govee'"]
+           dt(r["timestamp"]), lit(r["temperature_c"]), lit(r["humidity_pct"]), "'govee'"]
           for r in rows("temp_humidity_readings")])
 
     # ── alerts ────────────────────────────────────────────────────────────────
     emit("alerts",
          ["id", "alert_type", "severity", "incubator_id", "tray_id", "batch_id", "message",
-          "triggered_at", "acknowledged", "acknowledged_at", "dedup_key"],
+          "triggered_at", "acknowledged", "acknowledged_at", "dedup_key", "notified"],
          [[lit(uid("alerts", r["id"])), lit(r["alert_type"]), lit(r["severity"]),
            fk("incubators", r["incubator_id"]), fk("trays", r["tray_id"]),
-           fk("incubation_batches", r["batch_id"]), lit(r["message"]), lit(r["triggered_at"]),
-           b(r["acknowledged"]), lit(r["acknowledged_at"]),
-           lit(r["dedup_key"] if "dedup_key" in r.keys() else None)] for r in rows("alerts")])
+           fk("incubation_batches", r["batch_id"]), lit(r["message"]), dt(r["triggered_at"]),
+           b(r["acknowledged"]), dt(r["acknowledged_at"]), lit(r["dedup_key"]), b(r["notified"])]
+          for r in rows("alerts")])
+
+    # ── settings (non-secret keys only; upsert over the seeded defaults) ──────
+    emit("settings", ["key", "value"],
+         [[lit(r["key"]), lit(r["value"])] for r in rows("settings")
+          if r["key"] not in SECRET_KEYS],
+         conflict="(key) do update set value = excluded.value")
 
     # ── VOC: custom presets (built-ins are seeded by the migration) ───────────
     emit("presets",
@@ -147,8 +192,9 @@ def main() -> None:
           "high_alert_ppm", "confirmed", "is_builtin", "created_at", "updated_at"],
          [[lit(uid("presets", r["id"])), lit(r["chemical_name"]), lit(r["description"]),
            lit(r["low_alert_ppm"]), lit(r["low_warn_ppm"]), lit(r["high_warn_ppm"]),
-           lit(r["high_alert_ppm"]), b(r["confirmed"]), b(r["is_builtin"]), lit(r["created_at"]),
-           lit(r["updated_at"])] for r in rows("presets") if not r["is_builtin"]])
+           lit(r["high_alert_ppm"]), b(r["confirmed"]), b(r["is_builtin"]), dt(r["created_at"]),
+           dt(r["updated_at"])] for r in rows("presets") if not r["is_builtin"]],
+         conflict="(chemical_name) do nothing")
 
     emit("sensor_positions",
          ["id", "incubator_id", "position", "sensor_serial"],
@@ -160,14 +206,22 @@ def main() -> None:
           "end_time", "notes", "status"],
          [[lit(uid("voc_runs", r["id"])), fk("incubators", r["incubator_id"]),
            fk("presets", r["preset_id"]), lit(r["chemical_name"]), lit(r["preset_snapshot"]),
-           lit(r["start_time"]), lit(r["end_time"]), lit(r["notes"]), lit(r["status"])]
+           dt(r["start_time"]), dt(r["end_time"]), lit(r["notes"]), lit(r["status"])]
           for r in rows("voc_runs")])
 
     emit("voc_readings",
          ["id", "incubator_id", "run_id", "position", "timestamp", "voc_ppm", "temp_c"],
          [[lit(uid("voc_readings", r["id"])), fk("incubators", r["incubator_id"]),
-           fk("voc_runs", r["run_id"]), lit(r["position"]), lit(r["timestamp"]), lit(r["voc_ppm"]),
+           fk("voc_runs", r["run_id"]), lit(r["position"]), dt(r["timestamp"]), lit(r["voc_ppm"]),
            lit(r["temp_c"])] for r in rows("voc_readings")])
+
+    emit("voc_alert_events",
+         ["id", "incubator_id", "run_id", "position", "ppm", "zone", "message", "timestamp",
+          "acknowledged"],
+         [[lit(uid("voc_alert_events", r["id"])), fk("incubators", r["incubator_id"]),
+           fk("voc_runs", r["run_id"]), lit(r["position"]), lit(r["ppm"]), lit(r["zone"]),
+           lit(r["message"]), dt(r["timestamp"]), b(r["acknowledged"])]
+          for r in rows("voc_alert_events")])
 
     total = sum(counts.values())
     header = [
@@ -175,7 +229,8 @@ def main() -> None:
         f"-- source: {db_path}",
         f"-- generated: {datetime.now().isoformat(timespec='seconds')}",
         f"-- total rows: {total}",
-        "-- Apply AFTER migrations 0001–0003. Paste into the Supabase SQL editor.",
+        "-- Apply AFTER migrations 0001-0003. Paste into the Supabase SQL editor.",
+        "-- (secret settings keys are intentionally excluded)",
         "begin;",
         "",
     ]
@@ -186,10 +241,11 @@ def main() -> None:
 
     print("Row counts:")
     for t, n in counts.items():
-        print(f"  {n:>6}  {t}")
-    print(f"\ntotal {total} rows -> {out_path}")
+        print(f"  {n:>7}  {t}")
+    size_mb = os.path.getsize(out_path) / 1_048_576
+    print(f"\ntotal {total} rows -> {out_path}  ({size_mb:.1f} MB)")
     if total == 0:
-        print("(source DB has no operational data — the migrations already seed presets + settings.)")
+        print("(source DB has no operational data.)")
 
 
 if __name__ == "__main__":

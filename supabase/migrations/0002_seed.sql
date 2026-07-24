@@ -7,7 +7,7 @@
 -- signups; an admin sets roles afterward in the Users screen.
 -- ─────────────────────────────────────────────────────────────────────────────
 
-insert into public.fields (id, name, client, region, shape_type, shelter_count, updated_at) values
+insert into public.shelter_fields (id, name, client, region, shape_type, shelter_count, updated_at) values
   ('f1000000-0000-4000-8000-000000000001', 'Grassy Lake NW Pivot', 'Corteva', 'Grassy Lake, AB', 'pivot',   24, '2026-07-18T15:00:00Z'),
   ('f1000000-0000-4000-8000-000000000002', 'Bow Island Quarter',   'Corteva', 'Bow Island, AB',  'polygon', 16, '2026-07-19T18:30:00Z'),
   ('f1000000-0000-4000-8000-000000000003', 'Taber South Pivot',    'Corteva', 'Taber, AB',       'pivot',   30, '2026-07-20T13:10:00Z')

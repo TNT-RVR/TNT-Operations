@@ -82,7 +82,9 @@ $$;
 -- Field summary + full authoring payload. The typed columns satisfy the current
 -- `Field` seam; `data` (jsonb) carries the complete field dict the shelter-grid
 -- engine consumes (boundary, pivot, bay params, tracks…) for the Phase 4/5 editor.
-create table if not exists public.fields (
+-- NAMED `shelter_fields` (not `fields`) so it coexists with the old beetent-maps
+-- app's differently-shaped `public.fields` table in this shared project.
+create table if not exists public.shelter_fields (
   id            uuid primary key default gen_random_uuid(),
   name          text not null,
   client        text not null default '',
@@ -92,7 +94,7 @@ create table if not exists public.fields (
   data          jsonb not null default '{}'::jsonb,
   updated_at    timestamptz not null default now()
 );
-create index if not exists fields_client_idx on public.fields (client);
+create index if not exists shelter_fields_client_idx on public.shelter_fields (client);
 
 create table if not exists public.incubators (
   id                  uuid primary key default gen_random_uuid(),
@@ -124,7 +126,7 @@ create table if not exists public.sensor_readings (
 );
 create index if not exists sensor_readings_incubator_idx on public.sensor_readings (incubator_id, at desc);
 
--- ── updated_at trigger for fields ─────────────────────────────────────────────
+-- ── updated_at trigger for shelter_fields ────────────────────────────────────
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$
 begin
@@ -132,9 +134,9 @@ begin
   return new;
 end $$;
 
-drop trigger if exists fields_touch_updated_at on public.fields;
-create trigger fields_touch_updated_at
-  before update on public.fields
+drop trigger if exists shelter_fields_touch_updated_at on public.shelter_fields;
+create trigger shelter_fields_touch_updated_at
+  before update on public.shelter_fields
   for each row execute function public.touch_updated_at();
 
 -- ── Row Level Security ────────────────────────────────────────────────────────
@@ -142,7 +144,7 @@ create trigger fields_touch_updated_at
 -- 'view'); writes require can_edit() (admin/developer/operator). Sensor readings
 -- are normally written by Edge Functions via the service role (bypasses RLS);
 -- the write policy also lets an operator add a manual reading.
-alter table public.fields          enable row level security;
+alter table public.shelter_fields  enable row level security;
 alter table public.incubators      enable row level security;
 alter table public.inspections     enable row level security;
 alter table public.sensor_readings enable row level security;
@@ -151,7 +153,7 @@ alter table public.profiles        enable row level security;
 do $$
 declare t text;
 begin
-  foreach t in array array['fields', 'incubators', 'inspections', 'sensor_readings'] loop
+  foreach t in array array['shelter_fields', 'incubators', 'inspections', 'sensor_readings'] loop
     execute format('drop policy if exists "read for authenticated" on public.%I;', t);
     execute format(
       'create policy "read for authenticated" on public.%I for select to authenticated using (true);', t);

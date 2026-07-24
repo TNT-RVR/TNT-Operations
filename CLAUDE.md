@@ -34,6 +34,11 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
 - Secrets never go in the repo or in any `VITE_`-prefixed var except the public
   Supabase URL/anon key. Server secrets (Govee key, service role, SMTP) live in
   Supabase/Netlify env settings. See `docs/darren-onboarding.md`.
+- **Shared Supabase project:** by decision (2026-07-24) TNT reuses the existing
+  `pmqbkezevsuwkoryxief` project (the old beetent-maps backend) rather than a new
+  one. To avoid colliding with that app's `public.fields` (company/year/name +
+  jsonb), TNT's fields table is `public.shelter_fields`. All other TNT tables
+  don't collide. Never DROP/ALTER the old app's tables (crews/scans/fields/…).
 
 ## Migration status (porting the two Python apps)
 - [x] Phase 1 — scaffold, design system, auth/roles, data seam, section shells.

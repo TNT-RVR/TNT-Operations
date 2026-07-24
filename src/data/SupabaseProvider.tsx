@@ -51,7 +51,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       }
 
       const [f, i, insp, r] = await Promise.all([
-        sb.from('fields').select('*').order('updated_at', { ascending: false }),
+        sb.from('shelter_fields').select('*').order('updated_at', { ascending: false }),
         sb.from('incubators').select('*').order('name', { ascending: true }),
         sb.from('inspections').select('*').order('at', { ascending: false }),
         sb.from('sensor_readings').select('*').order('at', { ascending: false }),
@@ -127,7 +127,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if (patch.shelterCount !== undefined) row.shelter_count = patch.shelterCount
         if (patch.geometry !== undefined) row.data = patch.geometry
         supabase
-          .from('fields')
+          .from('shelter_fields')
           .update(row)
           .eq('id', id)
           .select()

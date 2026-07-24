@@ -23,6 +23,8 @@ alter table public.incubators add column if not exists humidity_min        numer
 alter table public.incubators add column if not exists humidity_max        numeric not null default 75;
 alter table public.incubators add column if not exists sort_order          integer not null default 0;
 alter table public.incubators add column if not exists is_hidden           boolean not null default false;
+alter table public.incubators add column if not exists sensibo_device_id   text    not null default '';
+alter table public.incubators add column if not exists incubation_start    date;
 
 -- ── samples: an x-rayed lot of bee cells. ─────────────────────────────────────
 create table if not exists public.samples (
@@ -36,7 +38,17 @@ create table if not exists public.samples (
   total_volume_gal  numeric,
   total_weight_lbs  numeric,
   notes             text not null default '',
-  import_date       timestamptz
+  import_date       timestamptz,
+  -- derived / entered metrics carried from the live DB
+  total_weight_kg   numeric,
+  live_bees_per_lb  numeric,
+  live_bees_per_kg  numeric,
+  parasites         numeric,
+  chalkbrood        numeric,
+  kg_per_2gal       numeric,
+  lbs_per_2gal      numeric,
+  total_trays       numeric,
+  incubator_space   numeric
 );
 
 -- ── incubation_batches: a run in an incubator, with its lifecycle event dates. ─
@@ -71,10 +83,28 @@ create table if not exists public.trays (
   volume_gal          numeric,
   in_date             date,
   out_date            date,
+  cool_date           date,
   status              text not null default 'active',
   notes               text not null default ''
 );
 create index if not exists trays_batch_idx on public.trays (incubation_batch_id);
+create index if not exists trays_incubator_idx on public.trays (incubator_id);
+
+-- ── tray_inspections: per-tray notes captured during an inspection. ───────────
+create table if not exists public.tray_inspections (
+  id             uuid primary key default gen_random_uuid(),
+  inspection_id  uuid references public.inspections (id) on delete set null,
+  tray_id        uuid references public.trays (id) on delete set null,
+  tray_number    text,
+  incubator_id   uuid references public.incubators (id) on delete set null,
+  timestamp      timestamptz,
+  stack_position text,
+  depth_position text,
+  cells_opened   integer,
+  dev_stage      text,
+  notes          text not null default ''
+);
+create index if not exists tray_inspections_inspection_idx on public.tray_inspections (inspection_id);
 
 -- ── inspections: add the old rich thermometer/checklist columns (superset). ───
 alter table public.inspections add column if not exists period             text not null default 'manual';
@@ -101,7 +131,8 @@ create table if not exists public.alerts (
   triggered_at    timestamptz not null default now(),
   acknowledged    boolean not null default false,
   acknowledged_at timestamptz,
-  dedup_key       text
+  dedup_key       text,
+  notified        boolean not null default false
 );
 create index if not exists alerts_triggered_idx on public.alerts (triggered_at desc);
 
@@ -173,7 +204,7 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'samples', 'incubation_batches', 'trays', 'alerts', 'settings',
+    'samples', 'incubation_batches', 'trays', 'tray_inspections', 'alerts', 'settings',
     'presets', 'sensor_positions', 'voc_runs', 'voc_readings', 'voc_alert_events'
   ] loop
     execute format('alter table public.%I enable row level security;', t);

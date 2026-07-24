@@ -72,6 +72,28 @@ describe('supabase row mappers', () => {
     expect(typeof inc.tempTargetC).toBe('number')
   })
 
+  it('maps the live incubator fields (temp mode, humidity band, blanks → null)', () => {
+    const inc = toIncubator({
+      id: 'i1',
+      name: 'Incubator 2',
+      location: '',
+      status: 'idle',
+      started_at: null,
+      temp_target_c: 30,
+      humidity_target_pct: 55,
+      temp_mode: 'incubation',
+      humidity_min: '55',
+      humidity_max: null,
+      incubation_start: '2026-07-10',
+      capacity: '665',
+    })
+    expect(inc.tempMode).toBe('incubation')
+    expect(inc.humidityMin).toBe(55)
+    expect(inc.humidityMax).toBeNull()
+    expect(inc.incubationStart).toBe('2026-07-10')
+    expect(inc.capacity).toBe(665)
+  })
+
   it('maps inspection + sensor reading rows', () => {
     expect(
       toInspection({

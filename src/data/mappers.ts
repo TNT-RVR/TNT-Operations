@@ -27,6 +27,11 @@ export interface IncubatorRow {
   started_at: string | null
   temp_target_c: number | string
   humidity_target_pct: number | string
+  temp_mode?: string | null
+  humidity_min?: number | string | null
+  humidity_max?: number | string | null
+  incubation_start?: string | null
+  capacity?: number | string | null
 }
 
 export interface InspectionRow {
@@ -65,6 +70,10 @@ export function toField(row: FieldRow): Field {
   }
 }
 
+/** numeric column that may be null → number | null (PostgREST may send strings). */
+const numOrNull = (v: number | string | null | undefined): number | null =>
+  v === null || v === undefined || v === '' ? null : Number(v)
+
 export function toIncubator(row: IncubatorRow): Incubator {
   return {
     id: row.id,
@@ -74,6 +83,11 @@ export function toIncubator(row: IncubatorRow): Incubator {
     startedAt: row.started_at,
     tempTargetC: Number(row.temp_target_c),
     humidityTargetPct: Number(row.humidity_target_pct),
+    tempMode: row.temp_mode ?? null,
+    humidityMin: numOrNull(row.humidity_min),
+    humidityMax: numOrNull(row.humidity_max),
+    incubationStart: row.incubation_start ?? null,
+    capacity: numOrNull(row.capacity),
   }
 }
 

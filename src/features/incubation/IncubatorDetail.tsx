@@ -3,15 +3,15 @@ import { Modal, Badge, Gauge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator } from '@/data/types'
-import { incubationProgress, getIncubationDay, formatTemp } from '@/domain/incubation'
+import { incubationProgress, getIncubationDay, incubatorDisplay, formatTemp } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
 
 const TZ = 'America/Edmonton'
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-const TEMP_TOL = 1.5 // °C off target before we flag it
-const HUM_TOL = 8 // % off target before we flag it
+const fmtRange = (a: number | null, b: number | null, unit: string, fallback: string) =>
+  a != null && b != null ? `${a}–${b}${unit}` : fallback
 
 function healthTone(score: number): 'green' | 'amber' | 'red' {
   if (score >= 85) return 'green'
@@ -28,16 +28,24 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const myReadings = readings.filter((r) => r.incubatorId === incubator.id)
   const latest = latestReading(incubator.id)
 
-  const p = incubationProgress(incubator.startedAt, new Date().toISOString())
-  const day = getIncubationDay({ startDate: incubator.startedAt }, new Date())
+  const d = incubatorDisplay(incubator)
+  const showProgress = incubator.tempMode === 'incubation' && !!incubator.incubationStart
+  const p = showProgress ? incubationProgress(incubator.incubationStart!, new Date().toISOString()) : null
+  const day = showProgress ? getIncubationDay({ startDate: incubator.incubationStart }, new Date()) : null
 
-  const tempOff = latest ? Math.abs(latest.tempC - incubator.tempTargetC) > TEMP_TOL : false
-  const humOff = latest ? Math.abs(latest.humidityPct - incubator.humidityTargetPct) > HUM_TOL : false
+  const tempOut =
+    latest != null && d.running && d.tempMin != null && d.tempMax != null && (latest.tempC < d.tempMin || latest.tempC > d.tempMax)
+  const humOut =
+    latest != null && d.running && d.humMin != null && d.humMax != null && (latest.humidityPct < d.humMin || latest.humidityPct > d.humMax)
   const alerts: string[] = []
-  if (latest && tempOff)
-    alerts.push(`Temp ${formatTemp(latest.tempC)} is off target (${incubator.tempTargetC}°C)`)
-  if (latest && humOff)
-    alerts.push(`Humidity ${latest.humidityPct}% is off target (${incubator.humidityTargetPct}%)`)
+  if (latest && tempOut)
+    alerts.push(`Temp ${formatTemp(latest.tempC)} is outside the ${fmtRange(d.tempMin, d.tempMax, '°C', '')} band`)
+  if (latest && humOut)
+    alerts.push(`Humidity ${latest.humidityPct}% is outside ${fmtRange(d.humMin, d.humMax, '%', '')}`)
+
+  // Chart reference = middle of the mode band (tolerance = half-band), else the target.
+  const targetC = d.tempMin != null && d.tempMax != null ? (d.tempMin + d.tempMax) / 2 : incubator.tempTargetC
+  const tolC = d.tempMin != null && d.tempMax != null ? (d.tempMax - d.tempMin) / 2 : 1.5
 
   const [health, setHealth] = useState(90)
   const [notes, setNotes] = useState('')
@@ -57,15 +65,16 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   return (
     <Modal title={incubator.name} onClose={onClose} wide>
       <div className="space-y-5">
-        {/* Status + progress */}
+        {/* Mode + progress */}
         <div className="flex flex-wrap items-center gap-3">
-          <Badge tone={incubator.status === 'active' ? 'green' : 'brand'}>{incubator.status}</Badge>
-          <span className="text-sm text-slate-500">{incubator.location}</span>
-          {day !== null && incubator.startedAt && (
-            <span className="text-sm font-medium text-slate-700">Day {day}</span>
+          <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          {incubator.location && <span className="text-sm text-slate-500">{incubator.location}</span>}
+          {day != null && <span className="text-sm font-medium text-slate-700">Day {day}</span>}
+          {incubator.capacity != null && (
+            <span className="text-sm text-slate-400">capacity {incubator.capacity}</span>
           )}
         </div>
-        {incubator.startedAt && (
+        {p && (
           <div>
             <div className="mb-1 flex justify-between text-xs text-slate-500">
               <span>{p.stage}</span>
@@ -88,19 +97,21 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
 
         {/* Latest reading + chart */}
         <section>
-          <div className="mb-2 flex items-baseline justify-between">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="font-semibold">Temperature</h3>
             {latest && (
               <span className="text-sm text-slate-500">
                 latest {fmtWhen(latest.at)} ·{' '}
-                <span className={tempOff ? 'font-semibold text-red-600' : 'font-semibold text-slate-900'}>
+                <span className={tempOut ? 'font-semibold text-red-600' : 'font-semibold text-slate-900'}>
                   {formatTemp(latest.tempC)}
                 </span>{' '}
-                / {incubator.tempTargetC}°C · {latest.humidityPct}% RH
+                / {fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`)} ·{' '}
+                <span className={humOut ? 'font-semibold text-red-600' : ''}>{latest.humidityPct}%</span> RH /{' '}
+                {fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`)}
               </span>
             )}
           </div>
-          <ReadingsChart readings={myReadings} targetC={incubator.tempTargetC} tolerance={TEMP_TOL} />
+          <ReadingsChart readings={myReadings} targetC={targetC} tolerance={tolC} />
         </section>
 
         {/* Add inspection */}
@@ -140,11 +151,12 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {mine.map((i) => (
                 <li key={i.id} className="flex items-start gap-3 px-3 py-2">
-                  <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>
+                  {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
                   <div className="min-w-0 flex-1">
                     <div className="text-sm text-slate-800">{i.notes || <span className="text-slate-400">—</span>}</div>
                     <div className="text-xs text-slate-400">
-                      {fmtWhen(i.at)} · {i.inspector}
+                      {fmtWhen(i.at)}
+                      {i.inspector ? ` · ${i.inspector}` : ''}
                     </div>
                   </div>
                 </li>

@@ -11,6 +11,7 @@ import {
   getAllEvents,
   getIncubationDay,
   getTempRange,
+  incubatorDisplay,
   checkTempHumidity,
   cToF,
   fToC,
@@ -206,6 +207,30 @@ describe('temperature modes + threshold checks', () => {
     expect(checkTempHumidity({ id: 7, tempMode: 'holding' }, 9.95, 50)).toEqual([
       'Incubator 7: Temp 9.9°C below minimum 10.0°C',
     ])
+  })
+})
+
+describe('incubatorDisplay', () => {
+  it('derives mode label + temp band from the live temp_mode', () => {
+    expect(incubatorDisplay({ tempMode: 'incubation', humidityMin: 55, humidityMax: 75 })).toEqual({
+      modeLabel: 'Incubation',
+      running: true,
+      tempMin: 25,
+      tempMax: 35,
+      humMin: 55,
+      humMax: 75,
+    })
+    expect(incubatorDisplay({ tempMode: 'off' })).toMatchObject({ modeLabel: 'Off', running: false, tempMin: null })
+    expect(incubatorDisplay({ tempMode: 'cool_storage' })).toMatchObject({
+      modeLabel: 'Cool Storage',
+      running: true,
+      tempMin: 0,
+      tempMax: 12,
+    })
+  })
+  it('falls back to app status when there is no live mode (mock mode)', () => {
+    expect(incubatorDisplay({ status: 'active' })).toMatchObject({ modeLabel: 'Active', running: true, tempMin: null })
+    expect(incubatorDisplay({ status: 'idle' })).toMatchObject({ modeLabel: 'Idle', running: false })
   })
 })
 

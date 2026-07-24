@@ -30,7 +30,9 @@ export default function UsersHome() {
           </table>
         </div>
         <p className="mt-4 text-sm text-slate-500">
-          In mock mode users are seeded. With the Supabase backend, admins invite users and set roles here.
+          {s.authMode === 'supabase'
+            ? 'New sign-ins start as “viewer.” Change a role directly in Supabase (profiles table) for now; in-app role editing is coming.'
+            : 'Mock mode uses seeded users. In the Supabase backend, roles are managed per real account.'}
         </p>
       </div>
     </div>

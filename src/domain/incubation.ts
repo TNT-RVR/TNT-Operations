@@ -322,6 +322,55 @@ export function getTempRange(incubator: IncubatorTemp): [number | null, number |
   return [cfg.min, cfg.max]
 }
 
+export interface IncubatorDisplay {
+  /** Human label for the current mode/state (e.g. "Incubation", "Off", "Idle"). */
+  modeLabel: string
+  /** Whether the incubator is running (any mode other than Off). */
+  running: boolean
+  /** Temperature target band for the mode, if known. */
+  tempMin: number | null
+  tempMax: number | null
+  /** Humidity target band (real values from the DB, if present). */
+  humMin: number | null
+  humMax: number | null
+}
+
+/**
+ * Derive display values for an incubator, preferring the live-DB temp mode +
+ * humidity band and falling back to the app's simple status/target when those
+ * aren't present (mock mode). Keeps the incubation screens truthful to the
+ * data without each component re-deriving the same logic.
+ */
+export function incubatorDisplay(inc: {
+  tempMode?: string | null
+  humidityMin?: number | null
+  humidityMax?: number | null
+  status?: string
+}): IncubatorDisplay {
+  const key = inc.tempMode || ''
+  const cfg = (TEMP_MODES as Record<string, TempModeConfig>)[key]
+  if (cfg) {
+    return {
+      modeLabel: cfg.label,
+      running: key !== 'off',
+      tempMin: cfg.min,
+      tempMax: cfg.max,
+      humMin: inc.humidityMin ?? null,
+      humMax: inc.humidityMax ?? null,
+    }
+  }
+  // No live mode → fall back to the app's simple active/idle status.
+  const active = inc.status === 'active'
+  return {
+    modeLabel: active ? 'Active' : 'Idle',
+    running: active,
+    tempMin: null,
+    tempMax: null,
+    humMin: inc.humidityMin ?? null,
+    humMax: inc.humidityMax ?? null,
+  }
+}
+
 /**
  * Out-of-range problems for a reading (empty = OK). Off mode → no alerts.
  * Note: like the Python, `humidity` is accepted but not yet checked.

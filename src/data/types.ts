@@ -36,6 +36,14 @@ export interface Incubator {
   startedAt: string | null
   tempTargetC: number
   humidityTargetPct: number
+  // ── Live-DB fields (present in supabase mode; optional so mock stays simple) ──
+  /** Temperature mode: 'off' | 'cool_storage' | 'incubation' | 'holding'. */
+  tempMode?: string | null
+  humidityMin?: number | null
+  humidityMax?: number | null
+  /** Date the incubation run started (date-only from the old app). */
+  incubationStart?: string | null
+  capacity?: number | null
 }
 
 export interface Inspection {

@@ -145,7 +145,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       // everyone else can only see themselves (RLS enforces this too).
       if (u.role === 'admin' || u.role === 'developer') {
         const { data: all } = await sb.from('profiles').select('*').order('email', { ascending: true })
-        if (!cancelled) setUsers(((all as ProfileRow[]) ?? []).map((r) => mapProfile(r, '')))
+        if (!cancelled) setUsers(((all as ProfileRow[]) ?? []).map((r) => mapProfile(r, r.email)))
       } else {
         setUsers([u])
       }

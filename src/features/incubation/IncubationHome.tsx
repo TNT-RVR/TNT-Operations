@@ -1,58 +1,83 @@
 import { useState } from 'react'
 import { PageHeader, Badge, Gauge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
-import { incubationProgress } from '@/domain/incubation'
+import { incubationProgress, getIncubationDay, incubatorDisplay } from '@/domain/incubation'
+import type { Incubator } from '@/data/types'
 import { IncubatorDetail } from './IncubatorDetail'
+
+type Tone = 'brand' | 'green' | 'amber' | 'red' | 'blue'
+
+function modeTone(inc: Incubator, running: boolean): Tone {
+  if (inc.tempMode === 'incubation') return 'green'
+  if (inc.tempMode === 'cool_storage') return 'blue'
+  if (inc.tempMode === 'holding') return 'amber'
+  return running ? 'green' : 'brand'
+}
+
+const fmtRange = (a: number | null, b: number | null, unit: string, fallback: string) =>
+  a != null && b != null ? `${a}–${b}${unit}` : fallback
 
 export default function IncubationHome() {
   const { incubators, latestReading } = useData()
-  const now = new Date().toISOString()
+  const now = new Date()
   const [openId, setOpenId] = useState<string | null>(null)
   const open = incubators.find((i) => i.id === openId) ?? null
 
   return (
     <div>
-      <PageHeader title="Incubation" subtitle="Leafcutter bee incubators — batches, readings, health" />
+      <PageHeader title="Incubation" subtitle="Leafcutter bee incubators — mode, readings, health" />
       <div className="grid gap-4 p-4 md:grid-cols-2 md:p-6">
         {incubators.map((i) => {
-          const p = incubationProgress(i.startedAt, now)
+          const d = incubatorDisplay(i)
           const r = latestReading(i.id)
-          const tempOff = r ? Math.abs(r.tempC - i.tempTargetC) : 0
+          const tempOut =
+            r != null && d.running && d.tempMin != null && d.tempMax != null && (r.tempC < d.tempMin || r.tempC > d.tempMax)
+          const humOut =
+            r != null && d.running && d.humMin != null && d.humMax != null && (r.humidityPct < d.humMin || r.humidityPct > d.humMax)
+
+          const showProgress = i.tempMode === 'incubation' && !!i.incubationStart
+          const p = showProgress ? incubationProgress(i.incubationStart!, now.toISOString()) : null
+          const day = showProgress ? getIncubationDay({ startDate: i.incubationStart }, now) : null
+
           return (
             <button
               key={i.id}
               onClick={() => setOpenId(i.id)}
               className="card block w-full text-left transition hover:border-brand hover:shadow-md"
             >
-              <div className="mb-2 flex items-center justify-between">
-                <div>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
                   <h2 className="font-bold">{i.name}</h2>
-                  <p className="text-xs text-slate-500">{i.location}</p>
+                  {i.location && <p className="text-xs text-slate-500">{i.location}</p>}
                 </div>
-                <Badge tone={i.status === 'active' ? 'green' : 'brand'}>{i.status}</Badge>
+                <Badge tone={modeTone(i, d.running)}>{d.modeLabel}</Badge>
               </div>
 
-              <div className="mb-3">
-                <div className="mb-1 flex justify-between text-xs text-slate-500">
-                  <span>{p.stage}</span>
-                  <span>
-                    {p.pct}% · {p.daysRemaining}d left
-                  </span>
+              {p && (
+                <div className="mb-3">
+                  <div className="mb-1 flex justify-between text-xs text-slate-500">
+                    <span>{day != null ? `Day ${day}` : p.stage}</span>
+                    <span>
+                      {p.pct}% · {p.daysRemaining}d left
+                    </span>
+                  </div>
+                  <Gauge pct={p.pct} tone={p.stage === 'emergence' ? 'amber' : 'brand'} />
                 </div>
-                <Gauge pct={p.pct} tone={p.stage === 'emergence' ? 'amber' : 'brand'} />
-              </div>
+              )}
 
               <dl className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <dt className="text-slate-500">Temp (latest)</dt>
-                  <dd className={`font-semibold ${tempOff > 1.5 ? 'text-red-600' : 'text-slate-900'}`}>
-                    {r ? `${r.tempC.toFixed(1)}°C` : '—'} <span className="text-xs text-slate-400">/ {i.tempTargetC}°C</span>
+                  <dd className={`font-semibold ${tempOut ? 'text-red-600' : 'text-slate-900'}`}>
+                    {r ? `${r.tempC.toFixed(1)}°C` : '—'}{' '}
+                    <span className="text-xs text-slate-400">/ {fmtRange(d.tempMin, d.tempMax, '°C', `${i.tempTargetC}°C`)}</span>
                   </dd>
                 </div>
                 <div>
                   <dt className="text-slate-500">Humidity (latest)</dt>
-                  <dd className="font-semibold text-slate-900">
-                    {r ? `${r.humidityPct}%` : '—'} <span className="text-xs text-slate-400">/ {i.humidityTargetPct}%</span>
+                  <dd className={`font-semibold ${humOut ? 'text-red-600' : 'text-slate-900'}`}>
+                    {r ? `${r.humidityPct}%` : '—'}{' '}
+                    <span className="text-xs text-slate-400">/ {fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`)}</span>
                   </dd>
                 </div>
               </dl>

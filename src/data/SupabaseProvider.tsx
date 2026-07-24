@@ -117,6 +117,29 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         readings
           .filter((r) => r.incubatorId === incubatorId)
           .sort((a, b) => b.at.localeCompare(a.at))[0],
+      saveField: (id: string, patch: Partial<Field>) => {
+        if (!supabase) return
+        const row: Record<string, unknown> = {}
+        if (patch.name !== undefined) row.name = patch.name
+        if (patch.client !== undefined) row.client = patch.client
+        if (patch.region !== undefined) row.region = patch.region
+        if (patch.shapeType !== undefined) row.shape_type = patch.shapeType
+        if (patch.shelterCount !== undefined) row.shelter_count = patch.shelterCount
+        if (patch.geometry !== undefined) row.data = patch.geometry
+        supabase
+          .from('fields')
+          .update(row)
+          .eq('id', id)
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('[data] saveField:', error.message)
+              return
+            }
+            setFields((prev) => prev.map((f) => (f.id === id ? toField(data as FieldRow) : f)))
+          })
+      },
     }),
     [fields, incubators, inspections, readings],
   )

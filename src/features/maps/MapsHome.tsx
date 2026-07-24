@@ -5,16 +5,16 @@ import { circle as turfCircle, bbox as turfBbox } from '@turf/turf'
 import type { Feature, FeatureCollection, Polygon, Point, Position } from 'geojson'
 import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
+import { useSession } from '@/auth/session'
 import type { Field, FieldGeometry } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
+import { FieldEditor } from './FieldEditor'
 
 // Theme colours (tailwind.config.js) used for map features.
 const BRAND = '#B8860B' // honey amber — shelter pins
 const FIELD = '#4D7C0F' // canola green — field boundary
 const INK = '#1A1206' // pivot centre
 
-// Free OpenStreetMap raster basemap — no API key. For satellite imagery in
-// production, swap in a MapTiler/ESRI source keyed by VITE_MAP_TILE_KEY.
 const OSM_STYLE: StyleSpecification = {
   version: 8,
   sources: {
@@ -28,19 +28,18 @@ const OSM_STYLE: StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 }
 
-// Southern Alberta pollination country (Grassy Lake / Bow Island / Taber).
 const DEFAULT_CENTER: [number, number] = [-111.6, 49.83]
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 const num = (v: unknown): number => Number(v)
+const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v))
 
-/** Field boundary as a GeoJSON polygon: the drawn polygon, or a pivot circle. */
 function boundaryFeature(geom?: FieldGeometry): Feature<Polygon> | null {
   if (!geom) return null
   const poly = geom.boundary_polygon
   if (Array.isArray(poly) && poly.length >= 3) {
     const ring: Position[] = poly.map((p) => [num((p as unknown[])[1]), num((p as unknown[])[0])])
-    ring.push(ring[0]) // close the ring
+    ring.push(ring[0])
     return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
   }
   const r = num(geom.Radius)
@@ -71,28 +70,108 @@ function sheltersCollection(pins: { lng: number; lat: number }[]): FeatureCollec
   }
 }
 
+/** A sensible default pivot field, centred where the user is looking. */
+function defaultPivotGeometry([lng, lat]: [number, number]): FieldGeometry {
+  return {
+    PP_Longitude: String(lng),
+    PP_Latitude: String(lat),
+    Radius: '400',
+    Sprayer_width: '120',
+    num_female_rows: '8',
+    num_male_rows: '2',
+    row_spacing_in: '22',
+    total_rows: '10',
+    row_layout: 'centered',
+    custom_row_mask: '',
+    use_bays: true,
+    shelter_mode: 'total',
+    num_structures: '24',
+    Planting_angle: '0',
+    shelters_in_outside_pass: 'Yes',
+    pivot_tracks: [],
+    track_exclusion_ft: '10',
+    pass_edge_buffer_ft: '25',
+  }
+}
+
 export default function MapsHome() {
-  const { fields } = useData()
+  const { fields, saveField } = useData()
+  const canEdit = useSession().can('maps', 'edit')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<FieldGeometry | null>(null)
+  const [draftName, setDraftName] = useState('')
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [ready, setReady] = useState(false)
 
-  // Default the selection to the first field that has renderable geometry.
   const selectedField: Field | null = useMemo(
-    () =>
-      fields.find((f) => f.id === selectedId) ??
-      fields.find((f) => f.geometry) ??
-      fields[0] ??
-      null,
+    () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
     [fields, selectedId],
   )
 
-  // Live shelter placement from the ported engine (memoised per field).
-  const shelters = useMemo(
-    () => (selectedField?.geometry ? getTentPositions(selectedField.geometry) : []),
-    [selectedField],
+  // What the map draws: the live draft while editing, else the saved geometry.
+  const previewGeom = useMemo(
+    () => (editing && draft ? draft : selectedField?.geometry),
+    [editing, draft, selectedField],
   )
+  const shelters = useMemo(() => (previewGeom ? getTentPositions(previewGeom) : []), [previewGeom])
+
+  const isPivotDraft = !!draft && !draft.boundary_polygon
+  const dirty =
+    editing &&
+    (draftName !== (selectedField?.name ?? '') ||
+      JSON.stringify(draft) !== JSON.stringify(selectedField?.geometry ?? null))
+
+  function selectField(id: string) {
+    setEditing(false)
+    setDraft(null)
+    setSelectedId(id)
+  }
+
+  function enterEdit() {
+    if (!selectedField) return
+    const center = mapRef.current
+      ? (mapRef.current.getCenter().toArray() as [number, number])
+      : DEFAULT_CENTER
+    const base = selectedField.geometry
+      ? (structuredClone(selectedField.geometry) as FieldGeometry)
+      : defaultPivotGeometry(center)
+    setDraft(base)
+    setDraftName(selectedField.name)
+    setEditing(true)
+  }
+
+  function onChange(key: string, value: unknown) {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const next: FieldGeometry = { ...prev, [key]: value }
+      // Keep total_rows in step with the bay counts (non-custom layouts).
+      if ((key === 'num_female_rows' || key === 'num_male_rows') && str(next.row_layout) !== 'custom') {
+        const nf = num(next.num_female_rows) || 0
+        const nm = num(next.num_male_rows) || 0
+        if (nf + nm > 0) next.total_rows = String(nf + nm)
+      }
+      return next
+    })
+  }
+
+  function onSave() {
+    if (!selectedField || !draft) return
+    saveField(selectedField.id, {
+      name: draftName,
+      geometry: draft,
+      shelterCount: shelters.length,
+      shapeType: draft.boundary_polygon ? 'polygon' : 'pivot',
+    })
+    setEditing(false)
+    setDraft(null)
+  }
+
+  function onCancel() {
+    setEditing(false)
+    setDraft(null)
+  }
 
   // Create the map once; add empty sources + layers on load.
   useEffect(() => {
@@ -111,7 +190,6 @@ export default function MapsHome() {
       map.addSource('boundary', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'boundary', paint: { 'fill-color': FIELD, 'fill-opacity': 0.1 } })
       map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD, 'line-width': 2 } })
-
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'shelters',
@@ -124,7 +202,6 @@ export default function MapsHome() {
           'circle-stroke-width': 1,
         },
       })
-
       map.addSource('pivot', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'pivot',
@@ -132,7 +209,6 @@ export default function MapsHome() {
         source: 'pivot',
         paint: { 'circle-radius': 5, 'circle-color': INK, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
       })
-
       setReady(true)
     })
 
@@ -143,43 +219,65 @@ export default function MapsHome() {
     }
   }, [])
 
-  // Push the selected field's geometry to the map + fit the view to it.
+  // Draw the current geometry (live) — pins + boundary + pivot.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-
-    const boundary = boundaryFeature(selectedField?.geometry)
-    const pivot = pivotFeature(selectedField?.geometry)
-    const shelterFC = sheltersCollection(shelters)
-
+    const boundary = boundaryFeature(previewGeom)
+    const pivot = pivotFeature(previewGeom)
     ;(map.getSource('boundary') as GeoJSONSource | undefined)?.setData(
       boundary ? { type: 'FeatureCollection', features: [boundary] } : EMPTY,
     )
     ;(map.getSource('pivot') as GeoJSONSource | undefined)?.setData(
       pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
     )
-    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(shelterFC)
+    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(sheltersCollection(shelters))
+  }, [ready, previewGeom, shelters])
 
-    const forBounds: FeatureCollection = {
-      type: 'FeatureCollection',
-      features: [...(boundary ? [boundary] : []), ...shelterFC.features],
-    }
-    if (forBounds.features.length > 0) {
-      const [minX, minY, maxX, maxY] = turfBbox(forBounds)
-      map.fitBounds(
-        [
-          [minX, minY],
-          [maxX, maxY],
-        ],
-        { padding: 64, duration: 700, maxZoom: 16 },
+  // Fit the view when the SELECTED FIELD changes (not on every draft keystroke).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const boundary = boundaryFeature(selectedField?.geometry)
+    const pins = selectedField?.geometry ? getTentPositions(selectedField.geometry) : []
+    const features: Feature[] = [...(boundary ? [boundary] : []), ...sheltersCollection(pins).features]
+    if (features.length === 0) return
+    const [minX, minY, maxX, maxY] = turfBbox({ type: 'FeatureCollection', features })
+    map.fitBounds(
+      [
+        [minX, minY],
+        [maxX, maxY],
+      ],
+      { padding: 64, duration: 700, maxZoom: 16 },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, selectedField])
+
+  // While editing a pivot field, clicking the map moves the pivot centre.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !editing || !isPivotDraft) return
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      setDraft((prev) =>
+        prev ? { ...prev, PP_Longitude: String(e.lngLat.lng), PP_Latitude: String(e.lngLat.lat) } : prev,
       )
     }
-  }, [ready, selectedField, shelters])
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+  }, [ready, editing, isPivotDraft])
 
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Shelter Maps" subtitle="Bee-shelter placement on pollination fields (MapLibre)" />
-      <div className="grid min-h-0 flex-1 md:grid-cols-[20rem_1fr]">
+      <div
+        className={`grid min-h-0 flex-1 ${
+          editing ? 'md:grid-cols-[18rem_1fr_22rem]' : 'md:grid-cols-[18rem_1fr]'
+        }`}
+      >
         {/* Field list */}
         <aside className="overflow-y-auto border-r border-slate-200 bg-white p-3">
           <h2 className="mb-2 px-1 text-sm font-semibold text-slate-600">Fields</h2>
@@ -188,7 +286,7 @@ export default function MapsHome() {
             return (
               <button
                 key={f.id}
-                onClick={() => setSelectedId(f.id)}
+                onClick={() => selectField(f.id)}
                 className={`mb-2 block w-full rounded-lg border p-3 text-left transition ${
                   active ? 'border-brand bg-brand-light' : 'border-slate-200 hover:bg-slate-50'
                 }`}
@@ -209,8 +307,8 @@ export default function MapsHome() {
         {/* Map + detail overlay */}
         <div className="relative min-h-[20rem]">
           <div ref={containerRef} className="absolute inset-0" />
-          {selectedField && (
-            <div className="pointer-events-none absolute left-3 top-3 max-w-xs rounded-xl border border-slate-200 bg-white/95 p-3 shadow-md backdrop-blur">
+          {selectedField && !editing && (
+            <div className="absolute left-3 top-3 max-w-xs rounded-xl border border-slate-200 bg-white/95 p-3 shadow-md backdrop-blur">
               <div className="font-bold text-ink">{selectedField.name}</div>
               <div className="text-xs text-slate-500">
                 {selectedField.region} · {selectedField.client}
@@ -224,13 +322,33 @@ export default function MapsHome() {
                   </span>
                 </div>
               ) : (
-                <p className="mt-2 text-sm text-slate-500">
-                  No field geometry imported yet — draw or import a boundary to place shelters.
-                </p>
+                <p className="mt-2 text-sm text-slate-500">No field geometry imported yet.</p>
+              )}
+              {canEdit && (
+                <button className="btn-primary mt-3 w-full" onClick={enterEdit}>
+                  {selectedField.geometry ? 'Edit field' : 'Add pivot geometry'}
+                </button>
               )}
             </div>
           )}
         </div>
+
+        {/* Editor (third column, only while editing) */}
+        {editing && draft && selectedField && (
+          <aside className="min-h-0 border-l border-slate-200 bg-white">
+            <FieldEditor
+              name={draftName}
+              draft={draft}
+              isPivot={isPivotDraft}
+              count={shelters.length}
+              dirty={dirty}
+              onName={setDraftName}
+              onChange={onChange}
+              onSave={onSave}
+              onCancel={onCancel}
+            />
+          </aside>
+        )}
       </div>
     </div>
   )

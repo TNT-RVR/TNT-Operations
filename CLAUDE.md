@@ -64,12 +64,15 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
         by `auth/session.test.ts`. First admin: set your `profiles.role` to
         `admin` directly after first sign-in (see `supabase/README.md`).
 - [~] Phase 4/5 — feature UIs (in progress):
-      - Shelter Maps: field geometry now flows through the data seam
+      - Shelter Maps: field geometry flows through the data seam
         (`Field.geometry`, mapped from Supabase `fields.data`); `MapsHome`
-        renders live `getTentPositions` pins + boundary/pivot on MapLibre with a
-        field-select detail panel. Verified in-browser (24/16 pins + graceful
-        no-geometry state). TODO: field editor (draw/import boundary, edit bay
-        params), shelter list/export.
+        renders live `getTentPositions` pins + boundary/pivot on MapLibre. A
+        `FieldEditor` panel edits placement params with LIVE preview (recompute
+        on every change), persists via `saveField` (added to BOTH providers),
+        click-to-move pivot, and a create-pivot bootstrap for geometry-less
+        fields. Gated by `can('maps','edit')`. Verified in-browser (live
+        recompute + save + SPA remount, 0 errors). TODO: freehand boundary
+        DRAWING (needs a draw lib), shelter list/export.
       - Incubation: still the read-only shell — TODO incubator detail, inspection
         history + add-inspection flow, readings chart, threshold alerts.
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),

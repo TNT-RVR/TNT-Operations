@@ -23,11 +23,18 @@ and "Next" sections as work progresses.
 - `Field.geometry` (the raw `getTentPositions` dict) now flows through the data
   seam; Supabase maps it from `fields.data` jsonb; `seed.ts` has 2 synthetic
   demo fields with geometry (pivot 24 / polygon 16) + 1 without.
-- `MapsHome` rewritten: pick a field → live shelter pins + boundary + pivot on
-  MapLibre (`@turf/turf` for the pivot circle + fit-bounds), detail overlay with
-  live count, graceful "no geometry" state. Verified: 24 / 16 pins, 0 console errors.
-- **Next in Maps:** field editor (draw/import boundary, edit bay params), shelter
-  list + export. **Then** the Incubation slice (detail, inspections, chart, alerts).
+- `MapsHome`: pick a field → live shelter pins + boundary + pivot on MapLibre
+  (`@turf/turf` for the pivot circle + fit-bounds), detail overlay, graceful
+  "no geometry" state.
+- `FieldEditor` panel: edit placement params (count/spacing, sprayer width,
+  angle, radius, bays, outside-pass, track exclusion) with LIVE preview; save
+  persists via `saveField` (added to BOTH providers — MockProvider now holds
+  `fields` in state); click map to move the pivot; "Add pivot geometry"
+  bootstraps a geometry-less field. Gated by `can('maps','edit')`.
+  Verified in-browser: live recompute, save persists, SPA remount — 0 errors.
+- **Next in Maps:** freehand boundary DRAWING (needs a draw lib e.g. terra-draw),
+  shelter list + export. **Then** the Incubation slice (detail, inspections,
+  chart, alerts).
 
 ### Earlier — Phase 3 + Auth
 Supabase backend + real-auth session built for both seams (mock mode unchanged).

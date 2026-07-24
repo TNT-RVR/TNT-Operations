@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Inspection, SensorReading } from './types'
+import type { Field, Inspection, SensorReading } from './types'
 import { seedFields, seedIncubators, seedInspections, seedReadings } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
@@ -10,12 +10,13 @@ const nextId = (prefix: string) => `${prefix}_${++idSeq}`
 
 /** Mock backend: seeded in-memory state, no server required. */
 function MockProvider({ children }: { children: ReactNode }) {
+  const [fields, setFields] = useState<Field[]>(seedFields)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [readings] = useState<SensorReading[]>(seedReadings)
 
   const value = useMemo<DataContextValue>(
     () => ({
-      fields: seedFields,
+      fields,
       incubators: seedIncubators,
       inspections,
       readings,
@@ -24,8 +25,10 @@ function MockProvider({ children }: { children: ReactNode }) {
         readings
           .filter((r) => r.incubatorId === incubatorId)
           .sort((a, b) => b.at.localeCompare(a.at))[0],
+      saveField: (id, patch) =>
+        setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
     }),
-    [inspections, readings],
+    [fields, inspections, readings],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

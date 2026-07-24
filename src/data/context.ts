@@ -16,6 +16,8 @@ export interface DataContextValue {
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined
+  /** Persist edits to a field (geometry, shelter count, name…). */
+  saveField: (id: string, patch: Partial<Field>) => void
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

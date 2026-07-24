@@ -85,19 +85,21 @@ export default async () => {
 
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
 
-  // Which incubators to poll: has a device, and isn't switched off.
+  // Poll every incubator that has a Govee device configured. We intentionally do
+  // NOT gate on temp_mode: that value is frozen at import time in Supabase (the
+  // desktop app changes modes only in the local SQLite), so it can't be trusted
+  // here. The physical sensor reports regardless of the app's "mode", and an
+  // offline sensor simply returns nothing and is skipped below.
   const incs = await fetch(
-    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode`,
+    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku`,
     { headers: sb },
   ).then((r) => r.json())
 
-  const active = (Array.isArray(incs) ? incs : []).filter(
-    (i) => i.govee_device_id && i.govee_sku && i.temp_mode !== 'off',
-  )
+  const withDevice = (Array.isArray(incs) ? incs : []).filter((i) => i.govee_device_id && i.govee_sku)
 
   const at = new Date().toISOString()
   const readings = []
-  for (const inc of active) {
+  for (const inc of withDevice) {
     const rd = await pollDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
     if (rd) readings.push({ incubator_id: inc.id, at, temp_c: rd.temp, humidity_pct: rd.hum, source: 'govee' })
   }
@@ -110,7 +112,9 @@ export default async () => {
     })
   }
 
-  return new Response(`poll-govee: ${active.length} active, ${readings.length} readings written`, {
-    status: 200,
-  })
+  const total = Array.isArray(incs) ? incs.length : 0
+  return new Response(
+    `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ${readings.length} readings written`,
+    { status: 200 },
+  )
 }

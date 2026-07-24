@@ -35,9 +35,16 @@ describe('grants (role permission matrix)', () => {
   })
 
   it('only admin/developer reach the users module', () => {
-    const canUsers = (['admin', 'developer', 'operator', 'viewer'] as Role[]).filter((r) =>
+    const canUsers = (['admin', 'developer', 'operator', 'viewer', 'pending'] as Role[]).filter((r) =>
       grants(r, 'users', 'view'),
     )
     expect(canUsers).toEqual(['admin', 'developer'])
+  })
+
+  it('pending (awaiting approval) can do nothing at all', () => {
+    for (const m of MODULES) {
+      expect(grants('pending', m, 'view')).toBe(false)
+      expect(grants('pending', m, 'edit')).toBe(false)
+    }
   })
 })

@@ -1,13 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
 import { LoginScreen } from './LoginScreen'
+import { PendingApproval } from './PendingApproval'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
 export const MODULES = ['dashboard', 'maps', 'incubation', 'sensors', 'users'] as const
 export type Module = (typeof MODULES)[number]
 export type Action = 'view' | 'edit'
 
-export type Role = 'admin' | 'developer' | 'operator' | 'viewer'
+export type Role = 'admin' | 'developer' | 'operator' | 'viewer' | 'pending'
+
+/** Roles an admin can assign in the Users screen (excludes the transient `pending`). */
+export const ASSIGNABLE_ROLES: Role[] = ['admin', 'developer', 'operator', 'viewer']
 
 export interface User {
   id: string
@@ -25,6 +29,8 @@ const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', sensors: 'edit' },
   // Read-only.
   viewer: { dashboard: 'view', maps: 'view', incubation: 'view', sensors: 'view' },
+  // Signed up, awaiting admin approval — no access to anything.
+  pending: {},
 }
 
 /** Whether `role` may perform `action` on `module`. Exported for the matrix test. */
@@ -41,6 +47,7 @@ const SEED_USERS: User[] = [
   { id: 'u_dev', name: 'Darren (Developer)', email: 'darren@example.com', role: 'developer' },
   { id: 'u_op', name: 'Field Operator', email: 'operator@example.com', role: 'operator' },
   { id: 'u_view', name: 'Viewer', email: 'viewer@example.com', role: 'viewer' },
+  { id: 'u_pending', name: 'New Signup', email: 'pending@example.com', role: 'pending' },
 ]
 
 const LS_KEY = 'tnt.session.userId'
@@ -56,6 +63,8 @@ export interface SessionValue {
   switchUser: (id: string) => void
   /** Mock: no-op. Supabase: sign out of the Supabase session. */
   signOut: () => void | Promise<void>
+  /** Admins assign/approve a user's role (updates `profiles.role` in supabase mode). */
+  updateUserRole: (userId: string, role: Role) => void
   authMode: AuthMode
 }
 
@@ -70,22 +79,32 @@ export function useSession(): SessionValue {
 // ── Mock session: the seeded user switcher (no backend) ───────────────────────
 function MockSessionProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string>(() => localStorage.getItem(LS_KEY) ?? SEED_USERS[0].id)
+  const [users, setUsers] = useState<User[]>(SEED_USERS)
+  const user = users.find((u) => u.id === userId) ?? users[0]
 
-  const value = useMemo<SessionValue>(() => {
-    const user = SEED_USERS.find((u) => u.id === userId) ?? SEED_USERS[0]
-    return {
+  const backToAdmin = () => {
+    localStorage.setItem(LS_KEY, SEED_USERS[0].id)
+    setUserId(SEED_USERS[0].id)
+  }
+
+  const value = useMemo<SessionValue>(
+    () => ({
       user,
-      users: SEED_USERS,
+      users,
       can: (module, action = 'view') => grants(user.role, module, action),
       switchUser: (id) => {
         localStorage.setItem(LS_KEY, id)
         setUserId(id)
       },
-      signOut: () => {},
+      signOut: backToAdmin,
+      updateUserRole: (uid, role) => setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, role } : u))),
       authMode: 'mock',
-    }
-  }, [userId])
+    }),
+    [user, users],
+  )
 
+  // A pending user (e.g. selected in the switcher) sees the awaiting-approval gate.
+  if (user.role === 'pending') return <PendingApproval name={user.name} onSignOut={backToAdmin} />
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }
 
@@ -137,7 +156,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       // minimal viewer so the app still renders (an admin sets the real role).
       const u: User =
         error || !data
-          ? { id: session.user.id, name: authEmail, email: authEmail, role: 'viewer' }
+          ? { id: session.user.id, name: authEmail, email: authEmail, role: 'pending' }
           : mapProfile(data as ProfileRow, authEmail)
       setUser(u)
 
@@ -174,6 +193,18 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       signOut: async () => {
         await sb.auth.signOut()
       },
+      updateUserRole: (userId, role) => {
+        sb.from('profiles')
+          .update({ role })
+          .eq('id', userId)
+          .then(({ error }) => {
+            if (error) {
+              console.error('[auth] updateUserRole:', error.message)
+              return
+            }
+            setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
+          })
+      },
       authMode: 'supabase',
     }
   }, [user, users, sb])
@@ -182,6 +213,10 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     return <div className="grid min-h-full place-items-center bg-slate-50 text-sm text-slate-500">Loading…</div>
   }
   if (!value) return <LoginScreen />
+  // Signed in but not yet approved → awaiting-approval gate (no app, no data).
+  if (value.user.role === 'pending') {
+    return <PendingApproval name={value.user.name || value.user.email} onSignOut={value.signOut} />
+  }
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }
 

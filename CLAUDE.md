@@ -80,7 +80,17 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
         = session user, gated by `can('incubation','edit')`). Verified in-browser.
 - [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
       email reports, PDF/KML/shapefile export.
-- [ ] Phase 7 — data import from old SQLite / `fields/*.json` / Firebase.
+- [~] Phase 7 — data import (started):
+      - Full incubation schema ported into the SAME Supabase project
+        (`0003_incubation_full.sql`): batches, samples, trays, rich inspections,
+        alerts, settings + VOC subsystem; 0001's incubators/inspections widened
+        to supersets so the app keeps working. `scripts/import_incubation.py`
+        turns a populated `incubation.db` into paste-able SQL (int ids → UUIDs).
+        NOTE: the current `incubation.db` has no operational data (only default
+        presets/settings), so nothing to import yet — confirm if real data lives
+        elsewhere (shop tablet?).
+      - TODO: fields/*.json import; app data-model + Incubation UI to adopt the
+        full model (batches/samples/trays); Firebase (if still needed).
 
 ## Dev
 - `npm run dev` — runs on mock data, no backend needed.

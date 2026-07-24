@@ -20,3 +20,6 @@ dist-ssr
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# generated data import (may contain real operational data — never commit)
+scripts/incubation_import.sql

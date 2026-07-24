@@ -7,8 +7,8 @@ to run the live backend (`VITE_DATA_SOURCE=supabase`).
 ## Apply the migrations
 
 **Option A — SQL editor (quickest):** open the Supabase dashboard → SQL editor,
-paste `migrations/0001_init.sql`, run it, then `migrations/0002_seed.sql`. Both
-are re-runnable.
+paste and run each migration in order: `0001_init.sql`, `0002_seed.sql`,
+`0003_incubation_full.sql`. All are re-runnable.
 
 **Option B — Supabase CLI:**
 
@@ -22,9 +22,30 @@ supabase db push          # applies everything in migrations/
 - `profiles` — one row per Supabase Auth user, carrying their app role
   (`admin` | `developer` | `operator` | `viewer`). A trigger auto-creates a
   profile (default `viewer`) on signup; an admin promotes users afterward.
-- `fields`, `incubators`, `inspections`, `sensor_readings` — columns match
-  `src/data/types.ts`. `fields.data` (jsonb) holds the full field-authoring
+- `fields` — Shelter Maps. `fields.data` (jsonb) holds the full field-authoring
   payload the shelter-grid engine consumes.
+- Full incubation model (`0003`), ported 1:1 from the old bee-incubation SQLite:
+  `incubators` (physical units), `incubation_batches` (lifecycle event dates),
+  `samples`, `trays`, `inspections` (rich thermometer/checklist columns),
+  `sensor_readings`, `alerts`, `settings`, plus the VOC subsystem (`presets`,
+  `sensor_positions`, `voc_runs`, `voc_readings`, `voc_alert_events`). Everything
+  lives in this ONE project alongside `fields`. `0001`'s simplified `incubators`
+  /`inspections` are widened into supersets, so the current app keeps working.
+
+## Import old incubation data
+
+The schema is ready to hold the old data; run the importer when you have a
+populated `incubation.db`:
+
+```bash
+python scripts/import_incubation.py "<path>\incubation.db"   # → scripts/incubation_import.sql
+```
+
+It emits a SQL file (old integer ids → stable UUIDs, FKs preserved) that you
+paste into the SQL editor **after** the migrations — no service-role key needed.
+The generated `.sql` is gitignored (may contain real operational data). Note:
+the current `incubation.db` in Google Drive has only default presets/settings
+(which the migration already seeds), so there is nothing else to import yet.
 - **RLS** mirroring `src/auth/session.tsx`: any signed-in user may read; only
   `admin`/`developer`/`operator` may write operational data; only
   `admin`/`developer` manage users. Role checks use SECURITY DEFINER helpers

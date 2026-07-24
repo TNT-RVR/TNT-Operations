@@ -40,8 +40,18 @@ and "Next" sections as work progresses.
   whole app (main.tsx) AND the routed `<Outlet>` in Layout, keyed by pathname so
   a crashed screen shows a recoverable fallback while the nav stays usable and
   navigating away resets it. Verified with a temporary throw.
-- **Next:** freehand boundary DRAWING in Maps (needs a draw lib e.g. terra-draw)
-  + shelter export (KML/CSV); Phase 3 live smoke-test; Phase 6 integrations.
+- **Incubation DB port (Phase 7 start):** the full old bee-incubation schema is
+  ported into the SAME Supabase project (`0003_incubation_full.sql`) — batches,
+  samples, trays, rich inspections, alerts, settings, VOC. 0001's incubators/
+  inspections were widened to supersets so the current app keeps working.
+  `scripts/import_incubation.py` → paste-able SQL (int ids → UUIDs).
+  **Finding:** the live `incubation.db` (My Drive) has NO operational data (only
+  default presets/settings) — nothing to import yet; confirm if real data is on
+  another machine.
+- **Blocked on you (go live):** create the Supabase project → paste the Project
+  URL + anon key so I can wire `.env` and apply `0001`→`0003` + smoke-test login.
+- **Next:** app data-model + Incubation UI to adopt the full model
+  (batches/samples/trays); Maps boundary DRAWING + export; Phase 6 integrations.
 
 ### Earlier — Phase 3 + Auth
 Supabase backend + real-auth session built for both seams (mock mode unchanged).

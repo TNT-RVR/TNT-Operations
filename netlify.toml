@@ -10,6 +10,12 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Serverless functions (incl. the scheduled cloud Govee poller in
+# netlify/functions/poll-govee.mjs). Needs env vars GOVEE_API_KEY +
+# SUPABASE_SERVICE_ROLE set in Netlify to activate.
+[functions]
+  directory = "netlify/functions"
+
 # Single-page app: every path serves index.html so client-side routes (e.g.
 # /maps, /incubation) work on refresh / direct link.
 [[redirects]]

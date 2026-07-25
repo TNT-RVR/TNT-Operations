@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
 import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification } from './types'
+import type { CostPrefs } from '@/domain/cost'
 import { supabase } from './supabaseClient'
 import {
   toField,
@@ -43,6 +44,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [samples, setSamples] = useState<Sample[]>([])
   const [trays, setTrays] = useState<Tray[]>([])
   const [batches, setBatches] = useState<IncubationBatch[]>([])
+  const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
@@ -94,6 +96,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Cost-estimator pricing forms (one row per year). Missing table (0007
+      // not yet applied) degrades to an empty store — the UI uses defaults.
+      const cp = await sb.from('cost_prefs').select('*')
+      if (cancelled) return
+      if (cp.error) console.warn('[data] load cost_prefs:', cp.error.message)
+      else {
+        const byYear: Record<string, Partial<CostPrefs>> = {}
+        for (const row of (cp.data as Array<{ year: string; data: Partial<CostPrefs> }>) ?? []) {
+          byYear[row.year] = row.data ?? {}
+        }
+        setCostPrefsByYear(byYear)
+      }
 
       const PAGE = 1000
       const allTrays: Tray[] = []
@@ -252,8 +267,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           .eq('id', id)
           .then(({ error }) => error && console.error('[data] deleteNotification:', error.message))
       },
+      costPrefsByYear,
+      saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => {
+        if (!supabase) return
+        setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs }))
+        supabase
+          .from('cost_prefs')
+          .upsert({ year, data: prefs })
+          .then(({ error }) => error && console.error('[data] saveCostPrefs:', error.message))
+      },
     }),
-    [fields, incubators, inspections, readings, notifications, samples, trays, batches],
+    [fields, incubators, inspections, readings, notifications, samples, trays, batches, costPrefsByYear],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

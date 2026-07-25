@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
 import type { Field, Inspection, SensorReading, AppNotification } from './types'
+import type { CostPrefs } from '@/domain/cost'
 import {
   seedFields,
   seedIncubators,
@@ -23,6 +24,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
+  const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
   const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
@@ -49,8 +51,10 @@ function MockProvider({ children }: { children: ReactNode }) {
       markAllNotificationsRead: () =>
         setNotifications((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: nowIso() }))),
       deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
+      costPrefsByYear,
+      saveCostPrefs: (year, prefs) => setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs })),
     }),
-    [fields, inspections, readings, notifications],
+    [fields, inspections, readings, notifications, costPrefsByYear],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

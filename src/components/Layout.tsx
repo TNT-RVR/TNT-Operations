@@ -34,7 +34,16 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
-  { to: '/maps', label: 'Shelter Maps', icon: Map, module: 'maps' },
+  {
+    to: '/maps',
+    label: 'Shelter Maps',
+    icon: Map,
+    module: 'maps',
+    children: [
+      { to: '/maps', label: 'Fields', end: true },
+      { to: '/maps/costs', label: 'Costs' },
+    ],
+  },
   {
     to: '/incubation',
     label: 'Incubation',

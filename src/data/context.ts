@@ -9,6 +9,7 @@ import type {
   Tray,
   AppNotification,
 } from './types'
+import type { CostPrefs } from '@/domain/cost'
 
 /**
  * The ONE seam every screen talks to. Screens import `useData()` — never a
@@ -39,6 +40,10 @@ export interface DataContextValue {
   markNotificationsRead: (ids: string[]) => void
   markAllNotificationsRead: () => void
   deleteNotification: (id: string) => void
+
+  /** Cost-estimator pricing forms, keyed by pricing year (spec Part 8). */
+  costPrefsByYear: Record<string, Partial<CostPrefs>>
+  saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => void
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import { Protected } from './components/Protected'
 import Dashboard from './features/dashboard/Dashboard'
 import MapsHome from './features/maps/MapsHome'
+import CostsHome from './features/maps/CostsHome'
 import IncubationHome from './features/incubation/IncubationHome'
 import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
@@ -16,6 +17,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Protected module="dashboard"><Dashboard /></Protected>} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
+        <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="incubation/samples" element={<Protected module="incubation"><SamplesHome /></Protected>} />
         <Route path="incubation/trays" element={<Protected module="incubation"><TraysHome /></Protected>} />

@@ -7,11 +7,12 @@ import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Field, FieldGeometry } from '@/data/types'
-import { Pencil, Upload, Check, Undo2, X as XIcon } from 'lucide-react'
+import { Pencil, Upload, Check, Undo2, X as XIcon, MapPin } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
 import { FieldEditor } from './FieldEditor'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
+import { shelterCsv, sheltersKml, fieldGeoJson, downloadText, slug } from './exports'
 
 // Theme colours (tailwind.config.js) used for map features.
 const BRAND = '#B8860B' // honey amber — shelter pins
@@ -142,12 +143,15 @@ export default function MapsHome() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
+  const shelterMarkersRef = useRef<maplibregl.Marker[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [ready, setReady] = useState(false)
   // Boundary drawing: an in-progress ring of [lat, lon] vertices.
   const [drawing, setDrawing] = useState(false)
   const [drawPts, setDrawPts] = useState<Array<[number, number]>>([])
   const [importError, setImportError] = useState<string | null>(null)
+  // Manual-shelter placement (mode = 'manual'): click to drop pins.
+  const [placing, setPlacing] = useState(false)
 
   const selectedField: Field | null = useMemo(
     () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
@@ -162,6 +166,11 @@ export default function MapsHome() {
   const shelters = useMemo(() => (previewGeom ? getTentPositions(previewGeom) : []), [previewGeom])
 
   const isPivotDraft = !!draft && !draft.boundary_polygon
+  const manualEditing = editing && !!draft && str(draft.shelter_mode) === 'manual'
+  const manualPins: Array<[number, number]> = useMemo(
+    () => (Array.isArray(draft?.manual_shelter_pins) ? (draft!.manual_shelter_pins as Array<[number, number]>) : []),
+    [draft],
+  )
   const dirty =
     editing &&
     (draftName !== (selectedField?.name ?? '') ||
@@ -170,7 +179,22 @@ export default function MapsHome() {
   function resetDraw() {
     setDrawing(false)
     setDrawPts([])
+    setPlacing(false)
     setImportError(null)
+  }
+
+  // ── Manual shelter pins (shelter_mode = 'manual') ─────────────────────────
+  function setManualPins(pins: Array<[number, number]>) {
+    setDraft((prev) => (prev ? { ...prev, shelter_mode: 'manual', manual_shelter_pins: pins } : prev))
+  }
+  function addManualPin(lat: number, lon: number) {
+    setManualPins([...manualPins, [lat, lon]])
+  }
+  function updateManualPin(i: number, lat: number, lon: number) {
+    setManualPins(manualPins.map((p, idx) => (idx === i ? [lat, lon] : p)))
+  }
+  function deleteManualPin(i: number) {
+    setManualPins(manualPins.filter((_, idx) => idx !== i))
   }
 
   function selectField(id: string) {
@@ -247,6 +271,15 @@ export default function MapsHome() {
     } catch (e) {
       setImportError(e instanceof Error ? e.message : 'Import failed')
     }
+  }
+
+  function exportField(kind: 'kml' | 'geojson' | 'csv') {
+    if (!selectedField) return
+    const s = slug(selectedField.name)
+    const g = selectedField.geometry
+    if (kind === 'kml') downloadText(`${s}.kml`, 'application/vnd.google-earth.kml+xml', sheltersKml(selectedField.name, shelters, g))
+    else if (kind === 'geojson') downloadText(`${s}.geojson`, 'application/geo+json', fieldGeoJson(selectedField.name, shelters, g))
+    else downloadText(`${s}_shelters.csv`, 'text/csv', shelterCsv(shelters))
   }
 
   function onChange(key: string, value: unknown) {
@@ -352,6 +385,8 @@ export default function MapsHome() {
     return () => {
       pinMarkersRef.current.forEach((m) => m.remove())
       pinMarkersRef.current = []
+      shelterMarkersRef.current.forEach((m) => m.remove())
+      shelterMarkersRef.current = []
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -370,7 +405,8 @@ export default function MapsHome() {
     ;(map.getSource('pivot') as GeoJSONSource | undefined)?.setData(
       pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
     )
-    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(sheltersCollection(shelters))
+    // While hand-editing manual pins, draggable markers stand in for the dots.
+    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(manualEditing ? EMPTY : sheltersCollection(shelters))
 
     // Overlays: tracks, exclusion zones, corner arms.
     const geom = previewGeom ?? {}
@@ -395,7 +431,50 @@ export default function MapsHome() {
         `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)`
       return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
     })
-  }, [ready, previewGeom, shelters])
+  }, [ready, previewGeom, shelters, manualEditing])
+
+  // Manual shelter pins → draggable markers (drag to move, double-click to delete).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    shelterMarkersRef.current.forEach((m) => m.remove())
+    if (!manualEditing) {
+      shelterMarkersRef.current = []
+      return
+    }
+    shelterMarkersRef.current = manualPins.map(([lat, lon], i) => {
+      const el = document.createElement('div')
+      el.title = 'Drag to move · double-click to delete'
+      el.style.cssText =
+        `width:14px;height:14px;border-radius:9999px;background:${BRAND};` +
+        `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
+      el.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation()
+        deleteManualPin(i)
+      })
+      const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat([lon, lat]).addTo(map)
+      marker.on('dragend', () => {
+        const ll = marker.getLngLat()
+        updateManualPin(i, ll.lat, ll.lng)
+      })
+      return marker
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, manualEditing, manualPins])
+
+  // While placing, each map click drops a manual shelter pin.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !placing || !manualEditing) return
+    const handler = (e: maplibregl.MapMouseEvent) => addManualPin(e.lngLat.lat, e.lngLat.lng)
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, placing, manualEditing, manualPins])
 
   // Render the in-progress draw ring (polygon once ≥3 pts) + its vertices.
   useEffect(() => {
@@ -456,7 +535,7 @@ export default function MapsHome() {
   // (Disabled during boundary drawing — that handler owns clicks then.)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready || !editing || !isPivotDraft || drawing) return
+    if (!map || !ready || !editing || !isPivotDraft || drawing || placing) return
     const handler = (e: maplibregl.MapMouseEvent) => {
       setDraft((prev) =>
         prev ? { ...prev, PP_Longitude: String(e.lngLat.lng), PP_Latitude: String(e.lngLat.lat) } : prev,
@@ -468,7 +547,7 @@ export default function MapsHome() {
       map.off('click', handler)
       if (mapRef.current) map.getCanvas().style.cursor = ''
     }
-  }, [ready, editing, isPivotDraft, drawing])
+  }, [ready, editing, isPivotDraft, drawing, placing])
 
   return (
     <div className="flex h-full flex-col">
@@ -523,6 +602,31 @@ export default function MapsHome() {
                     <Upload size={14} /> Import file
                   </button>
                   {importError && <p className="max-w-[12rem] text-[11px] text-danger">{importError}</p>}
+                  {manualEditing && (
+                    <div className="mt-1 border-t border-subtle pt-2">
+                      <div className="mb-1 text-[11px] text-muted">{manualPins.length} manual pins</div>
+                      <div className="flex gap-1.5">
+                        <button
+                          className={`${placing ? 'btn-primary' : 'btn-ghost'} min-h-0 px-2 py-1.5 text-xs`}
+                          onClick={() => setPlacing((v) => !v)}
+                        >
+                          <MapPin size={14} /> {placing ? 'Done' : 'Add shelters'}
+                        </button>
+                        <button
+                          className="btn-ghost min-h-0 px-2 py-1.5 text-xs"
+                          onClick={() => setManualPins([])}
+                          disabled={!manualPins.length}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      {placing && (
+                        <p className="mt-1 max-w-[12rem] text-[11px] text-muted">
+                          Click map to add. Drag a pin to move, double-click to delete.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -591,6 +695,22 @@ export default function MapsHome() {
                 </>
               ) : (
                 <p className="mt-2 text-sm text-muted">No field geometry imported yet.</p>
+              )}
+              {selectedField.geometry && shelters.length > 0 && (
+                <div className="mt-3">
+                  <div className="label mb-1">Export</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['kml', 'geojson', 'csv'] as const).map((k) => (
+                      <button
+                        key={k}
+                        className="btn-ghost min-h-0 px-2 py-1 text-[11px] uppercase"
+                        onClick={() => exportField(k)}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
               {canEdit && (
                 <button className="btn-primary mt-3 w-full" onClick={enterEdit}>

@@ -32,6 +32,7 @@ const SHELTER_MODES: Array<{ value: string; label: string }> = [
   { value: 'acres_per_shelter', label: 'Acres / shelter' },
   { value: 'trays_1', label: 'Trays (1 / shelter)' },
   { value: 'trays_2', label: 'Trays (2 / shelter)' },
+  { value: 'manual', label: 'Manual pins' },
 ]
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -160,6 +161,14 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
             {usesTrays && <NumField label="Gallons / tray" fieldKey="gals_per_tray" draft={draft} onChange={onChange} />}
             {usesAcres && <NumField label="Acres" fieldKey="acres" draft={draft} onChange={onChange} />}
           </div>
+          {mode === 'manual' && (
+            <p
+              className="rounded-md px-3 py-2 text-xs"
+              style={{ background: 'var(--info-bg)', border: '1px solid var(--info-bd)', color: 'var(--info-fg)' }}
+            >
+              Placed by hand. Use the map's “Add shelters” tool — drag to move, double-click to delete.
+            </p>
+          )}
           {usesTrays && (
             <label className="block">
               <span className="label">Tray distribution</span>

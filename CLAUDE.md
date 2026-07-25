@@ -9,6 +9,15 @@ Python desktop apps into one React site with separate sections:
 Stack: **React + TypeScript + Vite + Tailwind + MapLibre**. Deploys to Netlify.
 Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
 
+> **📖 The authoritative product spec is [`docs/web-rebuild-spec.md`](docs/web-rebuild-spec.md)**
+> (copied verbatim from the old app's `WEB_REBUILD_SPEC.md`). It is the *what and
+> why of everything*: the business, leafcutter-bee domain model, every field-JSON
+> key + default, every placement formula (`maketentgrid.py`), the cost-estimator
+> math, the tablet crew app, sync ecosystem, overlay colour palette, and the
+> rebuild priorities. When porting a feature, CHECK IT FIRST — it outranks
+> guesses from code archaeology. The migration-status list below tracks what's
+> done; the spec defines what "done" means.
+
 > This project is **independent** of Grand Forks Concrete/Gravel. The design
 > system was seeded from a one-time copy of Concrete's generic UI scaffolding and
 > then rebranded — there is NO shared code, repo, or dependency. Keep it that way.

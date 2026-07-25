@@ -15,17 +15,30 @@ const BRAND = '#B8860B' // honey amber — shelter pins
 const FIELD = '#4D7C0F' // canola green — field boundary
 const INK = '#1A1206' // pivot centre
 
-const OSM_STYLE: StyleSpecification = {
+// Satellite basemap — Esri World Imagery (free raster tiles, no API key), with a
+// light labels/roads overlay so towns + roads stay legible over the imagery.
+const SATELLITE_STYLE: StyleSpecification = {
   version: 8,
   sources: {
-    osm: {
+    satellite: {
       type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      maxzoom: 19,
+      attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+    },
+    labels: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: '© Esri',
     },
   },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+  layers: [
+    { id: 'satellite', type: 'raster', source: 'satellite' },
+    { id: 'labels', type: 'raster', source: 'labels' },
+  ],
 }
 
 const DEFAULT_CENTER: [number, number] = [-111.6, 49.83]
@@ -178,7 +191,7 @@ export default function MapsHome() {
     if (!containerRef.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: OSM_STYLE,
+      style: SATELLITE_STYLE,
       center: DEFAULT_CENTER,
       zoom: 9,
       attributionControl: { compact: true },

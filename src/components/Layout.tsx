@@ -29,7 +29,8 @@ const NAV: NavItem[] = [
     module: 'incubation',
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
-      { to: '/incubation/samples', label: 'Samples & Trays' },
+      { to: '/incubation/samples', label: 'Samples' },
+      { to: '/incubation/trays', label: 'Trays' },
     ],
   },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },

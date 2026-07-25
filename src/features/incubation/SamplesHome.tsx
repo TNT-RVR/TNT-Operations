@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
 import { calcSampleSummary, formatDays, daysFromNow, BATCH_EVENT_FIELDS } from '@/domain/incubation'
@@ -53,7 +54,7 @@ export default function SamplesHome() {
 
   return (
     <div>
-      <PageHeader title="Samples & Trays" subtitle="Bee lots, x-ray grading, and tray allocation" />
+      <PageHeader title="Samples" subtitle="Bee lots, x-ray grading, and tray allocation" />
       <div className="space-y-6 p-4 md:p-6">
         {/* Totals */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -165,7 +166,13 @@ export default function SamplesHome() {
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-slate-400">Open a sample to see its individual trays.</p>
+              <p className="text-xs text-slate-400">
+                Open a sample to see its individual trays, or view the{' '}
+                <Link to="/incubation/trays" className="font-medium text-brand hover:underline">
+                  full filterable Trays list
+                </Link>
+                .
+              </p>
             </div>
           )}
         </section>

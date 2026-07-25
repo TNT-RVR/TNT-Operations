@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -44,6 +44,7 @@ const NAV: NavItem[] = [
       { to: '/maps/costs', label: 'Costs' },
     ],
   },
+  { to: '/field', label: 'Field Mode', icon: Navigation, module: 'maps' },
   {
     to: '/incubation',
     label: 'Incubation',

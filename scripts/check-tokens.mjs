@@ -7,6 +7,7 @@
  * Allowed exceptions:
  *   - src/styles/tokens.css .................. the single source of truth
  *   - src/features/maps/** ................... MapLibre paint needs literal hex
+ *   - src/features/field/** .................. same (the crew Field Mode map)
  *     (kept aligned to token hex values; MapLibre can't read CSS variables)
  *   - any line with a `token-exempt` comment .. explicit, reviewed escape hatch
  *
@@ -20,7 +21,11 @@ import { fileURLToPath } from 'node:url'
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..')
 const SRC = join(ROOT, 'src')
 
-const ALLOW_FILE = [/^src[\\/]styles[\\/]tokens\.css$/, /^src[\\/]features[\\/]maps[\\/]/]
+const ALLOW_FILE = [
+  /^src[\\/]styles[\\/]tokens\.css$/,
+  /^src[\\/]features[\\/]maps[\\/]/,
+  /^src[\\/]features[\\/]field[\\/]/,
+]
 const HEX = /#[0-9a-fA-F]{3,8}\b/g
 const EXEMPT = /token-exempt/
 

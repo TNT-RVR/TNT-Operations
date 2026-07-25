@@ -116,6 +116,59 @@ export async function fieldPdf(name: string, metaLines: string[], positions: Lat
   return doc.output('blob')
 }
 
+/**
+ * John Deere shelter buffer zones: a square of ±bufferM around each shelter
+ * (section-control "internal boundaries"), zipped shapefile for the JD
+ * Operations Center. Client/Farm ride in the dbf attributes — only this export
+ * carries them (matches the desktop app).
+ */
+export async function jdBufferZonesZip(
+  name: string,
+  positions: LatLng[],
+  bufferM: number,
+  client: string,
+  farm: string,
+): Promise<Blob> {
+  const shpwrite = await import('@mapbox/shp-write')
+  const half = bufferM > 0 ? bufferM : 1.524 // default 5 ft
+  const features = positions.map((p, i) => {
+    const dLat = half / 111320
+    const dLon = half / (111320 * Math.cos((p.lat * Math.PI) / 180))
+    const ring = [
+      [p.lng - dLon, p.lat - dLat],
+      [p.lng + dLon, p.lat - dLat],
+      [p.lng + dLon, p.lat + dLat],
+      [p.lng - dLon, p.lat + dLat],
+      [p.lng - dLon, p.lat - dLat],
+    ]
+    return {
+      type: 'Feature' as const,
+      properties: { Shelter: i + 1, Client: client, Farm: farm, Field: name },
+      geometry: { type: 'Polygon' as const, coordinates: [ring] },
+    }
+  })
+  const gj = { type: 'FeatureCollection', features } as unknown as GeoJSON.FeatureCollection
+  const out = await shpwrite.zip<'blob'>(gj, {
+    outputType: 'blob',
+    compression: 'DEFLATE',
+    types: { polygon: 'shelter_buffer_zones' },
+  })
+  return out as Blob
+}
+
+/** Trimble AgGPS: shelter points shapefile nested in an AgGPS/ folder (USB root). */
+export async function aggpsZip(name: string, positions: LatLng[]): Promise<Blob> {
+  const shpwrite = await import('@mapbox/shp-write')
+  const gj = fieldFeatureCollection(name, positions) as unknown as GeoJSON.FeatureCollection
+  const out = await shpwrite.zip<'blob'>(gj, {
+    outputType: 'blob',
+    compression: 'DEFLATE',
+    folder: `AgGPS/Data/${slug(name)}`,
+    types: { point: 'Shelters', polygon: 'Boundary' },
+  })
+  return out as Blob
+}
+
 /** Zipped shapefile (.zip: shelters points + boundary polygon) for JD / GIS. */
 export async function shelterShapefileZip(name: string, positions: LatLng[], geom?: FieldGeometry): Promise<Blob> {
   const shpwrite = await import('@mapbox/shp-write')

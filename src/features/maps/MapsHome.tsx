@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import maplibregl, { type StyleSpecification, type GeoJSONSource } from 'maplibre-gl'
+import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { circle as turfCircle, bbox as turfBbox } from '@turf/turf'
 import type { Feature, FeatureCollection, Polygon, Point, Position } from 'geojson'
 import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
+import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
 import { Pencil, Upload, Check, Undo2, X as XIcon, MapPin } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
@@ -13,9 +14,21 @@ import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, ty
 import { crewRoute } from '@/domain/crewRoute'
 import { fieldWarnings } from '@/domain/fieldWarnings'
 import { FieldEditor } from './FieldEditor'
+import { SATELLITE_STYLE } from './basemap'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
-import { shelterCsv, sheltersKml, fieldGeoJson, fieldPdf, shelterShapefileZip, downloadText, downloadBlob, slug } from './exports'
+import {
+  shelterCsv,
+  sheltersKml,
+  fieldGeoJson,
+  fieldPdf,
+  shelterShapefileZip,
+  jdBufferZonesZip,
+  aggpsZip,
+  downloadText,
+  downloadBlob,
+  slug,
+} from './exports'
 
 // Canonical overlay palette — docs/web-rebuild-spec.md Part 13. Keep identical
 // across all surfaces (desktop/web/tablet) so crews and operators see the same map.
@@ -29,6 +42,19 @@ const ACCESS = '#FF2D95' // pivot access road
 const WET = '#39B7D6' // wet zones (translucent fill)
 const WET_LINE = '#39B7D6'
 const CREW = '#A855F7' // crew route (desktop purple)
+const CREW_LIVE = '#3FB6A8' // live crew position pins (teal)
+
+/** A crew position broadcast from Field Mode (channel 'crew_live'). */
+interface LiveCrew {
+  name: string
+  fieldId: string
+  fieldName: string
+  lat: number
+  lng: number
+  placed: number
+  total: number
+  at: string
+}
 const PIN_COLORS: Record<PinKind, string> = { entrance: '#16A34A', parking: '#F59E0B', home: '#2F7FE6' }
 const PIN_LABEL: Record<PinKind, string> = { entrance: 'E', parking: 'P', home: 'H' }
 
@@ -43,32 +69,6 @@ function legendItems(geom: FieldGeometry): Array<{ label: string; color: string 
   if (nonEmpty(geom.wet_zones)) items.push({ label: 'Wet zone', color: WET })
   for (const p of overlayPins(geom)) items.push({ label: p.kind, color: PIN_COLORS[p.kind] })
   return items
-}
-
-// Satellite basemap — Esri World Imagery (free raster tiles, no API key), with a
-// light labels/roads overlay so towns + roads stay legible over the imagery.
-const SATELLITE_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    satellite: {
-      type: 'raster',
-      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-    },
-    labels: {
-      type: 'raster',
-      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© Esri',
-    },
-  },
-  layers: [
-    { id: 'satellite', type: 'raster', source: 'satellite' },
-    { id: 'labels', type: 'raster', source: 'labels' },
-  ],
 }
 
 const DEFAULT_CENTER: [number, number] = [-111.6, 49.83]
@@ -173,6 +173,9 @@ export default function MapsHome() {
   const [importError, setImportError] = useState<string | null>(null)
   // Manual-shelter placement (mode = 'manual'): click to drop pins.
   const [placing, setPlacing] = useState(false)
+  // Live crews broadcasting from Field Mode.
+  const [liveCrews, setLiveCrews] = useState<Record<string, LiveCrew>>({})
+  const crewMarkersRef = useRef<maplibregl.Marker[]>([])
 
   const selectedField: Field | null = useMemo(
     () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
@@ -315,7 +318,7 @@ export default function MapsHome() {
     }
   }
 
-  async function exportField(kind: 'kml' | 'geojson' | 'csv' | 'pdf' | 'shp') {
+  async function exportField(kind: 'kml' | 'geojson' | 'csv' | 'pdf' | 'shp' | 'jd' | 'aggps') {
     if (!selectedField) return
     const f = selectedField
     const s = slug(f.name)
@@ -332,6 +335,13 @@ export default function MapsHome() {
       downloadBlob(`${s}.pdf`, await fieldPdf(f.name, lines, shelters))
     } else if (kind === 'shp') {
       downloadBlob(`${s}_shp.zip`, await shelterShapefileZip(f.name, shelters, g))
+    } else if (kind === 'jd') {
+      // Client/Farm: remembered on the field, else the desktop defaults.
+      const client = str(g?.jd_client) || 'Riverview Ranch'
+      const farm = str(g?.jd_farm) || f.name.split(' ')[0]
+      downloadBlob(`${s}_jd_buffer_zones.zip`, await jdBufferZonesZip(f.name, shelters, num(g?.shelter_buffer_m) || 1.524, client, farm))
+    } else if (kind === 'aggps') {
+      downloadBlob(`${s}_aggps.zip`, await aggpsZip(f.name, shelters))
     }
   }
 
@@ -468,6 +478,8 @@ export default function MapsHome() {
       pinMarkersRef.current = []
       shelterMarkersRef.current.forEach((m) => m.remove())
       shelterMarkersRef.current = []
+      crewMarkersRef.current.forEach((m) => m.remove())
+      crewMarkersRef.current = []
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -575,6 +587,46 @@ export default function MapsHome() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, placing, manualEditing, manualPins])
+
+  // Live crews: subscribe to Field Mode broadcasts; prune stale (>90 s) nodes.
+  useEffect(() => {
+    if (!supabase) return
+    const channel = supabase
+      .channel('crew_live')
+      .on('broadcast', { event: 'crew' }, ({ payload }) => {
+        const c = payload as LiveCrew
+        if (!c?.name || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return
+        setLiveCrews((prev) => ({ ...prev, [c.name]: c }))
+      })
+      .subscribe()
+    const prune = setInterval(
+      () =>
+        setLiveCrews((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([, c]) => Date.now() - new Date(c.at).getTime() < 90_000)),
+        ),
+      30_000,
+    )
+    return () => {
+      clearInterval(prune)
+      supabase?.removeChannel(channel)
+    }
+  }, [])
+
+  // Draw live-crew pins (teal, name + progress).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    crewMarkersRef.current.forEach((m) => m.remove())
+    crewMarkersRef.current = Object.values(liveCrews).map((c) => {
+      const el = document.createElement('div')
+      el.textContent = `${c.name} ${c.placed}/${c.total}`
+      el.title = `${c.name} — ${c.fieldName} (${c.placed}/${c.total} placed)`
+      el.style.cssText =
+        `padding:2px 8px;border-radius:9999px;background:${CREW_LIVE};color:#04201C;` +
+        `font:600 11px/1.4 sans-serif;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap`
+      return new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).addTo(map)
+    })
+  }, [ready, liveCrews])
 
   // Render the in-progress draw ring (polygon once ≥3 pts) + its vertices.
   useEffect(() => {
@@ -815,7 +867,7 @@ export default function MapsHome() {
                 <div className="mt-3">
                   <div className="label mb-1">Export</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {(['kml', 'geojson', 'csv', 'pdf', 'shp'] as const).map((k) => (
+                    {(['kml', 'geojson', 'csv', 'pdf', 'shp', 'jd', 'aggps'] as const).map((k) => (
                       <button
                         key={k}
                         className="btn-ghost min-h-0 px-2 py-1 text-[11px] uppercase"

@@ -9,6 +9,14 @@ import { ThemeProvider } from './styles/theme'
 import './styles/tokens.css'
 import './index.css'
 
+// Offline-capable field app: register the service worker (production builds
+// only — the dev server serves modules the SW must not cache).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => console.warn('[sw] register failed:', e))
+  })
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>

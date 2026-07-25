@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint:tokens": "node scripts/check-tokens.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",

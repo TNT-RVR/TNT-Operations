@@ -210,7 +210,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   }, [user, users, sb])
 
   if (status === 'loading') {
-    return <div className="grid min-h-full place-items-center bg-slate-50 text-sm text-slate-500">Loading…</div>
+    return <div className="grid min-h-full place-items-center bg-base text-sm text-muted">Loading…</div>
   }
   if (!value) return <LoginScreen />
   // Signed in but not yet approved → awaiting-approval gate (no app, no data).

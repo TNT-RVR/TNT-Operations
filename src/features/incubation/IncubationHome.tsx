@@ -48,14 +48,14 @@ export default function IncubationHome() {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <h2 className="font-bold">{i.name}</h2>
-                  {i.location && <p className="text-xs text-slate-500">{i.location}</p>}
+                  {i.location && <p className="text-xs text-muted">{i.location}</p>}
                 </div>
                 <Badge tone={modeTone(i, d.running)}>{d.modeLabel}</Badge>
               </div>
 
               {p && (
                 <div className="mb-3">
-                  <div className="mb-1 flex justify-between text-xs text-slate-500">
+                  <div className="mb-1 flex justify-between text-xs text-muted">
                     <span>{day != null ? `Day ${day}` : p.stage}</span>
                     <span>
                       {p.pct}% · {p.daysRemaining}d left
@@ -67,17 +67,17 @@ export default function IncubationHome() {
 
               <dl className="grid grid-cols-2 gap-2 text-sm">
                 <div>
-                  <dt className="text-slate-500">Temp (latest)</dt>
-                  <dd className={`font-semibold ${tempOut ? 'text-red-600' : 'text-slate-900'}`}>
+                  <dt className="text-muted">Temp (latest)</dt>
+                  <dd className={`font-semibold ${tempOut ? 'text-danger' : 'text-primary'}`}>
                     {r ? `${r.tempC.toFixed(1)}°C` : '—'}{' '}
-                    <span className="text-xs text-slate-400">/ {fmtRange(d.tempMin, d.tempMax, '°C', `${i.tempTargetC}°C`)}</span>
+                    <span className="text-xs text-faint">/ {fmtRange(d.tempMin, d.tempMax, '°C', `${i.tempTargetC}°C`)}</span>
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Humidity (latest)</dt>
-                  <dd className={`font-semibold ${humOut ? 'text-red-600' : 'text-slate-900'}`}>
+                  <dt className="text-muted">Humidity (latest)</dt>
+                  <dd className={`font-semibold ${humOut ? 'text-danger' : 'text-primary'}`}>
                     {r ? `${r.humidityPct}%` : '—'}{' '}
-                    <span className="text-xs text-slate-400">/ {fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`)}</span>
+                    <span className="text-xs text-faint">/ {fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`)}</span>
                   </dd>
                 </div>
               </dl>

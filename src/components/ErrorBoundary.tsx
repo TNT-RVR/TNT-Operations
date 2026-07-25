@@ -41,13 +41,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="grid min-h-[60vh] place-items-center p-8 text-center">
         <div className="max-w-md">
-          <AlertTriangle className="mx-auto mb-3 text-amber-500" size={36} />
-          <h2 className="text-lg font-bold text-slate-800">Something went wrong</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <AlertTriangle className="mx-auto mb-3 text-warn" size={36} />
+          <h2 className="text-lg font-bold text-primary">Something went wrong</h2>
+          <p className="mt-1 text-sm text-muted">
             {this.props.label ? `The ${this.props.label} view hit an error.` : 'This view hit an error.'} You can
             try again or reload the app.
           </p>
-          <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-slate-100 p-3 text-left text-xs text-slate-600">
+          <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-overlay p-3 text-left text-xs text-secondary">
             {error.message}
           </pre>
           <div className="mt-4 flex justify-center gap-2">

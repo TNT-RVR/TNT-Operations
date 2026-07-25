@@ -1,8 +1,19 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
+import { useTheme } from '@/styles/theme'
+import { IconButton } from './ui'
 import { ErrorBoundary } from './ErrorBoundary'
+
+function ThemeToggle() {
+  const { theme, toggle } = useTheme()
+  return (
+    <IconButton label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggle}>
+      {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+    </IconButton>
+  )
+}
 
 interface SubNavItem {
   to: string
@@ -46,12 +57,15 @@ function NotifBell() {
       to="/notifications"
       title="Notifications"
       className={({ isActive }) =>
-        `relative rounded-lg p-2 ${isActive ? 'bg-brand-light text-brand' : 'text-slate-500 hover:bg-slate-100'}`
+        `relative rounded-sm p-2 transition ${isActive ? 'bg-brand-subtle text-brand' : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-primary'}`
       }
     >
       <Bell size={20} />
       {unread > 0 && (
-        <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+        <span
+          className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full"
+          style={{ background: 'var(--red-500)', boxShadow: '0 0 0 2px var(--bg-surface)' }}
+        />
       )}
     </NavLink>
   )
@@ -60,8 +74,10 @@ function NotifBell() {
 function BeeMark() {
   return (
     <div className="flex items-center gap-2">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand text-white">🐝</span>
-      <span className="font-bold tracking-tight text-ink">TNT Operations</span>
+      <img src="/bee.svg" alt="" width={28} height={28} className="shrink-0" />
+      <span className="font-display font-bold tracking-tight text-primary">
+        TNT <span className="text-brand">Operations</span>
+      </span>
     </div>
   )
 }
@@ -73,11 +89,11 @@ function UserSwitcher() {
   if (s.authMode === 'supabase') {
     return (
       <div className="flex items-center gap-3 text-sm">
-        <span className="hidden text-slate-600 sm:inline">
+        <span className="hidden text-secondary sm:inline">
           {s.user.name}
-          <span className="text-slate-400"> · {s.user.role}</span>
+          <span className="text-faint"> · {s.user.role}</span>
         </span>
-        <button className="btn-ghost" onClick={() => s.signOut()}>
+        <button className="btn-ghost min-h-0 px-3 py-1.5 text-sm" onClick={() => s.signOut()}>
           Sign out
         </button>
       </div>
@@ -87,9 +103,9 @@ function UserSwitcher() {
   // Mock: switch between the seeded users.
   return (
     <label className="flex items-center gap-2 text-sm">
-      <span className="hidden text-slate-500 sm:inline">Signed in as</span>
+      <span className="hidden text-muted sm:inline">Signed in as</span>
       <select
-        className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+        className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
         value={s.user.id}
         onChange={(e) => s.switchUser(e.target.value)}
       >
@@ -112,9 +128,10 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 md:px-6">
+      <header className="flex items-center justify-between border-b border-subtle bg-surface px-4 py-2.5 md:px-6">
         <BeeMark />
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <NotifBell />
           <UserSwitcher />
         </div>
@@ -122,22 +139,22 @@ export default function Layout() {
 
       <div className="flex min-h-0 flex-1">
         {/* Sidebar (desktop) */}
-        <nav className="hidden w-56 shrink-0 border-r border-slate-200 bg-white p-3 md:block">
+        <nav className="hidden w-56 shrink-0 border-r border-subtle bg-surface p-3 md:block">
           {items.map((n) => {
             const sectionActive = n.to !== '/' && pathname.startsWith(n.to)
             return (
               <div key={n.to}>
                 <NavItemLink item={n} />
                 {n.children && sectionActive && (
-                  <div className="mb-1 ml-9 flex flex-col border-l border-slate-200 pl-2">
+                  <div className="mb-1 ml-9 flex flex-col border-l border-subtle pl-2">
                     {n.children.map((c) => (
                       <NavLink
                         key={c.to}
                         to={c.to}
                         end={c.end}
                         className={({ isActive }) =>
-                          `rounded-md px-2 py-1.5 text-sm transition ${
-                            isActive ? 'font-semibold text-brand' : 'text-slate-600 hover:bg-slate-100'
+                          `rounded-sm px-2 py-1.5 text-sm transition ${
+                            isActive ? 'font-semibold text-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
                           }`
                         }
                       >
@@ -152,7 +169,7 @@ export default function Layout() {
         </nav>
 
         {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}
-        <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-base">
           <ErrorBoundary key={pathname} label={currentLabel}>
             <Outlet />
           </ErrorBoundary>
@@ -160,14 +177,14 @@ export default function Layout() {
       </div>
 
       {/* Bottom tab bar (mobile) */}
-      <nav className="flex items-stretch justify-around border-t border-slate-200 bg-white md:hidden">
+      <nav className="flex items-stretch justify-around border-t border-subtle bg-surface md:hidden">
         {items.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
             end={n.to === '/'}
             className={({ isActive }) =>
-              `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${isActive ? 'text-brand' : 'text-slate-500'}`
+              `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${isActive ? 'text-brand' : 'text-muted'}`
             }
           >
             <n.icon size={20} />
@@ -185,8 +202,8 @@ function NavItemLink({ item }: { item: NavItem }) {
       to={item.to}
       end={item.to === '/'}
       className={({ isActive }) =>
-        `mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-          isActive ? 'bg-brand text-white' : 'text-slate-700 hover:bg-slate-100'
+        `mb-1 flex items-center gap-3 rounded-sm px-3 py-2 text-sm font-medium transition ${
+          isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
         }`
       }
     >

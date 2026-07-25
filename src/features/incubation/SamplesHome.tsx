@@ -88,10 +88,10 @@ export default function SamplesHome() {
           {samples.length === 0 ? (
             <EmptyState>No samples yet.</EmptyState>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div className="overflow-x-auto rounded-lg border border-subtle">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
                     <th className="px-3 py-2">Sample</th>
                     <th className="px-3 py-2">Source</th>
                     <th className="px-3 py-2 text-right">Live %</th>
@@ -100,22 +100,22 @@ export default function SamplesHome() {
                     <th className="px-3 py-2 text-right">Trays</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-subtle">
                   {samples.map((s) => {
                     const trayCount = traysBySample.get(s.id)?.length ?? 0
                     return (
                       <tr
                         key={s.id}
-                        className="cursor-pointer hover:bg-slate-50"
+                        className="cursor-pointer hover:bg-[color:var(--hover-wash)]"
                         onClick={() => setOpenSample(s)}
                       >
-                        <td className="px-3 py-2 font-medium text-slate-800">{s.name}</td>
-                        <td className="px-3 py-2 text-slate-500">{s.source || '—'}</td>
+                        <td className="px-3 py-2 font-medium text-primary">{s.name}</td>
+                        <td className="px-3 py-2 text-muted">{s.source || '—'}</td>
                         <td className="px-3 py-2 text-right">{pct(s.xrayLivePct)}</td>
                         <td className="px-3 py-2 text-right">{num(s.totalWeightLbs)}</td>
                         <td className="px-3 py-2 text-right">{num(s.liveBeesPerLb)}</td>
                         <td className="px-3 py-2 text-right">
-                          {trayCount > 0 ? num(trayCount) : <span className="text-slate-400">—</span>}
+                          {trayCount > 0 ? num(trayCount) : <span className="text-faint">—</span>}
                         </td>
                       </tr>
                     )
@@ -140,33 +140,33 @@ export default function SamplesHome() {
                   </Badge>
                 ))}
               </div>
-              <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <div className="overflow-x-auto rounded-lg border border-subtle">
                 <table className="w-full min-w-[360px] text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                    <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
                       <th className="px-3 py-2">Incubator</th>
                       <th className="px-3 py-2 text-right">Trays</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-subtle">
                     {[...trayStats.byIncubator.entries()]
                       .sort((a, b) => b[1] - a[1])
                       .map(([incId, n]) => (
                         <tr key={incId}>
-                          <td className="px-3 py-2 text-slate-800">{incubatorName.get(incId) ?? 'Unknown incubator'}</td>
+                          <td className="px-3 py-2 text-primary">{incubatorName.get(incId) ?? 'Unknown incubator'}</td>
                           <td className="px-3 py-2 text-right">{num(n)}</td>
                         </tr>
                       ))}
                     {trayStats.unassigned > 0 && (
                       <tr>
-                        <td className="px-3 py-2 text-slate-400">Unassigned</td>
+                        <td className="px-3 py-2 text-faint">Unassigned</td>
                         <td className="px-3 py-2 text-right">{num(trayStats.unassigned)}</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-faint">
                 Open a sample to see its individual trays, or view the{' '}
                 <Link to="/incubation/trays" className="font-medium text-brand hover:underline">
                   full filterable Trays list
@@ -204,8 +204,8 @@ function BatchCard({ batch }: { batch: IncubationBatch }) {
           if (!date) return null
           return (
             <div key={label} className="flex justify-between gap-2">
-              <dt className="text-slate-500">{label}</dt>
-              <dd className="text-slate-800">{formatDays(daysFromNow(date, now))}</dd>
+              <dt className="text-muted">{label}</dt>
+              <dd className="text-primary">{formatDays(daysFromNow(date, now))}</dd>
             </div>
           )
         })}
@@ -246,17 +246,17 @@ function SampleDetail({
       <div className="space-y-4">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
           {rows.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2 border-b border-slate-100 py-1">
-              <dt className="text-slate-500">{k}</dt>
-              <dd className="font-medium text-slate-800">{v}</dd>
+            <div key={k} className="flex justify-between gap-2 border-b border-subtle py-1">
+              <dt className="text-muted">{k}</dt>
+              <dd className="font-medium text-primary">{v}</dd>
             </div>
           ))}
         </dl>
 
         {derived && (
-          <div className="rounded-lg bg-slate-50 p-3 text-sm">
+          <div className="rounded-lg bg-overlay p-3 text-sm">
             <div className="mb-1 font-semibold">Derived tray math</div>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-slate-700">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-secondary">
               <span>Live gal: {num(derived.liveGalsTotal, 1)}</span>
               <span>Fills ~{num(derived.trayCount)} trays</span>
               <span>Raw {num(derived.rawLbsPerTray, 2)} lb/tray</span>
@@ -264,32 +264,32 @@ function SampleDetail({
           </div>
         )}
 
-        {s.notes && <p className="text-sm text-slate-600">{s.notes}</p>}
+        {s.notes && <p className="text-sm text-secondary">{s.notes}</p>}
 
         {/* Individual trays for this sample */}
         <section>
           <h3 className="mb-2 font-semibold">Trays ({num(trays.length)})</h3>
           {trays.length === 0 ? (
-            <p className="text-sm text-slate-500">No trays linked to this sample.</p>
+            <p className="text-sm text-muted">No trays linked to this sample.</p>
           ) : (
-            <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-subtle">
               <table className="w-full min-w-[420px] text-sm">
                 <thead className="sticky top-0">
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
                     <th className="px-3 py-2">Tray</th>
                     <th className="px-3 py-2">Incubator</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2 text-right">Weight (lb)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-subtle">
                   {trays.map((t) => (
                     <tr key={t.id}>
-                      <td className="px-3 py-1.5 font-medium text-slate-800">{t.trayNumber}</td>
-                      <td className="px-3 py-1.5 text-slate-500">
+                      <td className="px-3 py-1.5 font-medium text-primary">{t.trayNumber}</td>
+                      <td className="px-3 py-1.5 text-muted">
                         {t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}
                       </td>
-                      <td className="px-3 py-1.5 text-slate-500">{t.status}</td>
+                      <td className="px-3 py-1.5 text-muted">{t.status}</td>
                       <td className="px-3 py-1.5 text-right">{num(t.weightLbs)}</td>
                     </tr>
                   ))}

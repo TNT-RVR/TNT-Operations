@@ -9,9 +9,9 @@ const fmt = (iso: string) =>
   new Date(iso).toLocaleString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 const SEV: Record<NotificationSeverity, { icon: LucideIcon; color: string }> = {
-  critical: { icon: AlertOctagon, color: 'text-red-600' },
-  warning: { icon: AlertTriangle, color: 'text-amber-600' },
-  info: { icon: Info, color: 'text-sky-600' },
+  critical: { icon: AlertOctagon, color: 'text-danger' },
+  warning: { icon: AlertTriangle, color: 'text-warn' },
+  info: { icon: Info, color: 'text-info' },
 }
 
 export default function NotificationsHome() {
@@ -57,18 +57,18 @@ export default function NotificationsHome() {
 
       <div className="p-4 md:p-6">
         {/* Tabs */}
-        <div className="mb-4 flex items-center gap-1 border-b border-slate-200">
+        <div className="mb-4 flex items-center gap-1 border-b border-subtle">
           {(['unread', 'read'] as const).map((t) => (
             <button
               key={t}
               onClick={() => switchTab(t)}
               className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium capitalize ${
-                tab === t ? 'border-brand text-brand' : 'border-transparent text-slate-500 hover:text-slate-700'
+                tab === t ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
               {t}
               {t === 'unread' && unread.length > 0 && (
-                <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-xs text-white">{unread.length}</span>
+                <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-xs text-on-brand">{unread.length}</span>
               )}
             </button>
           ))}
@@ -79,7 +79,7 @@ export default function NotificationsHome() {
           <div className="mb-3 flex items-center gap-3 text-sm">
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-              <span className="text-slate-600">Select all</span>
+              <span className="text-secondary">Select all</span>
             </label>
             {shownSelected.length > 0 && (
               <button className="btn-primary" onClick={markSelected}>
@@ -109,18 +109,18 @@ export default function NotificationsHome() {
                   <Icon size={20} className={`mt-0.5 shrink-0 ${s.color}`} />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="font-semibold text-slate-900">{n.title}</span>
-                      <span className="text-xs text-slate-400">{fmt(n.createdAt)}</span>
+                      <span className="font-semibold text-primary">{n.title}</span>
+                      <span className="text-xs text-faint">{fmt(n.createdAt)}</span>
                     </div>
-                    {n.body && <p className="mt-0.5 text-sm text-slate-600">{n.body}</p>}
-                    <p className="mt-1 text-xs text-slate-400">
+                    {n.body && <p className="mt-0.5 text-sm text-secondary">{n.body}</p>}
+                    <p className="mt-1 text-xs text-faint">
                       {n.category} · {n.source || 'system'}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     {!n.readAt && (
                       <button
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        className="rounded p-1 text-faint hover:bg-overlay hover:text-secondary"
                         title="Mark read"
                         onClick={() => markNotificationsRead([n.id])}
                       >
@@ -128,7 +128,7 @@ export default function NotificationsHome() {
                       </button>
                     )}
                     <button
-                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="rounded p-1 text-faint hover:bg-[color:var(--danger-bg)] hover:text-danger"
                       title="Delete"
                       onClick={() => deleteNotification(n.id)}
                     >

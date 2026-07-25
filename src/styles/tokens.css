@@ -1,0 +1,127 @@
+/* TNT Pollination — design tokens. Single source of truth for color, type,
+ * spacing, radius, elevation, motion. Never hardcode a value in a component;
+ * reference var(--*) here. Dark is default; add class="on-light" for light. */
+:root {
+  /* Honey (the single brand color — sampled from the bee mark) */
+  --honey-50:#FFF8EA; --honey-100:#FDEDC7; --honey-200:#FBDA8E; --honey-300:#FECC5C;
+  --honey-400:#FEC047; --honey-500:#FEB836; /* BRAND PRIMARY */
+  --honey-600:#E9A11F; --honey-700:#C0821A; --honey-800:#8A5C13; --honey-900:#4E340B;
+
+  /* Ink — warm-leaning near-black neutrals */
+  --ink-950:#050506; --ink-900:#0B0B0D; --ink-850:#111114; --ink-800:#17171B;
+  --ink-700:#202027; --ink-600:#2C2C34; --ink-500:#3C3C46; --ink-400:#565663;
+  --ink-300:#7C7C8A; --ink-200:#A6A6B2; --ink-100:#CFCFD6; --ink-50:#ECECEF;
+  --white:#FFFFFF;
+
+  /* Data palette — charts only */
+  --data-honey:#FEB836; --data-teal:#3FB6A8; --data-lime:#9BD45E;
+  --data-coral:#E8785B; --data-sky:#5AA9E6; --data-violet:#9B8CE6;
+
+  /* Status bases */
+  --green-500:#4FBF7B; --green-bg:#0E241A;
+  --amber-500:#FEB836; --amber-bg:#2A2008;
+  --red-500:#E5533D;   --red-bg:#2A1310;
+  --blue-500:#5AA9E6;  --blue-bg:#0D1E2B;
+
+  /* Semantic — surfaces */
+  --bg-base:var(--ink-950); --bg-surface:var(--ink-900); --bg-raised:var(--ink-850);
+  --bg-overlay:var(--ink-800); --bg-inset:#030304; --bg-inverse:var(--white);
+
+  /* Semantic — hairline borders (always white-alpha, never solid grey) */
+  --border-subtle:rgba(255,255,255,0.07);
+  --border-default:rgba(255,255,255,0.13);
+  --border-strong:rgba(255,255,255,0.24);
+  --border-brand:var(--honey-500);
+
+  /* Semantic — text */
+  --text-primary:var(--ink-50); --text-secondary:var(--ink-200);
+  --text-muted:var(--ink-300); --text-faint:var(--ink-400);
+  --text-inverse:var(--ink-950); --text-brand:var(--honey-500);
+  --text-on-brand:var(--ink-950);
+
+  /* Semantic — brand actions */
+  --brand:var(--honey-500); --brand-hover:var(--honey-400); --brand-press:var(--honey-600);
+  --brand-subtle:rgba(254,184,54,0.12); --brand-ring:rgba(254,184,54,0.45);
+  --on-brand:var(--ink-950); --focus-ring:var(--honey-400);
+
+  /* Interactive washes + chips */
+  --hover-wash:rgba(255,255,255,0.06); --active-wash:rgba(255,255,255,0.10);
+  --wash-line:rgba(255,255,255,0.02); --chip-bg:rgba(255,255,255,0.07);
+  --header-scrim:rgba(5,5,6,0.82);
+
+  /* Status chips */
+  --ok-fg:#7EDBA2;     --ok-bg:var(--green-bg);   --ok-bd:rgba(79,191,123,0.4);
+  --warn-fg:var(--honey-300); --warn-bg:var(--amber-bg); --warn-bd:rgba(254,184,54,0.4);
+  --danger-fg:#F09585; --danger-bg:var(--red-bg);  --danger-bd:rgba(229,83,61,0.4);
+  --info-fg:#93C7EF;   --info-bg:var(--blue-bg);   --info-bd:rgba(90,169,230,0.4);
+  --brand-chip-fg:var(--honey-300); --brand-chip-bd:rgba(254,184,54,0.4);
+  --neutral-fg:var(--ink-100);
+
+  /* Type */
+  --font-display:'Montserrat','IBM Plex Sans',system-ui,sans-serif;
+  --font-sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --text-2xs:11px; --text-xs:12px; --text-sm:14px; --text-md:16px; --text-lg:18px;
+  --text-xl:20px; --text-2xl:24px; --text-3xl:30px; --text-4xl:38px; --text-5xl:48px;
+  --text-6xl:62px; --text-7xl:80px; --text-8xl:104px;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --lh-tight:1.05; --lh-snug:1.2; --lh-normal:1.5; --lh-relaxed:1.65;
+  --ls-tighter:-0.03em; --ls-tight:-0.015em; --ls-normal:0;
+  --ls-wide:0.04em; --ls-wider:0.12em; --ls-widest:0.22em;
+
+  /* Spacing — 4px grid */
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px;
+  --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+  --space-20:80px; --space-24:96px; --space-32:128px;
+  --container-max:1200px; --container-wide:1440px; --gutter:24px;
+
+  /* Radius — tight, engineered */
+  --radius-xs:3px; --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
+  --radius-xl:20px; --radius-2xl:28px; --radius-pill:999px;
+
+  /* Elevation */
+  --shadow-xs:0 1px 2px rgba(0,0,0,0.5);
+  --shadow-sm:0 2px 6px rgba(0,0,0,0.45);
+  --shadow-md:0 8px 20px -6px rgba(0,0,0,0.6);
+  --shadow-lg:0 18px 40px -12px rgba(0,0,0,0.7);
+  --shadow-xl:0 32px 70px -18px rgba(0,0,0,0.75);
+  --glow-brand:0 0 0 1px rgba(254,184,54,0.5), 0 6px 26px -6px rgba(254,184,54,0.4);
+  --glow-brand-soft:0 8px 32px -10px rgba(254,184,54,0.35);
+  --edge-top:inset 0 1px 0 rgba(255,255,255,0.05);
+
+  /* Motion */
+  --ease-standard:cubic-bezier(0.2,0,0,1);
+  --ease-out:cubic-bezier(0.16,1,0.3,1);
+  --ease-in-out:cubic-bezier(0.65,0,0.35,1);
+  --dur-fast:120ms; --dur-normal:200ms; --dur-slow:320ms;
+
+  /* Z-index */
+  --z-base:0; --z-sticky:100; --z-overlay:500; --z-modal:1000; --z-toast:1500;
+}
+
+/* Light theme — add class="on-light" to any container or the app root */
+.on-light {
+  --bg-base:var(--white); --bg-surface:#FAFAF7; --bg-raised:var(--white);
+  --bg-overlay:var(--white); --bg-inset:#F2F2EE;
+  --border-subtle:rgba(5,5,6,0.08); --border-default:rgba(5,5,6,0.14);
+  --border-strong:rgba(5,5,6,0.26);
+  --text-primary:var(--ink-950); --text-secondary:var(--ink-600);
+  --text-muted:var(--ink-400); --text-faint:var(--ink-300);
+  --text-inverse:var(--white); --text-on-brand:var(--ink-950);
+  --brand-subtle:rgba(254,184,54,0.20);
+  --hover-wash:rgba(5,5,6,0.045); --active-wash:rgba(5,5,6,0.085);
+  --wash-line:rgba(5,5,6,0.035); --chip-bg:rgba(5,5,6,0.05);
+  --header-scrim:rgba(255,255,255,0.85);
+  --shadow-xs:0 1px 2px rgba(5,5,6,0.06);
+  --shadow-sm:0 2px 6px rgba(5,5,6,0.08);
+  --shadow-md:0 8px 20px -6px rgba(5,5,6,0.12);
+  --shadow-lg:0 18px 40px -12px rgba(5,5,6,0.16);
+  --shadow-xl:0 32px 70px -18px rgba(5,5,6,0.20);
+  --edge-top:inset 0 1px 0 rgba(255,255,255,0.7);
+  --ok-fg:#1E7A46; --ok-bg:#E6F4EC; --ok-bd:rgba(31,122,70,0.25);
+  --warn-fg:#8A5C13; --warn-bg:#FBF0D8; --warn-bd:rgba(138,92,19,0.28);
+  --danger-fg:#B3311E; --danger-bg:#FBE9E5; --danger-bd:rgba(179,49,30,0.25);
+  --info-fg:#1F6FA8; --info-bg:#E4F0F9; --info-bd:rgba(31,111,168,0.25);
+  --brand-chip-fg:#8A5C13; --brand-chip-bd:rgba(233,161,31,0.45);
+  --neutral-fg:var(--ink-700);
+}

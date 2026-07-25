@@ -358,8 +358,8 @@ export default function MapsHome() {
         }`}
       >
         {/* Field list */}
-        <aside className="overflow-y-auto border-r border-slate-200 bg-white p-3">
-          <h2 className="mb-2 px-1 text-sm font-semibold text-slate-600">Fields</h2>
+        <aside className="overflow-y-auto border-r border-subtle bg-surface p-3">
+          <h2 className="mb-2 px-1 text-sm font-semibold text-secondary">Fields</h2>
           {fields.map((f) => {
             const active = selectedField?.id === f.id
             return (
@@ -367,15 +367,15 @@ export default function MapsHome() {
                 key={f.id}
                 onClick={() => selectField(f.id)}
                 className={`mb-2 block w-full rounded-lg border p-3 text-left transition ${
-                  active ? 'border-brand bg-brand-light' : 'border-slate-200 hover:bg-slate-50'
+                  active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{f.name}</span>
+                  <span className="font-medium text-primary">{f.name}</span>
                   <Badge tone={f.geometry ? 'brand' : 'blue'}>{f.geometry ? f.shapeType : 'no map'}</Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">{f.region}</p>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-0.5 text-xs text-muted">{f.region}</p>
+                <p className="mt-1 text-xs text-secondary">
                   {f.shelterCount} shelters · {f.client}
                 </p>
               </button>
@@ -387,9 +387,12 @@ export default function MapsHome() {
         <div className="relative min-h-[20rem]">
           <div ref={containerRef} className="absolute inset-0" />
           {selectedField && !editing && (
-            <div className="absolute left-3 top-3 max-w-xs rounded-xl border border-slate-200 bg-white/95 p-3 shadow-md backdrop-blur">
-              <div className="font-bold text-ink">{selectedField.name}</div>
-              <div className="text-xs text-slate-500">
+            <div
+              className="absolute left-3 top-3 max-w-xs rounded-lg border border-subtle p-3 shadow-md backdrop-blur"
+              style={{ background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)' }}
+            >
+              <div className="font-display font-bold text-primary">{selectedField.name}</div>
+              <div className="text-xs text-muted">
                 {selectedField.region} · {selectedField.client}
               </div>
               {selectedField.geometry ? (
@@ -397,12 +400,12 @@ export default function MapsHome() {
                   <div className="mt-2 flex items-center gap-3 text-sm">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BRAND }} />
-                      <span className="font-semibold text-slate-900">{shelters.length}</span>
-                      <span className="text-slate-500">shelters (live)</span>
+                      <span className="font-mono tabular font-semibold text-primary">{shelters.length}</span>
+                      <span className="text-muted">shelters (live)</span>
                     </span>
                   </div>
                   {hasOverlays(selectedField.geometry) && (
-                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] capitalize text-slate-600">
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] capitalize text-secondary">
                       {legendItems(selectedField.geometry).map((it) => (
                         <span key={it.label} className="inline-flex items-center gap-1">
                           <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: it.color }} />
@@ -413,7 +416,7 @@ export default function MapsHome() {
                   )}
                 </>
               ) : (
-                <p className="mt-2 text-sm text-slate-500">No field geometry imported yet.</p>
+                <p className="mt-2 text-sm text-muted">No field geometry imported yet.</p>
               )}
               {canEdit && (
                 <button className="btn-primary mt-3 w-full" onClick={enterEdit}>
@@ -426,7 +429,7 @@ export default function MapsHome() {
 
         {/* Editor (third column, only while editing) */}
         {editing && draft && selectedField && (
-          <aside className="min-h-0 border-l border-slate-200 bg-white">
+          <aside className="min-h-0 border-l border-subtle bg-surface">
             <FieldEditor
               name={draftName}
               draft={draft}

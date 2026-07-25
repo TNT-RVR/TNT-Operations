@@ -17,8 +17,8 @@ export default function SensorsHome() {
         {rows.length === 0 ? (
           <EmptyState>No readings yet. Sensor polling lands in Phase 6.</EmptyState>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full border-collapse bg-white text-sm">
+          <div className="overflow-x-auto rounded-lg border border-subtle">
+            <table className="w-full border-collapse bg-raised text-sm">
               <thead>
                 <tr>
                   <th className="th">When</th>
@@ -30,7 +30,7 @@ export default function SensorsHome() {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-t border-slate-100">
+                  <tr key={r.id} className="border-t border-subtle">
                     <td className="px-3 py-2">{fmt(r.at)}</td>
                     <td className="px-3 py-2">{nameOf(r.incubatorId)}</td>
                     <td className="px-3 py-2">{r.tempC.toFixed(1)}°C</td>

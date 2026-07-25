@@ -35,14 +35,14 @@ export default function Dashboard() {
                 <div key={i.id} className="flex items-center gap-3">
                   <div className="w-32 shrink-0 truncate text-sm font-medium">{i.name}</div>
                   {p ? (
-                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-overlay">
                       <div className="h-full bg-brand" style={{ width: `${p.pct}%` }} />
                     </div>
                   ) : (
                     <Gauge pct={0} tone="brand" />
                   )}
-                  <div className="flex w-52 shrink-0 items-center justify-end gap-2 text-right text-xs text-slate-500">
-                    <span className={tempOut ? 'font-semibold text-red-600' : 'text-slate-700'}>
+                  <div className="flex w-52 shrink-0 items-center justify-end gap-2 text-right text-xs text-muted">
+                    <span className={tempOut ? 'font-semibold text-danger' : 'text-secondary'}>
                       {r ? `${r.tempC.toFixed(1)}°C` : '—'}
                     </span>
                     <Badge tone={i.tempMode === 'incubation' ? 'green' : 'blue'}>{d.modeLabel}</Badge>
@@ -50,7 +50,7 @@ export default function Dashboard() {
                 </div>
               )
             })}
-            {running.length === 0 && <p className="text-sm text-slate-500">No incubators running.</p>}
+            {running.length === 0 && <p className="text-sm text-muted">No incubators running.</p>}
           </div>
         </section>
       </div>

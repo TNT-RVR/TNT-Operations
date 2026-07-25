@@ -7,11 +7,11 @@ import { Clock } from 'lucide-react'
  */
 export function PendingApproval({ name, onSignOut }: { name: string; onSignOut: () => void | Promise<void> }) {
   return (
-    <div className="grid min-h-full place-items-center bg-slate-50 p-4">
+    <div className="grid min-h-full place-items-center bg-base p-4">
       <div className="card w-full max-w-md text-center">
         <Clock className="mx-auto mb-3 text-brand" size={36} />
-        <h1 className="text-lg font-bold text-ink">Waiting for approval</h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="text-lg font-bold text-primary">Waiting for approval</h1>
+        <p className="mt-2 text-sm text-secondary">
           Thanks{name ? `, ${name}` : ''} — your account has been created. An administrator needs to grant you
           access before you can use TNT Operations. You'll be able to sign in normally once they do.
         </p>

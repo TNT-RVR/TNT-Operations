@@ -2,8 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light theme; don't let the browser dark-render form controls. */
-:root {
+/* Dark is the product default. `.on-light` on <html> flips the tokens.
+   color-scheme is also set from JS (src/styles/theme.tsx) for form controls. */
+html {
+  color-scheme: dark;
+  background: var(--bg-base);
+}
+html.on-light {
   color-scheme: light;
 }
 
@@ -14,8 +19,7 @@ body,
   margin: 0;
 }
 
-/* Phones: the visible viewport can differ from 100vh (mobile browser chrome).
-   dvh tracks the VISIBLE viewport so bottom nav stays on-screen. */
+/* Phones: dvh tracks the VISIBLE viewport so bottom nav stays on-screen. */
 @supports (height: 100dvh) {
   html,
   body,
@@ -25,9 +29,22 @@ body,
 }
 
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--lh-normal);
+  background: var(--bg-base);
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
-  color: #1a1206;
+  text-rendering: optimizeLegibility;
+}
+
+/* Display face for headings by default; components can opt out. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-tight);
+  line-height: var(--lh-tight);
 }
 
 /* Field/tablet friendly: prevent iOS zoom on input focus, big tap targets. */
@@ -35,46 +52,120 @@ input,
 select,
 button,
 textarea {
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
-/* Checkboxes: white box, brand check, big enough to read outdoors. */
+/* Checkboxes: honey check, big enough to read outdoors. */
 input[type='checkbox'] {
   width: 1.05rem;
   height: 1.05rem;
-  accent-color: #b8860b;
-  background: #fff;
-  border: 1px solid #94a3b8;
-  border-radius: 0.25rem;
+  accent-color: var(--brand);
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 font-semibold min-h-touch transition active:scale-[0.98] disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-sm px-4 font-semibold min-h-touch outline-none;
+    transition: background-color var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard);
   }
-  /* READABILITY RULE: primary = solid honey with WHITE text. */
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn:disabled {
+    @apply opacity-50;
+    pointer-events: none;
+  }
+  .btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+  /* Primary = solid honey with ink text (the one accent element per view). */
   .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark;
+    @apply btn text-on-brand;
+    background: var(--brand);
   }
-  /* Secondary = light surface, dark text on white. */
+  .btn-primary:hover {
+    background: var(--brand-hover);
+  }
+  .btn-primary:active {
+    background: var(--brand-press);
+  }
+  /* Secondary/ghost = hairline outline, neutral text, wash on hover. */
   .btn-ghost {
-    @apply btn bg-white text-slate-800 border border-slate-300 hover:bg-slate-50;
+    @apply btn text-primary;
+    border: 1px solid var(--border-default);
+    background: transparent;
   }
-  /* Field-green variant for map/section CTAs. */
+  .btn-ghost:hover {
+    background: var(--hover-wash);
+  }
+  /* Legacy alias (field-green is retired; keep the class working as ghost). */
   .btn-field {
-    @apply btn bg-field text-white hover:bg-field-dark;
+    @apply btn-ghost;
   }
+
   .card {
-    @apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm;
+    @apply rounded-lg p-4;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
   }
+
+  /* Eyebrows / field labels: uppercase mono, instrumentation feel. */
   .label {
-    @apply block text-sm font-medium text-slate-600 mb-1;
+    @apply mb-1 block font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--ls-wider);
+    color: var(--text-muted);
   }
+  .eyebrow {
+    @apply font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--ls-widest);
+    color: var(--text-brand);
+  }
+
   .input {
-    @apply w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 min-h-touch focus:border-brand focus:ring-2 focus:ring-brand/30 outline-none;
+    @apply w-full rounded-sm px-3 min-h-touch outline-none;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    transition: border-color var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard);
   }
-  /* Table headers use the brand accent → white text (readability rule). */
+  .input::placeholder {
+    color: var(--text-faint);
+  }
+  .input:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-ring);
+  }
+
+  /* Table headers: uppercase mono over a faint wash. */
   .th {
-    @apply bg-brand px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-white;
+    @apply px-3 py-2 text-left font-mono uppercase;
+    font-size: var(--text-2xs);
+    letter-spacing: var(--ls-wider);
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+@layer utilities {
+  /* Signature texture: faint ~2% white horizontal lines evoking crop rows.
+     Behind heroes and section breaks — NOT honeycomb. */
+  .field-wash {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 7px,
+      var(--wash-line) 7px,
+      var(--wash-line) 8px
+    );
+  }
+  .tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
 }

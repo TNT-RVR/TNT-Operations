@@ -25,10 +25,32 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
 
 ## Hard rules
 - Times stored UTC (ISO), displayed `America/Edmonton`.
-- Theme: honey-amber (`brand`) + field-green (`field`) on white. **Any `bg-brand`
-  or `bg-field` background → white text.** Use `.btn-primary`, `.btn-ghost`,
-  `.btn-field`, `.card`, `.input`, `.label`, `.th`, and the `Badge`/`Modal`/
-  `Gauge`/`StatTile` helpers in `src/components/ui.tsx`.
+- **Design system — TNT Pollination (binding).** See `docs/design-system.md` for
+  the full spec. Non-negotiables:
+  - **Tokens only.** All colour/type/space/radius/shadow live in
+    `src/styles/tokens.css` as `--*` custom properties. NEVER hardcode a hex (or
+    arbitrary px) in a component — reference a token, a Tailwind utility that maps
+    to one (`tailwind.config.js`), or a `.btn/.card/.input/.label/.th` class.
+    `npm run lint:tokens` flags raw hex outside the token layer (map files are the
+    one allowlisted exception — MapLibre paint needs literal hex; keep it aligned
+    to token values).
+  - **Dark-first, honey-only.** Dark is the default; `.on-light` on `<html>` flips
+    it (toggle in Users → Settings and the header, via `src/styles/theme.tsx`).
+    Honey (`--brand`, `#FEB836`) is the ONLY accent — one primary honey element per
+    view; everything else neutral ink. Borders are white-alpha hairlines. Field
+    green is retired. Status greens/reds/blues are muted, chart-only data palette.
+  - **Type.** Montserrat (`font-display`) for headings; IBM Plex Sans (`font-sans`)
+    for body/UI; IBM Plex Mono (`font-mono` + `.tabular`) for ALL numbers, metrics,
+    eyebrows, and labels. Eyebrows/labels/badges are UPPERCASE, wide tracking.
+  - **Primitives.** Use `Button`, `IconButton`, `Input`, `Select`, `Checkbox`,
+    `Switch`, `Stat`, `Badge`, `Tag`, `ProgressBar`, `Card`, `Logo`, `Modal`,
+    `PageHeader` from `src/components/ui.tsx`. `Stat`/`ProgressBar` are the
+    workhorses — TNT is a data-collection company; metric readouts lead.
+  - **Icons** Lucide only, 2px stroke, `currentColor`. The bee mark (`/bee.svg`)
+    is the one brand glyph — logo/loading/empty only, never a generic UI icon.
+  - **Voice.** Confident, technical, plain-spoken; active voice, verbs lead;
+    numbers with units in mono. No bee puns, no hype, no emoji (status = colour +
+    dot + label). Company is "TNT"; address the grower as "you".
 - Gate sections with `s.can('<module>', 'edit')`; route gating is in
   `src/components/Protected.tsx`. Section keys live in `MODULES` (`auth/session.tsx`).
 - Secrets never go in the repo or in any `VITE_`-prefixed var except the public

@@ -38,7 +38,7 @@ function NumField({
     <label className="block">
       <span className="label">
         {label}
-        {suffix ? <span className="text-slate-400"> ({suffix})</span> : null}
+        {suffix ? <span className="text-faint"> ({suffix})</span> : null}
       </span>
       <input
         className="input"
@@ -58,12 +58,12 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-        <h2 className="font-bold">Edit field</h2>
+      <div className="flex items-center justify-between border-b border-subtle px-4 py-3">
+        <h2 className="font-display font-bold text-primary">Edit field</h2>
         <span className="inline-flex items-center gap-1.5 text-sm">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-brand" />
-          <span className="font-semibold text-slate-900">{count}</span>
-          <span className="text-slate-500">shelters</span>
+          <span className="font-mono tabular font-semibold text-primary">{count}</span>
+          <span className="text-muted">shelters</span>
         </span>
       </div>
 
@@ -82,7 +82,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
                 type="button"
                 onClick={() => onChange('shelter_mode', m)}
                 className={`flex-1 rounded-lg border px-3 py-1.5 text-sm ${
-                  mode === m ? 'border-brand bg-brand-light font-semibold' : 'border-slate-300'
+                  mode === m ? 'border-brand bg-brand-light font-semibold text-primary' : 'border-default text-secondary'
                 }`}
               >
                 {m === 'total' ? 'By count' : 'By spacing'}
@@ -113,7 +113,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
         </label>
 
         {useBays && (
-          <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3">
+          <div className="grid grid-cols-2 gap-3 rounded-md bg-overlay p-3">
             <NumField label="Female rows" fieldKey="num_female_rows" draft={draft} onChange={onChange} step="1" />
             <NumField label="Male rows" fieldKey="num_male_rows" draft={draft} onChange={onChange} step="1" />
             <NumField label="Row spacing" fieldKey="row_spacing_in" draft={draft} onChange={onChange} suffix="in" />
@@ -141,13 +141,16 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
         </label>
 
         {isPivot && (
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-700">
+          <p
+            className="rounded-md px-3 py-2 text-xs"
+            style={{ background: 'var(--info-bg)', border: '1px solid var(--info-bd)', color: 'var(--info-fg)' }}
+          >
             Tip: click the map to move the pivot centre.
           </p>
         )}
       </div>
 
-      <div className="flex gap-2 border-t border-slate-200 p-3">
+      <div className="flex gap-2 border-t border-subtle p-3">
         <button className="btn-ghost flex-1" onClick={onCancel}>
           Cancel
         </button>

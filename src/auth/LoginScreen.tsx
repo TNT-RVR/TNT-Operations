@@ -48,13 +48,15 @@ export function LoginScreen() {
   const isSignup = mode === 'signup'
 
   return (
-    <div className="grid min-h-full place-items-center bg-slate-50 p-4">
+    <div className="grid min-h-full place-items-center bg-base p-4">
       <div className="card w-full max-w-sm">
         <div className="mb-5 flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-white">🐝</span>
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-on-brand">
+            <img src="/bee.svg" alt="" width={40} height={40} />
+          </span>
           <div>
-            <div className="font-bold tracking-tight text-ink">TNT Operations</div>
-            <div className="text-xs text-slate-500">{isSignup ? 'Create your account' : 'Sign in to continue'}</div>
+            <div className="font-display font-bold tracking-tight text-primary">TNT Operations</div>
+            <div className="text-xs text-muted">{isSignup ? 'Create your account' : 'Sign in to continue'}</div>
           </div>
         </div>
 
@@ -107,11 +109,22 @@ export function LoginScreen() {
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+            <p
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger-bd)', color: 'var(--danger-fg)' }}
+              role="alert"
+            >
               {error}
             </p>
           )}
-          {notice && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p>}
+          {notice && (
+            <p
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: 'var(--ok-bg)', border: '1px solid var(--ok-bd)', color: 'var(--ok-fg)' }}
+            >
+              {notice}
+            </p>
+          )}
 
           <button type="submit" className="btn-primary w-full" disabled={busy}>
             {busy ? 'Working…' : isSignup ? 'Create account' : 'Sign in'}
@@ -130,7 +143,7 @@ export function LoginScreen() {
         </button>
 
         {isSignup && (
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-muted">
             New accounts start with no access until an administrator approves you.
           </p>
         )}

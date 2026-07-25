@@ -108,15 +108,15 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
         {/* Mode + progress */}
         <div className="flex flex-wrap items-center gap-3">
           <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
-          {incubator.location && <span className="text-sm text-slate-500">{incubator.location}</span>}
-          {day != null && <span className="text-sm font-medium text-slate-700">Day {day}</span>}
+          {incubator.location && <span className="text-sm text-muted">{incubator.location}</span>}
+          {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
           {incubator.capacity != null && (
-            <span className="text-sm text-slate-400">capacity {incubator.capacity}</span>
+            <span className="text-sm text-faint">capacity {incubator.capacity}</span>
           )}
         </div>
         {p && (
           <div>
-            <div className="mb-1 flex justify-between text-xs text-slate-500">
+            <div className="mb-1 flex justify-between text-xs text-muted">
               <span>{p.stage}</span>
               <span>
                 {p.pct}% · {p.daysRemaining}d left
@@ -128,7 +128,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
 
         {/* Alerts */}
         {alerts.length > 0 && (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="rounded-lg px-3 py-2 text-sm" style={{ background: 'var(--warn-bg)', border: '1px solid var(--warn-bd)', color: 'var(--warn-fg)' }}>
             {alerts.map((a) => (
               <div key={a}>⚠️ {a}</div>
             ))}
@@ -140,13 +140,13 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="font-semibold">Temperature</h3>
             {latest && (
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-muted">
                 latest {fmtWhen(latest.at)} ·{' '}
-                <span className={tempOut ? 'font-semibold text-red-600' : 'font-semibold text-slate-900'}>
+                <span className={tempOut ? 'font-semibold text-danger' : 'font-semibold text-primary'}>
                   {formatTemp(latest.tempC)}
                 </span>{' '}
                 / {fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`)} ·{' '}
-                <span className={humOut ? 'font-semibold text-red-600' : ''}>{latest.humidityPct}%</span> RH /{' '}
+                <span className={humOut ? 'font-semibold text-danger' : ''}>{latest.humidityPct}%</span> RH /{' '}
                 {fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`)}
               </span>
             )}
@@ -156,7 +156,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
 
         {/* Add inspection */}
         {canEdit && (
-          <section className="rounded-lg bg-slate-50 p-3">
+          <section className="rounded-lg bg-overlay p-3">
             <h3 className="mb-2 font-semibold">Log an inspection</h3>
             <div className="flex flex-wrap items-end gap-3">
               <label className="block">
@@ -178,12 +178,12 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   placeholder={goveeTempC != null ? String(goveeTempC) : '—'}
                 />
               </label>
-              <div className="pb-1 text-sm text-slate-500">
+              <div className="pb-1 text-sm text-muted">
                 Govee {goveeTempC != null ? formatTemp(goveeTempC) : '—'}
                 {tempDiffC != null && (
                   <>
                     {' · Δ '}
-                    <span className={tempAlert ? 'font-semibold text-red-600' : 'text-slate-700'}>
+                    <span className={tempAlert ? 'font-semibold text-danger' : 'text-secondary'}>
                       {tempDiffC > 0 ? '+' : ''}
                       {tempDiffC}°C
                     </span>
@@ -218,7 +218,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                 Save inspection
               </button>
             </div>
-            <p className="mt-1 text-xs text-slate-400">Logged as {s.user.name}.</p>
+            <p className="mt-1 text-xs text-faint">Logged as {s.user.name}.</p>
           </section>
         )}
 
@@ -226,22 +226,22 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
         <section>
           <h3 className="mb-2 font-semibold">Inspection history</h3>
           {mine.length === 0 ? (
-            <p className="text-sm text-slate-500">No inspections logged yet.</p>
+            <p className="text-sm text-muted">No inspections logged yet.</p>
           ) : (
-            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+            <ul className="divide-y divide-subtle rounded-lg border border-subtle">
               {mine.map((i) => (
                 <li key={i.id} className="px-3 py-2">
                   <div className="flex flex-wrap items-center gap-2">
                     {i.period && <Badge tone="brand">{i.period}</Badge>}
                     {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
                     {i.thermometerTempC != null && (
-                      <span className="text-xs text-slate-600">
+                      <span className="text-xs text-secondary">
                         therm {formatTemp(i.thermometerTempC)}
                         {i.goveeTempC != null && <> · govee {formatTemp(i.goveeTempC)}</>}
                         {i.tempDiffC != null && (
                           <>
                             {' · Δ '}
-                            <span className={i.tempAlert ? 'font-semibold text-red-600' : 'text-slate-500'}>
+                            <span className={i.tempAlert ? 'font-semibold text-danger' : 'text-muted'}>
                               {i.tempDiffC > 0 ? '+' : ''}
                               {i.tempDiffC}°C
                             </span>
@@ -251,8 +251,8 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                     )}
                     {inspectionChips(i)}
                   </div>
-                  {i.notes && <div className="mt-1 text-sm text-slate-800">{i.notes}</div>}
-                  <div className="mt-0.5 text-xs text-slate-400">
+                  {i.notes && <div className="mt-1 text-sm text-primary">{i.notes}</div>}
+                  <div className="mt-0.5 text-xs text-faint">
                     {fmtWhen(i.at)}
                     {i.inspector ? ` · ${i.inspector}` : ''}
                   </div>

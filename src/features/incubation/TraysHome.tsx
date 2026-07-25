@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
-import { PageHeader, EmptyState } from '@/components/ui'
+import { PageHeader, EmptyState, Modal, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import type { Tray } from '@/data/types'
 
@@ -7,8 +7,17 @@ const PAGE_SIZE = 50
 const num = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('en-CA', { maximumFractionDigits: 2 })
 const ALL = '__all__'
+const UNDATED = '__undated__'
 
-type SortKey = 'trayNumber' | 'sample' | 'incubator' | 'status' | 'weightLbs' | 'liveCount'
+const dateYear = (s: string | null): number | null => (s ? Number(s.slice(0, 4)) || null : null)
+/**
+ * Season/year of a tray usage. The DB has no season column, so derive it from
+ * the tray's operational dates (out → cool → in). Trays with no dates are
+ * "Undated". (sample.import_date is the import timestamp, not the season.)
+ */
+const trayYear = (t: Tray): number | null => dateYear(t.outDate) ?? dateYear(t.coolDate) ?? dateYear(t.inDate)
+
+type SortKey = 'trayNumber' | 'year' | 'sample' | 'incubator' | 'status' | 'weightLbs' | 'liveCount'
 type SortDir = 'asc' | 'desc'
 interface Column {
   key: SortKey
@@ -18,6 +27,7 @@ interface Column {
 }
 const COLUMNS: Column[] = [
   { key: 'trayNumber', label: 'Tray' },
+  { key: 'year', label: 'Year', numeric: true },
   { key: 'sample', label: 'Sample' },
   { key: 'incubator', label: 'Incubator' },
   { key: 'status', label: 'Status' },
@@ -38,21 +48,40 @@ export default function TraysHome() {
   const sampleName = useMemo(() => new Map(samples.map((s) => [s.id, s.name])), [samples])
   const statuses = useMemo(() => [...new Set(trays.map((t) => t.status))].sort(), [trays])
 
+  // Distinct derived years (desc), plus whether any tray is undated.
+  const years = useMemo(() => [...new Set(trays.map(trayYear).filter((y): y is number => y != null))].sort((a, b) => b - a), [trays])
+  const hasUndated = useMemo(() => trays.some((t) => trayYear(t) == null), [trays])
+
+  // All usages of each physical tray label (its full history).
+  const traysByNumber = useMemo(() => {
+    const m = new Map<string, Tray[]>()
+    for (const t of trays) {
+      const list = m.get(t.trayNumber)
+      if (list) list.push(t)
+      else m.set(t.trayNumber, [t])
+    }
+    return m
+  }, [trays])
+
   const [search, setSearch] = useState('')
   const [incId, setIncId] = useState(ALL)
   const [sampleId, setSampleId] = useState(ALL)
   const [status, setStatus] = useState(ALL)
+  const [year, setYear] = useState(ALL)
   const [page, setPage] = useState(1)
   const [sortKey, setSortKey] = useState<SortKey>('trayNumber')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [openTrayNumber, setOpenTrayNumber] = useState<string | null>(null)
 
   // Reset to the first page whenever a filter or sort changes.
-  useEffect(() => setPage(1), [search, incId, sampleId, status, sortKey, sortDir])
+  useEffect(() => setPage(1), [search, incId, sampleId, status, year, sortKey, sortDir])
 
   const sortValue = (t: Tray): string | number | null => {
     switch (sortKey) {
       case 'trayNumber':
         return t.trayNumber
+      case 'year':
+        return trayYear(t)
       case 'sample':
         return (t.sampleId && sampleName.get(t.sampleId)) || ''
       case 'incubator':
@@ -72,6 +101,10 @@ export default function TraysHome() {
       if (incId !== ALL && t.incubatorId !== incId) return false
       if (sampleId !== ALL && t.sampleId !== sampleId) return false
       if (status !== ALL && t.status !== status) return false
+      if (year !== ALL) {
+        const ty = trayYear(t)
+        if (year === UNDATED ? ty != null : ty !== Number(year)) return false
+      }
       if (q && !t.trayNumber.toLowerCase().includes(q)) return false
       return true
     })
@@ -89,7 +122,7 @@ export default function TraysHome() {
       return String(av).localeCompare(String(bv)) * dir
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trays, search, incId, sampleId, status, sortKey, sortDir, sampleName, incubatorName])
+  }, [trays, search, incId, sampleId, status, year, sortKey, sortDir, sampleName, incubatorName])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const clampedPage = Math.min(page, pageCount)
@@ -104,10 +137,11 @@ export default function TraysHome() {
   }
 
   function exportCsv() {
-    const header = ['Tray', 'Sample', 'Incubator', 'Status', 'Weight (lb)', 'Live count', 'In date', 'Out date', 'Cool date']
+    const header = ['Tray', 'Year', 'Sample', 'Incubator', 'Status', 'Weight (lb)', 'Live count', 'In date', 'Out date', 'Cool date']
     const lines = filtered.map((t) =>
       [
         t.trayNumber,
+        trayYear(t) ?? '',
         (t.sampleId && sampleName.get(t.sampleId)) || '',
         (t.incubatorId && incubatorName.get(t.incubatorId)) || '',
         t.status,
@@ -170,6 +204,18 @@ export default function TraysHome() {
             </select>
           </label>
           <label className="block">
+            <span className="label">Year</span>
+            <select className={selectCls} value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value={ALL}>All years</option>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+              {hasUndated && <option value={UNDATED}>Undated</option>}
+            </select>
+          </label>
+          <label className="block">
             <span className="label">Status</span>
             <select className={selectCls} value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value={ALL}>All statuses</option>
@@ -180,7 +226,7 @@ export default function TraysHome() {
               ))}
             </select>
           </label>
-          {(search || incId !== ALL || sampleId !== ALL || status !== ALL) && (
+          {(search || incId !== ALL || sampleId !== ALL || status !== ALL || year !== ALL) && (
             <button
               className="btn-ghost"
               onClick={() => {
@@ -188,6 +234,7 @@ export default function TraysHome() {
                 setIncId(ALL)
                 setSampleId(ALL)
                 setStatus(ALL)
+                setYear(ALL)
               }}
             >
               Clear
@@ -236,7 +283,13 @@ export default function TraysHome() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {pageRows.map((t) => (
-                  <TrayRow key={t.id} tray={t} incubatorName={incubatorName} sampleName={sampleName} />
+                  <TrayRow
+                    key={t.id}
+                    tray={t}
+                    incubatorName={incubatorName}
+                    sampleName={sampleName}
+                    onOpen={() => setOpenTrayNumber(t.trayNumber)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -249,6 +302,16 @@ export default function TraysHome() {
           </div>
         )}
       </div>
+
+      {openTrayNumber && (
+        <TrayHistory
+          trayNumber={openTrayNumber}
+          usages={traysByNumber.get(openTrayNumber) ?? []}
+          incubatorName={incubatorName}
+          sampleName={sampleName}
+          onClose={() => setOpenTrayNumber(null)}
+        />
+      )}
     </div>
   )
 }
@@ -257,20 +320,80 @@ function TrayRow({
   tray: t,
   incubatorName,
   sampleName,
+  onOpen,
 }: {
   tray: Tray
   incubatorName: Map<string, string>
   sampleName: Map<string, string>
+  onOpen: () => void
 }) {
   return (
     <tr>
-      <td className="px-3 py-1.5 font-medium text-slate-800">{t.trayNumber}</td>
+      <td className="px-3 py-1.5">
+        <button className="font-medium text-brand hover:underline" onClick={onOpen}>
+          {t.trayNumber}
+        </button>
+      </td>
+      <td className="px-3 py-1.5 text-slate-500">{trayYear(t) ?? '—'}</td>
       <td className="px-3 py-1.5 text-slate-500">{t.sampleId ? sampleName.get(t.sampleId) ?? '—' : '—'}</td>
       <td className="px-3 py-1.5 text-slate-500">{t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}</td>
       <td className="px-3 py-1.5 text-slate-500">{t.status}</td>
       <td className="px-3 py-1.5 text-right">{num(t.weightLbs)}</td>
       <td className="px-3 py-1.5 text-right">{num(t.liveCount)}</td>
     </tr>
+  )
+}
+
+/** History of one physical tray (its label) across every season/sample it held. */
+function TrayHistory({
+  trayNumber,
+  usages,
+  incubatorName,
+  sampleName,
+  onClose,
+}: {
+  trayNumber: string
+  usages: Tray[]
+  incubatorName: Map<string, string>
+  sampleName: Map<string, string>
+  onClose: () => void
+}) {
+  // newest season first; undated last.
+  const sorted = [...usages].sort((a, b) => (trayYear(b) ?? -Infinity) - (trayYear(a) ?? -Infinity))
+  return (
+    <Modal title={`Tray ${trayNumber} — history`} onClose={onClose} wide>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          {usages.length === 1
+            ? 'One recorded usage of this physical tray.'
+            : `${usages.length} recorded usages of this physical tray across seasons.`}
+        </p>
+        <ol className="space-y-2">
+          {sorted.map((t) => (
+            <li key={t.id} className="rounded-lg border border-slate-200 p-3">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge tone="brand">{trayYear(t) ?? 'Undated'}</Badge>
+                <span className="font-medium text-slate-800">
+                  {t.sampleId ? sampleName.get(t.sampleId) ?? 'Unknown sample' : 'No sample'}
+                </span>
+                <span className="text-sm text-slate-500">
+                  · {t.incubatorId ? incubatorName.get(t.incubatorId) ?? 'Unknown incubator' : 'No incubator'}
+                </span>
+                <Badge tone="green">{t.status}</Badge>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
+                {t.inDate && <span>In {t.inDate.slice(0, 10)}</span>}
+                {t.outDate && <span>Out {t.outDate.slice(0, 10)}</span>}
+                {t.coolDate && <span>Cool {t.coolDate.slice(0, 10)}</span>}
+                {t.weightLbs != null && <span>{num(t.weightLbs)} lb</span>}
+                {t.liveCount != null && <span>{num(t.liveCount)} live</span>}
+                {t.notes && <span className="text-slate-600">“{t.notes}”</span>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </Modal>
   )
 }
 

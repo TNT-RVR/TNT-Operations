@@ -128,15 +128,29 @@ export const seedSamples: Sample[] = [
   },
 ]
 
-const tray = (n: number, sampleId: string, incubatorId: string): Tray => ({
-  id: `t${n}`, trayNumber: `Tray${n}`, sampleId, incubationBatchId: null, incubatorId,
+let trayIdSeq = 0
+const tray = (
+  label: string,
+  sampleId: string,
+  incubatorId: string,
+  outDate: string | null,
+  status = 'released',
+): Tray => ({
+  id: `t${++trayIdSeq}`, trayNumber: label, sampleId, incubationBatchId: null, incubatorId,
   weightLbs: null, liveCount: null, parasiteLevelPct: null, volumeGal: null,
-  inDate: null, outDate: null, coolDate: null, status: 'released', notes: '',
+  inDate: null, outDate, coolDate: null, status, notes: '',
 })
 
 export const seedTrays: Tray[] = [
-  tray(1, 's1', 'i1'), tray(2, 's1', 'i1'), tray(3, 's1', 'i2'),
-  tray(4, 's2', 'i2'), tray(5, 's2', 'i3'),
+  // 2026 season
+  tray('Tray0001', 's1', 'i1', '2026-07-28'),
+  tray('Tray0002', 's1', 'i1', '2026-07-28'),
+  tray('Tray0003', 's1', 'i2', '2026-07-29'),
+  tray('Tray0004', 's2', 'i2', '2026-07-30'),
+  tray('Tray0005', 's2', 'i3', '2026-07-30'),
+  // 2025 season — the SAME physical labels reused with a different sample/incubator
+  tray('Tray0001', 's2', 'i2', '2025-07-25'),
+  tray('Tray0003', 's2', 'i3', '2025-07-26'),
 ]
 
 export const seedBatches: IncubationBatch[] = [

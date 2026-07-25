@@ -6,6 +6,7 @@ import MapsHome from './features/maps/MapsHome'
 import IncubationHome from './features/incubation/IncubationHome'
 import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
+import NotificationsHome from './features/notifications/NotificationsHome'
 
 export default function App() {
   return (
@@ -16,6 +17,8 @@ export default function App() {
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />
+        {/* Notifications are visible to any signed-in user (no module gate). */}
+        <Route path="notifications" element={<NotificationsHome />} />
       </Route>
     </Routes>
   )

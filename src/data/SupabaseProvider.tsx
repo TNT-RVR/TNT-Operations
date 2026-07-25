@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Field, Incubator, Inspection, SensorReading } from './types'
+import type { Field, Incubator, Inspection, SensorReading, AppNotification } from './types'
 import { supabase } from './supabaseClient'
 import {
   toField,
   toIncubator,
   toInspection,
   toSensorReading,
+  toNotification,
   inspectionInsert,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
   type SensorReadingRow,
+  type NotificationRow,
 } from './mappers'
 
 /**
@@ -31,10 +33,13 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [incubators, setIncubators] = useState<Incubator[]>([])
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [readings, setReadings] = useState<SensorReading[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
   readingsRef.current = readings
+  const notifRef = useRef<AppNotification[]>([])
+  notifRef.current = notifications
 
   useEffect(() => {
     if (!supabase) return
@@ -50,21 +55,24 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         )
       }
 
-      const [f, i, insp] = await Promise.all([
+      const [f, i, insp, notif] = await Promise.all([
         sb.from('shelter_fields').select('*').order('updated_at', { ascending: false }),
         sb.from('incubators').select('*').order('name', { ascending: true }),
         sb.from('inspections').select('*').order('at', { ascending: false }).limit(500),
+        sb.from('notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
       ])
       if (cancelled) return
 
       if (f.error) console.error('[data] load fields:', f.error.message)
       if (i.error) console.error('[data] load incubators:', i.error.message)
       if (insp.error) console.error('[data] load inspections:', insp.error.message)
+      if (notif.error) console.error('[data] load notifications:', notif.error.message)
 
       const incs = ((i.data as IncubatorRow[]) ?? []).map(toIncubator)
       setFields(((f.data as FieldRow[]) ?? []).map(toField))
       setIncubators(incs)
       setInspections(((insp.data as InspectionRow[]) ?? []).map(toInspection))
+      setNotifications(((notif.data as NotificationRow[]) ?? []).map(toNotification))
 
       // Readings: PostgREST caps a query at 1000 rows, and there are ~16k, so a
       // single global "recent" query only covers whichever incubators logged most
@@ -90,9 +98,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
 
     hydrate()
 
-    // Stream new sensor readings into local state.
+    // Stream new sensor readings + notifications into local state.
     const channel = supabase
-      .channel('sensor_readings')
+      .channel('tnt_live')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sensor_readings' },
@@ -100,6 +108,16 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           const reading = toSensorReading(payload.new as SensorReadingRow)
           if (!readingsRef.current.some((r) => r.id === reading.id)) {
             setReadings((prev) => [reading, ...prev])
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          const n = toNotification(payload.new as NotificationRow)
+          if (!notifRef.current.some((x) => x.id === n.id)) {
+            setNotifications((prev) => [n, ...prev])
           }
         },
       )
@@ -159,8 +177,40 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             setFields((prev) => prev.map((f) => (f.id === id ? toField(data as FieldRow) : f)))
           })
       },
+      notifications,
+      markNotificationsRead: (ids: string[]) => {
+        if (!supabase || ids.length === 0) return
+        const at = new Date().toISOString()
+        setNotifications((prev) => prev.map((n) => (ids.includes(n.id) && !n.readAt ? { ...n, readAt: at } : n)))
+        supabase
+          .from('notifications')
+          .update({ read_at: at })
+          .in('id', ids)
+          .is('read_at', null)
+          .then(({ error }) => error && console.error('[data] markNotificationsRead:', error.message))
+      },
+      markAllNotificationsRead: () => {
+        if (!supabase) return
+        const at = new Date().toISOString()
+        setNotifications((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: at })))
+        supabase
+          .from('notifications')
+          .update({ read_at: at })
+          .is('read_at', null)
+          .is('deleted_at', null)
+          .then(({ error }) => error && console.error('[data] markAllNotificationsRead:', error.message))
+      },
+      deleteNotification: (id: string) => {
+        if (!supabase) return
+        setNotifications((prev) => prev.filter((n) => n.id !== id))
+        supabase
+          .from('notifications')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', id)
+          .then(({ error }) => error && console.error('[data] deleteNotification:', error.message))
+      },
     }),
-    [fields, incubators, inspections, readings],
+    [fields, incubators, inspections, readings, notifications],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

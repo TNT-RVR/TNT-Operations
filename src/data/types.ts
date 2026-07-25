@@ -57,6 +57,23 @@ export interface Inspection {
   notes: string
 }
 
+export type NotificationSeverity = 'info' | 'warning' | 'critical'
+
+/** An alert shown in the notification view (integration health, thresholds, …). */
+export interface AppNotification {
+  id: string
+  category: string
+  type: string
+  severity: NotificationSeverity
+  title: string
+  body: string
+  source: string
+  /** ISO UTC. */
+  createdAt: string
+  /** ISO UTC when read, or null if unread. */
+  readAt: string | null
+}
+
 export type SensorSource = 'govee' | 'esp32'
 
 export interface SensorReading {

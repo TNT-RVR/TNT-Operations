@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Field, Inspection, SensorReading } from './types'
-import { seedFields, seedIncubators, seedInspections, seedReadings } from './seed'
+import type { Field, Inspection, SensorReading, AppNotification } from './types'
+import { seedFields, seedIncubators, seedInspections, seedReadings, seedNotifications } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
 
@@ -13,6 +13,8 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [readings] = useState<SensorReading[]>(seedReadings)
+  const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
+  const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -27,8 +29,16 @@ function MockProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => b.at.localeCompare(a.at))[0],
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
+      notifications,
+      markNotificationsRead: (ids) =>
+        setNotifications((prev) =>
+          prev.map((n) => (ids.includes(n.id) && !n.readAt ? { ...n, readAt: nowIso() } : n)),
+        ),
+      markAllNotificationsRead: () =>
+        setNotifications((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: nowIso() }))),
+      deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
     }),
-    [fields, inspections, readings],
+    [fields, inspections, readings, notifications],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

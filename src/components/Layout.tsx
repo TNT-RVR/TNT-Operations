@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
+import { useData } from '@/data/context'
 import { ErrorBoundary } from './ErrorBoundary'
 
 interface NavItem {
@@ -17,6 +18,25 @@ const NAV: NavItem[] = [
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
 ]
+
+function NotifBell() {
+  const { notifications } = useData()
+  const unread = notifications.filter((n) => !n.readAt).length
+  return (
+    <NavLink
+      to="/notifications"
+      title="Notifications"
+      className={({ isActive }) =>
+        `relative rounded-lg p-2 ${isActive ? 'bg-brand-light text-brand' : 'text-slate-500 hover:bg-slate-100'}`
+      }
+    >
+      <Bell size={20} />
+      {unread > 0 && (
+        <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+      )}
+    </NavLink>
+  )
+}
 
 function BeeMark() {
   return (
@@ -75,7 +95,10 @@ export default function Layout() {
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2.5 md:px-6">
         <BeeMark />
-        <UserSwitcher />
+        <div className="flex items-center gap-2">
+          <NotifBell />
+          <UserSwitcher />
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">

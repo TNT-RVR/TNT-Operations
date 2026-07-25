@@ -1,4 +1,4 @@
-import type { Field, Incubator, Inspection, SensorReading } from './types'
+import type { Field, Incubator, Inspection, SensorReading, AppNotification } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -93,4 +93,40 @@ export const seedReadings: SensorReading[] = [
   { id: 'r1', incubatorId: 'i1', at: '2026-07-22T12:00:00Z', tempC: 30.1, humidityPct: 54, source: 'govee' },
   { id: 'r2', incubatorId: 'i1', at: '2026-07-22T13:00:00Z', tempC: 30.3, humidityPct: 53, source: 'govee' },
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
+]
+
+export const seedNotifications: AppNotification[] = [
+  {
+    id: 'n1',
+    category: 'integration',
+    type: 'sensor_feed_stale',
+    severity: 'critical',
+    title: 'Govee feed has gone quiet',
+    body: 'No new sensor reading in 22 minutes — the cloud poller may have stalled.',
+    source: 'govee_poller',
+    createdAt: '2026-07-24T15:40:00Z',
+    readAt: null,
+  },
+  {
+    id: 'n2',
+    category: 'incubation',
+    type: 'temp_out_of_range',
+    severity: 'warning',
+    title: 'Incubator B above target',
+    body: 'Latest temperature 34.8°C is outside the incubation band (25–35°C).',
+    source: 'incubation',
+    createdAt: '2026-07-24T14:05:00Z',
+    readAt: null,
+  },
+  {
+    id: 'n3',
+    category: 'system',
+    type: 'welcome',
+    severity: 'info',
+    title: 'Welcome to TNT Operations',
+    body: 'Alerts about your integrations and incubators will show up here.',
+    source: 'system',
+    createdAt: '2026-07-23T09:00:00Z',
+    readAt: '2026-07-23T09:05:00Z',
+  },
 ]

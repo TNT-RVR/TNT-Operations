@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { Field, Incubator, Inspection, SensorReading } from './types'
+import type { Field, Incubator, Inspection, SensorReading, AppNotification } from './types'
 
 /**
  * The ONE seam every screen talks to. Screens import `useData()` — never a
@@ -18,6 +18,12 @@ export interface DataContextValue {
   latestReading: (incubatorId: string) => SensorReading | undefined
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
+
+  /** Alert inbox (active = not deleted), newest first. */
+  notifications: AppNotification[]
+  markNotificationsRead: (ids: string[]) => void
+  markAllNotificationsRead: () => void
+  deleteNotification: (id: string) => void
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

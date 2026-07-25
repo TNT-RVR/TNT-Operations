@@ -6,7 +6,17 @@
  * back as strings depending on config — so every numeric field is coerced with
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
-import type { Field, Incubator, Inspection, SensorReading, ShapeType, IncubatorStatus, SensorSource } from './types'
+import type {
+  Field,
+  Incubator,
+  Inspection,
+  SensorReading,
+  ShapeType,
+  IncubatorStatus,
+  SensorSource,
+  AppNotification,
+  NotificationSeverity,
+} from './types'
 
 export interface FieldRow {
   id: string
@@ -110,6 +120,32 @@ export function toSensorReading(row: SensorReadingRow): SensorReading {
     tempC: Number(row.temp_c),
     humidityPct: Number(row.humidity_pct),
     source: row.source as SensorSource,
+  }
+}
+
+export interface NotificationRow {
+  id: string
+  category: string
+  type: string
+  severity: string
+  title: string
+  body: string
+  source: string
+  created_at: string
+  read_at: string | null
+}
+
+export function toNotification(row: NotificationRow): AppNotification {
+  return {
+    id: row.id,
+    category: row.category,
+    type: row.type,
+    severity: row.severity as NotificationSeverity,
+    title: row.title,
+    body: row.body,
+    source: row.source,
+    createdAt: row.created_at,
+    readAt: row.read_at,
   }
 }
 

@@ -7,9 +7,11 @@ import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Field, FieldGeometry } from '@/data/types'
+import { Pencil, Upload, Check, Undo2, X as XIcon } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
 import { FieldEditor } from './FieldEditor'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
+import { boundaryFromFile, ringAcres } from './importBoundary'
 
 // Theme colours (tailwind.config.js) used for map features.
 const BRAND = '#B8860B' // honey amber — shelter pins
@@ -140,7 +142,12 @@ export default function MapsHome() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [ready, setReady] = useState(false)
+  // Boundary drawing: an in-progress ring of [lat, lon] vertices.
+  const [drawing, setDrawing] = useState(false)
+  const [drawPts, setDrawPts] = useState<Array<[number, number]>>([])
+  const [importError, setImportError] = useState<string | null>(null)
 
   const selectedField: Field | null = useMemo(
     () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
@@ -160,9 +167,16 @@ export default function MapsHome() {
     (draftName !== (selectedField?.name ?? '') ||
       JSON.stringify(draft) !== JSON.stringify(selectedField?.geometry ?? null))
 
+  function resetDraw() {
+    setDrawing(false)
+    setDrawPts([])
+    setImportError(null)
+  }
+
   function selectField(id: string) {
     setEditing(false)
     setDraft(null)
+    resetDraw()
     setSelectedId(id)
   }
 
@@ -176,7 +190,63 @@ export default function MapsHome() {
       : defaultPivotGeometry(center)
     setDraft(base)
     setDraftName(selectedField.name)
+    resetDraw()
     setEditing(true)
+  }
+
+  // Apply a boundary ring ([lat,lon]) to the draft: set the polygon, its acreage,
+  // and re-centre the pivot/ENU origin on the ring so the engine stays stable.
+  function applyBoundary(ring: Array<[number, number]>, acres: number) {
+    const lat = ring.reduce((s, p) => s + p[0], 0) / ring.length
+    const lon = ring.reduce((s, p) => s + p[1], 0) / ring.length
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            boundary_polygon: ring,
+            acres: String(Math.round(acres * 100) / 100),
+            PP_Latitude: String(lat),
+            PP_Longitude: String(lon),
+          }
+        : prev,
+    )
+  }
+
+  function fitToRing(ring: Array<[number, number]>) {
+    const map = mapRef.current
+    if (!map || ring.length < 3) return
+    const lons = ring.map((p) => p[1])
+    const lats = ring.map((p) => p[0])
+    map.fitBounds(
+      [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ],
+      { padding: 64, duration: 600, maxZoom: 16 },
+    )
+  }
+
+  function startDraw() {
+    setImportError(null)
+    setDrawPts([])
+    setDrawing(true)
+  }
+  function finishDraw() {
+    if (drawPts.length < 3) return
+    applyBoundary(drawPts, ringAcres(drawPts))
+    fitToRing(drawPts)
+    resetDraw()
+  }
+
+  async function onImportFile(file: File) {
+    setImportError(null)
+    try {
+      const { ring, acres } = await boundaryFromFile(file)
+      applyBoundary(ring, acres)
+      fitToRing(ring)
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Import failed')
+    }
   }
 
   function onChange(key: string, value: unknown) {
@@ -203,11 +273,13 @@ export default function MapsHome() {
     })
     setEditing(false)
     setDraft(null)
+    resetDraw()
   }
 
   function onCancel() {
     setEditing(false)
     setDraft(null)
+    resetDraw()
   }
 
   // Create the map once; add empty sources + layers on load.
@@ -262,6 +334,18 @@ export default function MapsHome() {
         source: 'pivot',
         paint: { 'circle-radius': 5, 'circle-color': INK, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
       })
+
+      // In-progress boundary draw (on top).
+      map.addSource('draw', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'draw-fill', type: 'fill', source: 'draw', paint: { 'fill-color': BRAND, 'fill-opacity': 0.12 } })
+      map.addLayer({ id: 'draw-line', type: 'line', source: 'draw', paint: { 'line-color': BRAND, 'line-width': 2, 'line-dasharray': [2, 1.5] } })
+      map.addSource('drawv', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'draw-vertices',
+        type: 'circle',
+        source: 'drawv',
+        paint: { 'circle-radius': 4, 'circle-color': BRAND, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 },
+      })
       setReady(true)
     })
 
@@ -313,6 +397,42 @@ export default function MapsHome() {
     })
   }, [ready, previewGeom, shelters])
 
+  // Render the in-progress draw ring (polygon once ≥3 pts) + its vertices.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource('draw') as GeoJSONSource | undefined
+    const vsrc = map.getSource('drawv') as GeoJSONSource | undefined
+    if (!drawing || drawPts.length === 0) {
+      src?.setData(EMPTY)
+      vsrc?.setData(EMPTY)
+      return
+    }
+    const lngLat: Position[] = drawPts.map(([lat, lon]) => [lon, lat])
+    const shape: Feature =
+      drawPts.length >= 3
+        ? { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[...lngLat, lngLat[0]]] } }
+        : { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lngLat } }
+    src?.setData({ type: 'FeatureCollection', features: [shape] })
+    vsrc?.setData({
+      type: 'FeatureCollection',
+      features: lngLat.map((c) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })),
+    })
+  }, [ready, drawing, drawPts])
+
+  // While drawing, each map click drops a boundary vertex.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !drawing) return
+    const handler = (e: maplibregl.MapMouseEvent) => setDrawPts((prev) => [...prev, [e.lngLat.lat, e.lngLat.lng]])
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+  }, [ready, drawing])
+
   // Fit the view when the SELECTED FIELD changes (not on every draft keystroke).
   useEffect(() => {
     const map = mapRef.current
@@ -333,9 +453,10 @@ export default function MapsHome() {
   }, [ready, selectedField])
 
   // While editing a pivot field, clicking the map moves the pivot centre.
+  // (Disabled during boundary drawing — that handler owns clicks then.)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !ready || !editing || !isPivotDraft) return
+    if (!map || !ready || !editing || !isPivotDraft || drawing) return
     const handler = (e: maplibregl.MapMouseEvent) => {
       setDraft((prev) =>
         prev ? { ...prev, PP_Longitude: String(e.lngLat.lng), PP_Latitude: String(e.lngLat.lat) } : prev,
@@ -347,7 +468,7 @@ export default function MapsHome() {
       map.off('click', handler)
       if (mapRef.current) map.getCanvas().style.cursor = ''
     }
-  }, [ready, editing, isPivotDraft])
+  }, [ready, editing, isPivotDraft, drawing])
 
   return (
     <div className="flex h-full flex-col">
@@ -386,6 +507,59 @@ export default function MapsHome() {
         {/* Map + detail overlay */}
         <div className="relative min-h-[20rem]">
           <div ref={containerRef} className="absolute inset-0" />
+
+          {/* Boundary tools (while editing) */}
+          {editing && (
+            <div
+              className="absolute left-3 top-3 flex flex-col gap-2 rounded-lg border border-subtle p-2 shadow-md backdrop-blur"
+              style={{ background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)' }}
+            >
+              {!drawing ? (
+                <>
+                  <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={startDraw}>
+                    <Pencil size={14} /> Draw boundary
+                  </button>
+                  <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={() => fileInputRef.current?.click()}>
+                    <Upload size={14} /> Import file
+                  </button>
+                  {importError && <p className="max-w-[12rem] text-[11px] text-danger">{importError}</p>}
+                </>
+              ) : (
+                <>
+                  <div className="max-w-[12rem] text-[11px] text-muted">
+                    Click the map to add points ({drawPts.length} placed). Finish needs 3+.
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      className="btn-primary min-h-0 px-2 py-1.5 text-xs disabled:opacity-40"
+                      onClick={finishDraw}
+                      disabled={drawPts.length < 3}
+                    >
+                      <Check size={14} /> Finish
+                    </button>
+                    <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={() => setDrawPts((p) => p.slice(0, -1))} disabled={!drawPts.length}>
+                      <Undo2 size={14} />
+                    </button>
+                    <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={resetDraw}>
+                      <XIcon size={14} />
+                    </button>
+                  </div>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".kml,.kmz,.zip,.shp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) onImportFile(f)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          )}
+
           {selectedField && !editing && (
             <div
               className="absolute left-3 top-3 max-w-xs rounded-lg border border-subtle p-3 shadow-md backdrop-blur"

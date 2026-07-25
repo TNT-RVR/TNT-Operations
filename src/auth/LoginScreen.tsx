@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { supabase } from '@/data/supabaseClient'
+import { BeeMark } from '@/components/BeeMark'
 
 /**
  * Sign-in / sign-up gate for `supabase` mode.
@@ -50,9 +51,9 @@ export function LoginScreen() {
   return (
     <div className="grid min-h-full place-items-center bg-base p-4">
       <div className="card w-full max-w-sm">
-        <div className="mb-5 flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-brand text-on-brand">
-            <img src="/bee.svg" alt="" width={40} height={40} />
+        <div className="mb-5 flex items-center gap-3">
+          <span className="shrink-0" style={{ color: 'var(--logo-ink)' }}>
+            <BeeMark size={40} />
           </span>
           <div>
             <div className="font-display font-bold tracking-tight text-primary">TNT Operations</div>

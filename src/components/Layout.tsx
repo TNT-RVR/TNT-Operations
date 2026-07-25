@@ -4,6 +4,7 @@ import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
 import { IconButton } from './ui'
+import { BeeMark } from './BeeMark'
 import { ErrorBoundary } from './ErrorBoundary'
 
 function ThemeToggle() {
@@ -71,10 +72,12 @@ function NotifBell() {
   )
 }
 
-function BeeMark() {
+function BrandMark() {
   return (
     <div className="flex items-center gap-2">
-      <img src="/bee.svg" alt="" width={28} height={28} className="shrink-0" />
+      <span className="shrink-0" style={{ color: 'var(--logo-ink)' }}>
+        <BeeMark size={28} />
+      </span>
       <span className="font-display font-bold tracking-tight text-primary">
         TNT <span className="text-brand">Operations</span>
       </span>
@@ -129,7 +132,7 @@ export default function Layout() {
     <div className="flex h-full flex-col">
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-subtle bg-surface px-4 py-2.5 md:px-6">
-        <BeeMark />
+        <BrandMark />
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <NotifBell />

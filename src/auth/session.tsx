@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
 import { LoginScreen } from './LoginScreen'
 import { PendingApproval } from './PendingApproval'
+import { BeeMark } from '@/components/BeeMark'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
 export const MODULES = ['dashboard', 'maps', 'incubation', 'sensors', 'users'] as const
@@ -210,7 +211,16 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   }, [user, users, sb])
 
   if (status === 'loading') {
-    return <div className="grid min-h-full place-items-center bg-base text-sm text-muted">Loading…</div>
+    return (
+      <div className="grid min-h-full place-items-center bg-base">
+        <div className="flex flex-col items-center gap-3 text-sm text-muted">
+          <span className="animate-pulse" style={{ color: 'var(--logo-ink)' }}>
+            <BeeMark size={48} />
+          </span>
+          Loading…
+        </div>
+      </div>
+    )
   }
   if (!value) return <LoginScreen />
   // Signed in but not yet approved → awaiting-approval gate (no app, no data).

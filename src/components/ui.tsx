@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react'
 import { Search, X, Lock } from 'lucide-react'
+import { BeeMark } from './BeeMark'
 
 /**
  * Token-driven UI primitives for TNT Pollination. Every colour/space/radius
@@ -268,7 +269,9 @@ export function Card({
 export function Logo({ compact = false }: { compact?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <img src="/bee.svg" alt="" width={26} height={26} className="shrink-0" />
+      <span className="shrink-0" style={{ color: 'var(--logo-ink)' }}>
+        <BeeMark size={26} />
+      </span>
       {!compact && (
         <span className="font-display font-bold leading-none tracking-tight text-primary">
           TNT <span className="text-brand">Pollination</span>

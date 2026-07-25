@@ -1,4 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#B8860B"/>
-  <text x="16" y="23" font-size="20" text-anchor="middle">🐝</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <!-- App icon / favicon. Theme-aware: honey on dark OS, black on light OS.
+       Favicons don't inherit page CSS, so colour comes from a media query here.
+       Mirrors src/components/BeeMark.tsx — keep the two in sync. -->
+  <style>
+    :root { --c: #FEB836; }
+    @media (prefers-color-scheme: light) { :root { --c: #050506; } }
+    .s { stroke: var(--c); fill: none; stroke-width: 15; stroke-linejoin: round; stroke-linecap: round; }
+    .f { fill: var(--c); }
+  </style>
+  <g class="s">
+    <path d="M120 22 L156 52 L120 82 L84 52 Z" />
+    <path d="M104 33 L96 15" />
+    <path d="M136 33 L144 15" />
+    <path d="M98 98 L54 104" />
+    <path d="M142 98 L186 104" />
+    <rect x="20" y="96" width="34" height="60" rx="10" />
+    <rect x="186" y="96" width="34" height="60" rx="10" />
+    <path d="M120 104 L152 134 L120 164 L88 134 Z" />
+    <path d="M92 152 L120 176 L148 152" />
+    <path d="M100 170 L120 188 L140 170" />
+  </g>
+  <path class="f" d="M110 194 L130 194 L120 214 Z" />
 </svg>

@@ -43,6 +43,8 @@
   --brand:var(--honey-500); --brand-hover:var(--honey-400); --brand-press:var(--honey-600);
   --brand-subtle:rgba(254,184,54,0.12); --brand-ring:rgba(254,184,54,0.45);
   --on-brand:var(--ink-950); --focus-ring:var(--honey-400);
+  /* Bee mark ink: yellow on dark, black on light (see .on-light override). */
+  --logo-ink:var(--honey-500);
 
   /* Interactive washes + chips */
   --hover-wash:rgba(255,255,255,0.06); --active-wash:rgba(255,255,255,0.10);
@@ -57,10 +59,10 @@
   --brand-chip-fg:var(--honey-300); --brand-chip-bd:rgba(254,184,54,0.4);
   --neutral-fg:var(--ink-100);
 
-  /* Type */
-  --font-display:'Montserrat','IBM Plex Sans',system-ui,sans-serif;
-  --font-sans:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  /* Type — the original system stack (no downloaded webfonts). */
+  --font-display:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --text-2xs:11px; --text-xs:12px; --text-sm:14px; --text-md:16px; --text-lg:18px;
   --text-xl:20px; --text-2xl:24px; --text-3xl:30px; --text-4xl:38px; --text-5xl:48px;
   --text-6xl:62px; --text-7xl:80px; --text-8xl:104px;
@@ -109,6 +111,7 @@
   --text-muted:var(--ink-400); --text-faint:var(--ink-300);
   --text-inverse:var(--white); --text-on-brand:var(--ink-950);
   --brand-subtle:rgba(254,184,54,0.20);
+  --logo-ink:var(--ink-950);
   --hover-wash:rgba(5,5,6,0.045); --active-wash:rgba(5,5,6,0.085);
   --wash-line:rgba(5,5,6,0.035); --chip-bg:rgba(5,5,6,0.05);
   --header-scrim:rgba(255,255,255,0.85);

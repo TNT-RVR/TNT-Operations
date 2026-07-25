@@ -9,6 +9,9 @@ import { useSession } from '@/auth/session'
 import type { Field, FieldGeometry } from '@/data/types'
 import { Pencil, Upload, Check, Undo2, X as XIcon, MapPin } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
+import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, type ShelterOverrides } from '@/domain/shelterOverrides'
+import { crewRoute } from '@/domain/crewRoute'
+import { fieldWarnings } from '@/domain/fieldWarnings'
 import { FieldEditor } from './FieldEditor'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
@@ -25,6 +28,7 @@ const INNER = '#FF6600' // inner boundary exclusion
 const ACCESS = '#FF2D95' // pivot access road
 const WET = '#39B7D6' // wet zones (translucent fill)
 const WET_LINE = '#39B7D6'
+const CREW = '#A855F7' // crew route (desktop purple)
 const PIN_COLORS: Record<PinKind, string> = { entrance: '#16A34A', parking: '#F59E0B', home: '#2F7FE6' }
 const PIN_LABEL: Record<PinKind, string> = { entrance: 'E', parking: 'P', home: 'H' }
 
@@ -180,7 +184,28 @@ export default function MapsHome() {
     () => (editing && draft ? draft : selectedField?.geometry),
     [editing, draft, selectedField],
   )
-  const shelters = useMemo(() => (previewGeom ? getTentPositions(previewGeom) : []), [previewGeom])
+  // Computed pins + manual drag/delete overrides (§5.7). Manual mode's pins are
+  // authored directly, so overrides only apply to computed grids.
+  const shelters = useMemo(() => {
+    if (!previewGeom) return []
+    const raw = getTentPositions(previewGeom)
+    if (str(previewGeom.shelter_mode) === 'manual') return raw.map((p, i) => ({ ...p, gridIdx: i }))
+    return applyShelterOverrides(raw, previewGeom.shelter_overrides as ShelterOverrides | undefined)
+  }, [previewGeom])
+
+  // Crew travel route (§5.6): snake down the sheltered male bays, headland joins.
+  const crew = useMemo(
+    () => (previewGeom && shelters.length >= 2 ? crewRoute(previewGeom, shelters) : { route: [], totalM: 0 }),
+    [previewGeom, shelters],
+  )
+
+  // Save-time sanity checks (§5.8) + the GUI's compute-based zero-pins check.
+  const warnings = useMemo(() => {
+    if (!editing || !draft) return []
+    const w = fieldWarnings(draft)
+    if (shelters.length === 0) w.push('No shelters placed with the current settings.')
+    return w
+  }, [editing, draft, shelters])
 
   const isPivotDraft = !!draft && !draft.boundary_polygon
   const manualEditing = editing && !!draft && str(draft.shelter_mode) === 'manual'
@@ -320,8 +345,34 @@ export default function MapsHome() {
         const nm = num(next.num_male_rows) || 0
         if (nf + nm > 0) next.total_rows = String(nf + nm)
       }
+      // Combo-scoped overrides (§5.7): if this change switches the placement
+      // combo, stash the live drags under the old combo and load the new one's.
+      const prevCombo = comboKey(prev)
+      if (comboKey(next) !== prevCombo) {
+        const { patch } = syncComboAdjustments(next, prevCombo)
+        Object.assign(next, patch)
+      }
       return next
     })
+  }
+
+  // Drag/delete a COMPUTED pin → a per-combo override keyed by grid index.
+  function setPinOverride(gridIdx: number, val: [number, number] | null) {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const ov = { ...((prev.shelter_overrides as ShelterOverrides) || {}), [String(gridIdx)]: val }
+      const next: FieldGeometry = { ...prev, shelter_overrides: ov }
+      const store = { ...((prev.adjust_by_combo as Record<string, unknown>) || {}) }
+      store[comboKey(next)] = { shelter_overrides: ov, tray_overrides: (prev.tray_overrides as object) || {} }
+      next.adjust_by_combo = store
+      return next
+    })
+  }
+
+  const overrideCount = Object.keys((draft?.shelter_overrides as ShelterOverrides) || {}).length
+
+  function onReflow() {
+    setDraft((prev) => (prev ? ({ ...prev, ...reflowToGrid(prev) } as FieldGeometry) : prev))
   }
 
   function onSave() {
@@ -375,6 +426,8 @@ export default function MapsHome() {
       map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85, 'line-dasharray': [2, 2] } })
       map.addSource('corner', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'corner-line', type: 'line', source: 'corner', paint: { 'line-color': TRACK, 'line-width': 2 } })
+      map.addSource('crewroute', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'crewroute-line', type: 'line', source: 'crewroute', paint: { 'line-color': CREW, 'line-width': 3, 'line-opacity': 0.9 } })
 
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
@@ -433,8 +486,9 @@ export default function MapsHome() {
     ;(map.getSource('pivot') as GeoJSONSource | undefined)?.setData(
       pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
     )
-    // While hand-editing manual pins, draggable markers stand in for the dots.
-    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(manualEditing ? EMPTY : sheltersCollection(shelters))
+    // While editing, draggable markers stand in for the dots (manual pins AND
+    // computed pins — the latter drag into per-combo overrides).
+    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(editing ? EMPTY : sheltersCollection(shelters))
 
     // Overlays: tracks, exclusion zones, corner arms.
     const geom = previewGeom ?? {}
@@ -447,6 +501,20 @@ export default function MapsHome() {
       type: 'FeatureCollection',
       features: [...corner.lines.features, ...corner.circles.features],
     })
+    ;(map.getSource('crewroute') as GeoJSONSource | undefined)?.setData(
+      crew.route.length >= 2
+        ? {
+            type: 'FeatureCollection',
+            features: [
+              {
+                type: 'Feature',
+                properties: {},
+                geometry: { type: 'LineString', coordinates: crew.route.map(([lat, lon]) => [lon, lat]) },
+              },
+            ],
+          }
+        : EMPTY,
+    )
 
     // Entrance / parking / home pins as lettered HTML markers.
     pinMarkersRef.current.forEach((m) => m.remove())
@@ -459,18 +527,20 @@ export default function MapsHome() {
         `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)`
       return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
     })
-  }, [ready, previewGeom, shelters, manualEditing])
+  }, [ready, previewGeom, shelters, editing, crew])
 
-  // Manual shelter pins → draggable markers (drag to move, double-click to delete).
+  // While editing, every shelter pin is a draggable marker (drag to move,
+  // double-click to delete). Manual mode edits manual_shelter_pins directly;
+  // computed modes record per-combo shelter_overrides keyed by grid index.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     shelterMarkersRef.current.forEach((m) => m.remove())
-    if (!manualEditing) {
+    if (!editing) {
       shelterMarkersRef.current = []
       return
     }
-    shelterMarkersRef.current = manualPins.map(([lat, lon], i) => {
+    shelterMarkersRef.current = shelters.map((pin) => {
       const el = document.createElement('div')
       el.title = 'Drag to move · double-click to delete'
       el.style.cssText =
@@ -478,17 +548,19 @@ export default function MapsHome() {
         `border:2px solid ${PIN_OUTLINE};box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
       el.addEventListener('dblclick', (ev) => {
         ev.stopPropagation()
-        deleteManualPin(i)
+        if (manualEditing) deleteManualPin(pin.gridIdx)
+        else setPinOverride(pin.gridIdx, null)
       })
-      const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat([lon, lat]).addTo(map)
+      const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat([pin.lng, pin.lat]).addTo(map)
       marker.on('dragend', () => {
         const ll = marker.getLngLat()
-        updateManualPin(i, ll.lat, ll.lng)
+        if (manualEditing) updateManualPin(pin.gridIdx, ll.lat, ll.lng)
+        else setPinOverride(pin.gridIdx, [ll.lat, ll.lng])
       })
       return marker
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, manualEditing, manualPins])
+  }, [ready, editing, manualEditing, shelters])
 
   // While placing, each map click drops a manual shelter pin.
   useEffect(() => {
@@ -630,6 +702,14 @@ export default function MapsHome() {
                     <Upload size={14} /> Import file
                   </button>
                   {importError && <p className="max-w-[12rem] text-[11px] text-danger">{importError}</p>}
+                  {!manualEditing && overrideCount > 0 && (
+                    <div className="mt-1 border-t border-subtle pt-2">
+                      <div className="mb-1 text-[11px] text-muted">{overrideCount} pin override{overrideCount === 1 ? '' : 's'}</div>
+                      <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={onReflow}>
+                        <Undo2 size={14} /> Reflow to grid
+                      </button>
+                    </div>
+                  )}
                   {manualEditing && (
                     <div className="mt-1 border-t border-subtle pt-2">
                       <div className="mb-1 text-[11px] text-muted">{manualPins.length} manual pins</div>
@@ -703,12 +783,19 @@ export default function MapsHome() {
               </div>
               {selectedField.geometry ? (
                 <>
-                  <div className="mt-2 flex items-center gap-3 text-sm">
+                  <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BRAND }} />
                       <span className="font-mono tabular font-semibold text-primary">{shelters.length}</span>
                       <span className="text-muted">shelters (live)</span>
                     </span>
+                    {crew.totalM > 0 && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-block h-0.5 w-3" style={{ backgroundColor: CREW }} />
+                        <span className="font-mono tabular font-semibold text-primary">{(crew.totalM / 1000).toFixed(1)}</span>
+                        <span className="text-muted">km route</span>
+                      </span>
+                    )}
                   </div>
                   {hasOverlays(selectedField.geometry) && (
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] capitalize text-secondary">
@@ -758,6 +845,7 @@ export default function MapsHome() {
               isPivot={isPivotDraft}
               count={shelters.length}
               dirty={dirty}
+              warnings={warnings}
               onName={setDraftName}
               onChange={onChange}
               onSave={onSave}

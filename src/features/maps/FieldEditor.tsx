@@ -16,6 +16,8 @@ interface Props {
   isPivot: boolean
   count: number
   dirty: boolean
+  /** Save-time sanity warnings (fieldWarnings + compute checks). */
+  warnings?: string[]
   onName: (v: string) => void
   onChange: (key: string, value: unknown) => void
   onSave: () => void
@@ -106,7 +108,7 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
   )
 }
 
-export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChange, onSave, onCancel }: Props) {
+export function FieldEditor({ name, draft, isPivot, count, dirty, warnings = [], onName, onChange, onSave, onCancel }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const mode = str(draft.shelter_mode) || 'total'
   const useBays = draft.use_bays !== false && str(draft.use_bays) !== 'false'
@@ -279,13 +281,26 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
         )}
       </div>
 
-      <div className="flex gap-2 border-t border-subtle p-3">
-        <button className="btn-ghost flex-1" onClick={onCancel}>
-          Cancel
-        </button>
-        <button className="btn-primary flex-1" onClick={onSave} disabled={!dirty}>
-          Save
-        </button>
+      <div className="border-t border-subtle p-3">
+        {warnings.length > 0 && (
+          <div
+            className="mb-2 space-y-1 rounded-md px-3 py-2 text-xs"
+            style={{ background: 'var(--warn-bg)', border: '1px solid var(--warn-bd)', color: 'var(--warn-fg)' }}
+          >
+            <div className="font-semibold">Possible field issues</div>
+            {warnings.map((w) => (
+              <div key={w}>• {w}</div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button className="btn-ghost flex-1" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="btn-primary flex-1" onClick={onSave} disabled={!dirty}>
+            Save
+          </button>
+        </div>
       </div>
     </div>
   )

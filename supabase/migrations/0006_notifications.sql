@@ -11,6 +11,17 @@
 -- shared project — same reasoning as `shelter_fields` vs `fields`.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- has_access() normally comes from 0005 (pending-role migration). Define it here
+-- too (create-or-replace, identical) so this migration works even if 0005 hasn't
+-- been applied yet. Depends on app_role() from 0001.
+create or replace function public.has_access()
+returns boolean
+language sql
+stable
+as $$
+  select public.app_role() in ('admin', 'developer', 'operator', 'viewer');
+$$;
+
 create table if not exists public.app_notifications (
   id          uuid primary key default gen_random_uuid(),
   category    text not null default 'system',                 -- integration | incubation | maps | system

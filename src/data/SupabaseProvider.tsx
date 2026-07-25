@@ -59,7 +59,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         sb.from('shelter_fields').select('*').order('updated_at', { ascending: false }),
         sb.from('incubators').select('*').order('name', { ascending: true }),
         sb.from('inspections').select('*').order('at', { ascending: false }).limit(500),
-        sb.from('notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
+        sb.from('app_notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
       ])
       if (cancelled) return
 
@@ -113,7 +113,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        { event: 'INSERT', schema: 'public', table: 'app_notifications' },
         (payload) => {
           const n = toNotification(payload.new as NotificationRow)
           if (!notifRef.current.some((x) => x.id === n.id)) {
@@ -183,7 +183,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const at = new Date().toISOString()
         setNotifications((prev) => prev.map((n) => (ids.includes(n.id) && !n.readAt ? { ...n, readAt: at } : n)))
         supabase
-          .from('notifications')
+          .from('app_notifications')
           .update({ read_at: at })
           .in('id', ids)
           .is('read_at', null)
@@ -194,7 +194,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const at = new Date().toISOString()
         setNotifications((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: at })))
         supabase
-          .from('notifications')
+          .from('app_notifications')
           .update({ read_at: at })
           .is('read_at', null)
           .is('deleted_at', null)
@@ -204,7 +204,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if (!supabase) return
         setNotifications((prev) => prev.filter((n) => n.id !== id))
         supabase
-          .from('notifications')
+          .from('app_notifications')
           .update({ deleted_at: new Date().toISOString() })
           .eq('id', id)
           .then(({ error }) => error && console.error('[data] deleteNotification:', error.message))

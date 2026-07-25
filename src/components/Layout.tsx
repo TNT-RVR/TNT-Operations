@@ -3,17 +3,35 @@ import { LayoutDashboard, Map, Bug, Thermometer, Users, type LucideIcon } from '
 import { useSession, type Module } from '@/auth/session'
 import { ErrorBoundary } from './ErrorBoundary'
 
+interface SubNavItem {
+  to: string
+  label: string
+  /** Exact-match highlight (for an index child that shares the parent path). */
+  end?: boolean
+}
+
 interface NavItem {
   to: string
   label: string
   icon: LucideIcon
   module: Module
+  /** Optional subsections shown indented when this section is active. */
+  children?: SubNavItem[]
 }
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
   { to: '/maps', label: 'Shelter Maps', icon: Map, module: 'maps' },
-  { to: '/incubation', label: 'Incubation', icon: Bug, module: 'incubation' },
+  {
+    to: '/incubation',
+    label: 'Incubation',
+    icon: Bug,
+    module: 'incubation',
+    children: [
+      { to: '/incubation', label: 'Incubators', end: true },
+      { to: '/incubation/samples', label: 'Samples & Trays' },
+    ],
+  },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
 ]
@@ -81,9 +99,32 @@ export default function Layout() {
       <div className="flex min-h-0 flex-1">
         {/* Sidebar (desktop) */}
         <nav className="hidden w-56 shrink-0 border-r border-slate-200 bg-white p-3 md:block">
-          {items.map((n) => (
-            <NavItemLink key={n.to} item={n} />
-          ))}
+          {items.map((n) => {
+            const sectionActive = n.to !== '/' && pathname.startsWith(n.to)
+            return (
+              <div key={n.to}>
+                <NavItemLink item={n} />
+                {n.children && sectionActive && (
+                  <div className="mb-1 ml-9 flex flex-col border-l border-slate-200 pl-2">
+                    {n.children.map((c) => (
+                      <NavLink
+                        key={c.to}
+                        to={c.to}
+                        end={c.end}
+                        className={({ isActive }) =>
+                          `rounded-md px-2 py-1.5 text-sm transition ${
+                            isActive ? 'font-semibold text-brand' : 'text-slate-600 hover:bg-slate-100'
+                          }`
+                        }
+                      >
+                        {c.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </nav>
 
         {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}

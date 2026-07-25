@@ -79,6 +79,64 @@ export interface Inspection {
   batchId?: string | null
 }
 
+/** A raw bee sample (lot) with x-ray grading and derived tray math. */
+export interface Sample {
+  id: string
+  name: string
+  source: string
+  lotNumber: string
+  xrayLivePct: number | null
+  xrayParasitePct: number | null
+  xrayDeadPct: number | null
+  totalVolumeGal: number | null
+  totalWeightLbs: number | null
+  totalWeightKg: number | null
+  liveBeesPerLb: number | null
+  liveBeesPerKg: number | null
+  parasites: number | null
+  chalkbrood: number | null
+  totalTrays: number | null
+  incubatorSpace: number | null
+  notes: string
+  importDate: string | null
+}
+
+/** A single incubation tray (mostly historical/released in the current data). */
+export interface Tray {
+  id: string
+  trayNumber: string
+  sampleId: string | null
+  incubationBatchId: string | null
+  incubatorId: string | null
+  weightLbs: number | null
+  liveCount: number | null
+  parasiteLevelPct: number | null
+  volumeGal: number | null
+  inDate: string | null
+  outDate: string | null
+  coolDate: string | null
+  status: string
+  notes: string
+}
+
+/** An incubation batch (run) with its timeline milestones. */
+export interface IncubationBatch {
+  id: string
+  incubatorId: string | null
+  sampleId: string | null
+  name: string
+  startDate: string | null
+  vaponaIn: string | null
+  vaponaOut: string | null
+  airOut: string | null
+  male10pctEmergence: string | null
+  earliestCool: string | null
+  estimatedRelease: string | null
+  latestRelease: string | null
+  status: string
+  notes: string
+}
+
 export type SensorSource = 'govee' | 'esp32'
 
 export interface SensorReading {

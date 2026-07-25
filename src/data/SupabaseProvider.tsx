@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Field, Incubator, Inspection, SensorReading } from './types'
+import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray } from './types'
 import { supabase } from './supabaseClient'
 import {
   toField,
   toIncubator,
   toInspection,
   toSensorReading,
+  toSample,
+  toTray,
+  toBatch,
   inspectionInsert,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
   type SensorReadingRow,
+  type SampleRow,
+  type TrayRow,
+  type BatchRow,
 } from './mappers'
 
 /**
@@ -31,6 +37,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [incubators, setIncubators] = useState<Incubator[]>([])
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [readings, setReadings] = useState<SensorReading[]>([])
+  const [samples, setSamples] = useState<Sample[]>([])
+  const [trays, setTrays] = useState<Tray[]>([])
+  const [batches, setBatches] = useState<IncubationBatch[]>([])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
@@ -65,6 +74,37 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       setFields(((f.data as FieldRow[]) ?? []).map(toField))
       setIncubators(incs)
       setInspections(((insp.data as InspectionRow[]) ?? []).map(toInspection))
+
+      // Samples (~61) + batches load whole; trays (~4.6k) exceed PostgREST's
+      // 1000-row cap, so page through them.
+      const [sm, bt] = await Promise.all([
+        sb.from('samples').select('*').order('name', { ascending: true }),
+        sb.from('incubation_batches').select('*').order('start_date', { ascending: false, nullsFirst: false }),
+      ])
+      if (cancelled) return
+      if (sm.error) console.error('[data] load samples:', sm.error.message)
+      if (bt.error) console.error('[data] load batches:', bt.error.message)
+      setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
+      setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      const PAGE = 1000
+      const allTrays: Tray[] = []
+      for (let from = 0; ; from += PAGE) {
+        const page = await sb
+          .from('trays')
+          .select('*')
+          .order('tray_number', { ascending: true })
+          .range(from, from + PAGE - 1)
+        if (cancelled) return
+        if (page.error) {
+          console.error('[data] load trays:', page.error.message)
+          break
+        }
+        const rows = (page.data as TrayRow[]) ?? []
+        allTrays.push(...rows.map(toTray))
+        if (rows.length < PAGE) break
+      }
+      setTrays(allTrays)
 
       // Readings: PostgREST caps a query at 1000 rows, and there are ~16k, so a
       // single global "recent" query only covers whichever incubators logged most
@@ -117,6 +157,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       incubators,
       inspections,
       readings,
+      samples,
+      trays,
+      batches,
       addInspection: (input: Omit<Inspection, 'id'>) => {
         if (!supabase) return
         supabase
@@ -160,7 +203,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           })
       },
     }),
-    [fields, incubators, inspections, readings],
+    [fields, incubators, inspections, readings, samples, trays, batches],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

@@ -4,6 +4,9 @@ import {
   toIncubator,
   toInspection,
   toSensorReading,
+  toSample,
+  toTray,
+  toBatch,
   inspectionInsert,
 } from './mappers'
 
@@ -217,5 +220,39 @@ describe('supabase row mappers', () => {
       notes: 'ok',
     })
     expect('id' in payload).toBe(false)
+  })
+
+  it('maps sample / tray / batch rows (numeric coercion + null-safety)', () => {
+    const sample = toSample({
+      id: 's1', name: '26-102', source: 'King Hill', lot_number: 'KH-1',
+      xray_live_pct: '0.86', xray_parasite_pct: null, xray_dead_pct: null,
+      total_volume_gal: '520', total_weight_lbs: '1117', total_weight_kg: null,
+      live_bees_per_lb: '4475', live_bees_per_kg: null, parasites: null, chalkbrood: null,
+      total_trays: '250', incubator_space: null, notes: '', import_date: '2026-06-15T00:00:00Z',
+    })
+    expect(sample.xrayLivePct).toBe(0.86)
+    expect(sample.totalWeightLbs).toBe(1117)
+    expect(sample.totalTrays).toBe(250)
+    expect(sample.xrayDeadPct).toBeNull()
+
+    const tray = toTray({
+      id: 't1', tray_number: 'Tray1', sample_id: 's1', incubation_batch_id: null,
+      incubator_id: 'i1', weight_lbs: null, live_count: null, parasite_level_pct: null,
+      volume_gal: null, in_date: null, out_date: null, cool_date: null, status: 'released', notes: '',
+    })
+    expect(tray.trayNumber).toBe('Tray1')
+    expect(tray.sampleId).toBe('s1')
+    expect(tray.status).toBe('released')
+    expect(tray.weightLbs).toBeNull()
+
+    const batch = toBatch({
+      id: 'b1', incubator_id: 'i1', sample_id: 's1', name: 'Run A', start_date: '2026-07-05',
+      vapona_in: '2026-07-06', vapona_out: null, air_out: null, male_10pct_emergence: null,
+      earliest_cool: null, estimated_release: '2026-07-28', latest_release: null, status: 'active', notes: '',
+    })
+    expect(batch.name).toBe('Run A')
+    expect(batch.vaponaIn).toBe('2026-07-06')
+    expect(batch.estimatedRelease).toBe('2026-07-28')
+    expect(batch.status).toBe('active')
   })
 })

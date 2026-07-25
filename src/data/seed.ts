@@ -1,4 +1,4 @@
-import type { Field, Incubator, Inspection, SensorReading } from './types'
+import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -103,4 +103,47 @@ export const seedReadings: SensorReading[] = [
   { id: 'r1', incubatorId: 'i1', at: '2026-07-22T12:00:00Z', tempC: 30.1, humidityPct: 54, source: 'govee' },
   { id: 'r2', incubatorId: 'i1', at: '2026-07-22T13:00:00Z', tempC: 30.3, humidityPct: 53, source: 'govee' },
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
+]
+
+const nullSampleStats = {
+  xrayParasitePct: null, xrayDeadPct: null, totalWeightKg: null, liveBeesPerKg: null,
+  parasites: null, chalkbrood: null, incubatorSpace: null,
+}
+
+export const seedSamples: Sample[] = [
+  {
+    id: 's1', name: '26-102', source: 'King Hill', lotNumber: 'KH-26-102',
+    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250,
+    notes: 'Strong lot.', importDate: '2026-06-15T00:00:00Z', ...nullSampleStats,
+  },
+  {
+    id: 's2', name: '#4 Sanfoin', source: 'Sanfoin', lotNumber: 'SF-04',
+    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71,
+    notes: '', importDate: '2026-06-18T00:00:00Z', ...nullSampleStats,
+  },
+  {
+    id: 's3', name: '#9 Phacelia', source: 'Phacelia', lotNumber: 'PH-09',
+    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null,
+    notes: 'Awaiting x-ray.', importDate: '2026-06-20T00:00:00Z', ...nullSampleStats,
+  },
+]
+
+const tray = (n: number, sampleId: string, incubatorId: string): Tray => ({
+  id: `t${n}`, trayNumber: `Tray${n}`, sampleId, incubationBatchId: null, incubatorId,
+  weightLbs: null, liveCount: null, parasiteLevelPct: null, volumeGal: null,
+  inDate: null, outDate: null, coolDate: null, status: 'released', notes: '',
+})
+
+export const seedTrays: Tray[] = [
+  tray(1, 's1', 'i1'), tray(2, 's1', 'i1'), tray(3, 's1', 'i2'),
+  tray(4, 's2', 'i2'), tray(5, 's2', 'i3'),
+]
+
+export const seedBatches: IncubationBatch[] = [
+  {
+    id: 'b1', incubatorId: 'i1', sampleId: 's1', name: '26-102 · Incubator A',
+    startDate: '2026-07-05', vaponaIn: '2026-07-06', vaponaOut: '2026-07-09', airOut: '2026-07-10',
+    male10pctEmergence: '2026-07-24', earliestCool: '2026-07-26', estimatedRelease: '2026-07-28',
+    latestRelease: '2026-07-31', status: 'active', notes: '',
+  },
 ]

@@ -9,13 +9,18 @@
 import type {
   Field,
   Incubator,
+  IncubationBatch,
   Inspection,
   InspectionPeriod,
+  Sample,
   SensorReading,
   ShapeType,
+  Tray,
   IncubatorStatus,
   SensorSource,
 } from './types'
+
+type Num = number | string | null | undefined
 
 export interface FieldRow {
   id: string
@@ -141,6 +146,122 @@ export function toSensorReading(row: SensorReadingRow): SensorReading {
     tempC: Number(row.temp_c),
     humidityPct: Number(row.humidity_pct),
     source: row.source as SensorSource,
+  }
+}
+
+export interface SampleRow {
+  id: string
+  name: string
+  source: string
+  lot_number: string
+  xray_live_pct: Num
+  xray_parasite_pct: Num
+  xray_dead_pct: Num
+  total_volume_gal: Num
+  total_weight_lbs: Num
+  total_weight_kg: Num
+  live_bees_per_lb: Num
+  live_bees_per_kg: Num
+  parasites: Num
+  chalkbrood: Num
+  total_trays: Num
+  incubator_space: Num
+  notes: string
+  import_date: string | null
+}
+
+export function toSample(row: SampleRow): Sample {
+  return {
+    id: row.id,
+    name: row.name,
+    source: row.source,
+    lotNumber: row.lot_number,
+    xrayLivePct: numOrNull(row.xray_live_pct),
+    xrayParasitePct: numOrNull(row.xray_parasite_pct),
+    xrayDeadPct: numOrNull(row.xray_dead_pct),
+    totalVolumeGal: numOrNull(row.total_volume_gal),
+    totalWeightLbs: numOrNull(row.total_weight_lbs),
+    totalWeightKg: numOrNull(row.total_weight_kg),
+    liveBeesPerLb: numOrNull(row.live_bees_per_lb),
+    liveBeesPerKg: numOrNull(row.live_bees_per_kg),
+    parasites: numOrNull(row.parasites),
+    chalkbrood: numOrNull(row.chalkbrood),
+    totalTrays: numOrNull(row.total_trays),
+    incubatorSpace: numOrNull(row.incubator_space),
+    notes: row.notes,
+    importDate: row.import_date,
+  }
+}
+
+export interface TrayRow {
+  id: string
+  tray_number: string
+  sample_id: string | null
+  incubation_batch_id: string | null
+  incubator_id: string | null
+  weight_lbs: Num
+  live_count: Num
+  parasite_level_pct: Num
+  volume_gal: Num
+  in_date: string | null
+  out_date: string | null
+  cool_date: string | null
+  status: string
+  notes: string
+}
+
+export function toTray(row: TrayRow): Tray {
+  return {
+    id: row.id,
+    trayNumber: row.tray_number,
+    sampleId: row.sample_id,
+    incubationBatchId: row.incubation_batch_id,
+    incubatorId: row.incubator_id,
+    weightLbs: numOrNull(row.weight_lbs),
+    liveCount: numOrNull(row.live_count),
+    parasiteLevelPct: numOrNull(row.parasite_level_pct),
+    volumeGal: numOrNull(row.volume_gal),
+    inDate: row.in_date,
+    outDate: row.out_date,
+    coolDate: row.cool_date,
+    status: row.status,
+    notes: row.notes ?? '',
+  }
+}
+
+export interface BatchRow {
+  id: string
+  incubator_id: string | null
+  sample_id: string | null
+  name: string
+  start_date: string | null
+  vapona_in: string | null
+  vapona_out: string | null
+  air_out: string | null
+  male_10pct_emergence: string | null
+  earliest_cool: string | null
+  estimated_release: string | null
+  latest_release: string | null
+  status: string
+  notes: string
+}
+
+export function toBatch(row: BatchRow): IncubationBatch {
+  return {
+    id: row.id,
+    incubatorId: row.incubator_id,
+    sampleId: row.sample_id,
+    name: row.name,
+    startDate: row.start_date,
+    vaponaIn: row.vapona_in,
+    vaponaOut: row.vapona_out,
+    airOut: row.air_out,
+    male10pctEmergence: row.male_10pct_emergence,
+    earliestCool: row.earliest_cool,
+    estimatedRelease: row.estimated_release,
+    latestRelease: row.latest_release,
+    status: row.status,
+    notes: row.notes,
   }
 }
 

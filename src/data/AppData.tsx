@@ -1,7 +1,16 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
 import type { Field, Inspection, SensorReading, AppNotification } from './types'
-import { seedFields, seedIncubators, seedInspections, seedReadings, seedNotifications } from './seed'
+import {
+  seedFields,
+  seedIncubators,
+  seedInspections,
+  seedReadings,
+  seedNotifications,
+  seedSamples,
+  seedTrays,
+  seedBatches,
+} from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
 
@@ -22,6 +31,9 @@ function MockProvider({ children }: { children: ReactNode }) {
       incubators: seedIncubators,
       inspections,
       readings,
+      samples: seedSamples,
+      trays: seedTrays,
+      batches: seedBatches,
       addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),
       latestReading: (incubatorId) =>
         readings

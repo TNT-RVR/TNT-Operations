@@ -1,5 +1,14 @@
 import { createContext, useContext } from 'react'
-import type { Field, Incubator, Inspection, SensorReading, AppNotification } from './types'
+import type {
+  Field,
+  Incubator,
+  IncubationBatch,
+  Inspection,
+  Sample,
+  SensorReading,
+  Tray,
+  AppNotification,
+} from './types'
 
 /**
  * The ONE seam every screen talks to. Screens import `useData()` — never a
@@ -13,6 +22,12 @@ export interface DataContextValue {
   incubators: Incubator[]
   inspections: Inspection[]
   readings: SensorReading[]
+  /** Raw bee samples (lots) with x-ray grading. */
+  samples: Sample[]
+  /** Incubation trays (largely historical/released in the current data). */
+  trays: Tray[]
+  /** Incubation batches (runs) with timeline milestones. */
+  batches: IncubationBatch[]
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined

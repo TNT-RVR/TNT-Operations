@@ -1,4 +1,4 @@
-import type { Field, Incubator, Inspection, SensorReading, AppNotification } from './types'
+import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -85,8 +85,18 @@ export const seedIncubators: Incubator[] = [
 ]
 
 export const seedInspections: Inspection[] = [
-  { id: 'in1', incubatorId: 'i1', at: '2026-07-20T16:00:00Z', inspector: 'Tyler', healthScore: 92, notes: 'Emergence starting, looks strong.' },
-  { id: 'in2', incubatorId: 'i2', at: '2026-07-21T16:00:00Z', inspector: 'Tyler', healthScore: 88, notes: 'On track. Humidity a touch low.' },
+  {
+    id: 'in1', incubatorId: 'i1', at: '2026-07-20T16:00:00Z', inspector: 'Tyler', healthScore: 92,
+    notes: 'Emergence starting, looks strong.',
+    period: 'morning', thermometerTempC: 30.0, goveeTempC: 30.3, tempDiffC: 0.3, tempAlert: false,
+    heatPumpsOk: true, fansOk: true, blackLightsOk: true, beesEmerging: true, parasitesEmerging: false,
+  },
+  {
+    id: 'in2', incubatorId: 'i2', at: '2026-07-21T16:00:00Z', inspector: 'Tyler', healthScore: 88,
+    notes: 'On track. Humidity a touch low.',
+    period: 'evening', thermometerTempC: 29.6, goveeTempC: 29.6, tempDiffC: 0.0, tempAlert: false,
+    heatPumpsOk: true, fansOk: true, blackLightsOk: true, beesEmerging: false, parasitesEmerging: false,
+  },
 ]
 
 export const seedReadings: SensorReading[] = [
@@ -128,5 +138,62 @@ export const seedNotifications: AppNotification[] = [
     source: 'system',
     createdAt: '2026-07-23T09:00:00Z',
     readAt: '2026-07-23T09:05:00Z',
+  },
+]
+
+const nullSampleStats = {
+  xrayParasitePct: null, xrayDeadPct: null, totalWeightKg: null, liveBeesPerKg: null,
+  parasites: null, chalkbrood: null, incubatorSpace: null,
+}
+
+export const seedSamples: Sample[] = [
+  {
+    id: 's1', name: '26-102', source: 'King Hill', lotNumber: 'KH-26-102',
+    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250,
+    notes: 'Strong lot.', importDate: '2026-06-15T00:00:00Z', ...nullSampleStats,
+  },
+  {
+    id: 's2', name: '#4 Sanfoin', source: 'Sanfoin', lotNumber: 'SF-04',
+    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71,
+    notes: '', importDate: '2026-06-18T00:00:00Z', ...nullSampleStats,
+  },
+  {
+    id: 's3', name: '#9 Phacelia', source: 'Phacelia', lotNumber: 'PH-09',
+    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null,
+    notes: 'Awaiting x-ray.', importDate: '2026-06-20T00:00:00Z', ...nullSampleStats,
+  },
+]
+
+let trayIdSeq = 0
+const tray = (
+  label: string,
+  sampleId: string,
+  incubatorId: string,
+  outDate: string | null,
+  status = 'released',
+): Tray => ({
+  id: `t${++trayIdSeq}`, trayNumber: label, sampleId, incubationBatchId: null, incubatorId,
+  weightLbs: null, liveCount: null, parasiteLevelPct: null, volumeGal: null,
+  inDate: null, outDate, coolDate: null, status, notes: '',
+})
+
+export const seedTrays: Tray[] = [
+  // 2026 season
+  tray('Tray0001', 's1', 'i1', '2026-07-28'),
+  tray('Tray0002', 's1', 'i1', '2026-07-28'),
+  tray('Tray0003', 's1', 'i2', '2026-07-29'),
+  tray('Tray0004', 's2', 'i2', '2026-07-30'),
+  tray('Tray0005', 's2', 'i3', '2026-07-30'),
+  // 2025 season — the SAME physical labels reused with a different sample/incubator
+  tray('Tray0001', 's2', 'i2', '2025-07-25'),
+  tray('Tray0003', 's2', 'i3', '2025-07-26'),
+]
+
+export const seedBatches: IncubationBatch[] = [
+  {
+    id: 'b1', incubatorId: 'i1', sampleId: 's1', name: '26-102 · Incubator A',
+    startDate: '2026-07-05', vaponaIn: '2026-07-06', vaponaOut: '2026-07-09', airOut: '2026-07-10',
+    male10pctEmergence: '2026-07-24', earliestCool: '2026-07-26', estimatedRelease: '2026-07-28',
+    latestRelease: '2026-07-31', status: 'active', notes: '',
   },
 ]

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Modal, Badge, Gauge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import type { Incubator } from '@/data/types'
+import type { Incubator, Inspection } from '@/data/types'
 import { incubationProgress, getIncubationDay, incubatorDisplay, formatTemp } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
 
@@ -17,6 +17,21 @@ function healthTone(score: number): 'green' | 'amber' | 'red' {
   if (score >= 85) return 'green'
   if (score >= 70) return 'amber'
   return 'red'
+}
+
+/** Compact status chips for an inspection: red for problems, info for emergence. */
+function inspectionChips(i: Inspection) {
+  const chips: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = []
+  if (i.heatPumpsOk === false) chips.push({ label: 'Heat pumps', tone: 'red' })
+  if (i.fansOk === false) chips.push({ label: 'Fans', tone: 'red' })
+  if (i.blackLightsOk === false) chips.push({ label: 'Black lights', tone: 'red' })
+  if (i.parasitesEmerging) chips.push({ label: 'Parasites', tone: 'red' })
+  if (i.beesEmerging) chips.push({ label: 'Bees emerging', tone: 'green' })
+  return chips.map((c) => (
+    <Badge key={c.label} tone={c.tone}>
+      {c.label}
+    </Badge>
+  ))
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
@@ -47,19 +62,44 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const targetC = d.tempMin != null && d.tempMax != null ? (d.tempMin + d.tempMax) / 2 : incubator.tempTargetC
   const tolC = d.tempMin != null && d.tempMax != null ? (d.tempMax - d.tempMin) / 2 : 1.5
 
-  const [health, setHealth] = useState(90)
+  const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
+  const [thermTemp, setThermTemp] = useState('')
+  const [heatPumpsOk, setHeatPumpsOk] = useState(true)
+  const [fansOk, setFansOk] = useState(true)
+  const [blackLightsOk, setBlackLightsOk] = useState(true)
+  const [beesEmerging, setBeesEmerging] = useState(false)
+  const [parasitesEmerging, setParasitesEmerging] = useState(false)
   const [notes, setNotes] = useState('')
+
+  // Compare the hand thermometer against the Govee sensor reading at log time.
+  const goveeTempC = latest?.tempC ?? null
+  const thermNum = thermTemp.trim() === '' ? null : Number(thermTemp)
+  const tempDiffC = thermNum != null && goveeTempC != null ? Math.round((thermNum - goveeTempC) * 100) / 100 : null
+  const tempAlert = tempDiffC != null && Math.abs(tempDiffC) >= 1.5
 
   function submit() {
     addInspection({
       incubatorId: incubator.id,
       at: new Date().toISOString(),
       inspector: s.user.name,
-      healthScore: health,
+      healthScore: 0,
       notes: notes.trim(),
+      period,
+      thermometerTempC: thermNum,
+      goveeTempC,
+      tempDiffC,
+      tempAlert,
+      heatPumpsOk,
+      fansOk,
+      blackLightsOk,
+      beesEmerging,
+      parasitesEmerging,
     })
+    setThermTemp('')
     setNotes('')
-    setHealth(90)
+    setPeriod('manual')
+    setBeesEmerging(false)
+    setParasitesEmerging(false)
   }
 
   return (
@@ -120,16 +160,56 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             <h3 className="mb-2 font-semibold">Log an inspection</h3>
             <div className="flex flex-wrap items-end gap-3">
               <label className="block">
-                <span className="label">Health score</span>
+                <span className="label">Period</span>
+                <select className="input w-32" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="label">Thermometer °C</span>
                 <input
                   className="input w-28"
                   type="number"
-                  min={0}
-                  max={100}
-                  value={health}
-                  onChange={(e) => setHealth(Math.max(0, Math.min(100, Number(e.target.value))))}
+                  step="0.1"
+                  value={thermTemp}
+                  onChange={(e) => setThermTemp(e.target.value)}
+                  placeholder={goveeTempC != null ? String(goveeTempC) : '—'}
                 />
               </label>
+              <div className="pb-1 text-sm text-slate-500">
+                Govee {goveeTempC != null ? formatTemp(goveeTempC) : '—'}
+                {tempDiffC != null && (
+                  <>
+                    {' · Δ '}
+                    <span className={tempAlert ? 'font-semibold text-red-600' : 'text-slate-700'}>
+                      {tempDiffC > 0 ? '+' : ''}
+                      {tempDiffC}°C
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              {(
+                [
+                  ['Heat pumps OK', heatPumpsOk, setHeatPumpsOk],
+                  ['Fans OK', fansOk, setFansOk],
+                  ['Black lights OK', blackLightsOk, setBlackLightsOk],
+                  ['Bees emerging', beesEmerging, setBeesEmerging],
+                  ['Parasites emerging', parasitesEmerging, setParasitesEmerging],
+                ] as const
+              ).map(([label, val, set]) => (
+                <label key={label} className="flex items-center gap-2">
+                  <input type="checkbox" checked={val} onChange={(e) => set(e.target.checked)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-3 flex items-end gap-3">
               <label className="block flex-1">
                 <span className="label">Notes</span>
                 <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you see?" />
@@ -150,14 +230,31 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {mine.map((i) => (
-                <li key={i.id} className="flex items-start gap-3 px-3 py-2">
-                  {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-slate-800">{i.notes || <span className="text-slate-400">—</span>}</div>
-                    <div className="text-xs text-slate-400">
-                      {fmtWhen(i.at)}
-                      {i.inspector ? ` · ${i.inspector}` : ''}
-                    </div>
+                <li key={i.id} className="px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {i.period && <Badge tone="brand">{i.period}</Badge>}
+                    {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
+                    {i.thermometerTempC != null && (
+                      <span className="text-xs text-slate-600">
+                        therm {formatTemp(i.thermometerTempC)}
+                        {i.goveeTempC != null && <> · govee {formatTemp(i.goveeTempC)}</>}
+                        {i.tempDiffC != null && (
+                          <>
+                            {' · Δ '}
+                            <span className={i.tempAlert ? 'font-semibold text-red-600' : 'text-slate-500'}>
+                              {i.tempDiffC > 0 ? '+' : ''}
+                              {i.tempDiffC}°C
+                            </span>
+                          </>
+                        )}
+                      </span>
+                    )}
+                    {inspectionChips(i)}
+                  </div>
+                  {i.notes && <div className="mt-1 text-sm text-slate-800">{i.notes}</div>}
+                  <div className="mt-0.5 text-xs text-slate-400">
+                    {fmtWhen(i.at)}
+                    {i.inspector ? ` · ${i.inspector}` : ''}
                   </div>
                 </li>
               ))}

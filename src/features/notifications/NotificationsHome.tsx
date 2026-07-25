@@ -1,8 +1,17 @@
 import { useState } from 'react'
-import { PageHeader, EmptyState } from '@/components/ui'
-import { useData } from '@/data/context'
+import { PageHeader, EmptyState, Switch } from '@/components/ui'
+import { useData, type NotificationPref } from '@/data/context'
 import { AlertOctagon, AlertTriangle, Info, Trash2, CheckCheck, type LucideIcon } from 'lucide-react'
 import type { NotificationSeverity } from '@/data/types'
+
+/** Alert types the app can raise — the settings grid rows. */
+const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
+  { type: 'sensor_feed_stale', label: 'Sensor feed stale', hint: 'A Govee/ESP32 feed stops reporting (integration health).' },
+  { type: 'temp_out_of_range', label: 'Temperature out of range', hint: 'An incubator leaves its temperature band.' },
+  { type: 'humidity_out_of_range', label: 'Humidity out of range', hint: 'An incubator leaves its humidity band.' },
+  { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
+]
+const DEFAULT_PREF: NotificationPref = { inApp: true, email: false, push: false }
 
 const TZ = 'America/Edmonton'
 const fmt = (iso: string) =>
@@ -15,13 +24,14 @@ const SEV: Record<NotificationSeverity, { icon: LucideIcon; color: string }> = {
 }
 
 export default function NotificationsHome() {
-  const { notifications, markNotificationsRead, markAllNotificationsRead, deleteNotification } = useData()
-  const [tab, setTab] = useState<'unread' | 'read'>('unread')
+  const { notifications, markNotificationsRead, markAllNotificationsRead, deleteNotification, notificationPrefs, saveNotificationPref } =
+    useData()
+  const [tab, setTab] = useState<'unread' | 'read' | 'settings'>('unread')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const unread = notifications.filter((n) => !n.readAt)
   const read = notifications.filter((n) => n.readAt)
-  const list = tab === 'unread' ? unread : read
+  const list = tab === 'read' ? read : unread
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -36,10 +46,14 @@ export default function NotificationsHome() {
     markNotificationsRead(shownSelected.map((n) => n.id))
     setSelected(new Set())
   }
-  const switchTab = (t: 'unread' | 'read') => {
+  const switchTab = (t: 'unread' | 'read' | 'settings') => {
     setTab(t)
     setSelected(new Set())
   }
+
+  const prefFor = (type: string): NotificationPref => notificationPrefs[type] ?? DEFAULT_PREF
+  const setChannel = (type: string, channel: keyof NotificationPref, v: boolean) =>
+    saveNotificationPref(type, { ...prefFor(type), [channel]: v })
 
   return (
     <div>
@@ -58,7 +72,7 @@ export default function NotificationsHome() {
       <div className="p-4 md:p-6">
         {/* Tabs */}
         <div className="mb-4 flex items-center gap-1 border-b border-subtle">
-          {(['unread', 'read'] as const).map((t) => (
+          {(['unread', 'read', 'settings'] as const).map((t) => (
             <button
               key={t}
               onClick={() => switchTab(t)}
@@ -89,7 +103,39 @@ export default function NotificationsHome() {
           </div>
         )}
 
-        {list.length === 0 ? (
+        {tab === 'settings' ? (
+          <div className="max-w-2xl space-y-2">
+            <p className="mb-3 text-sm text-muted">
+              Choose which alerts reach you, per channel. In-app shows in the bell; email and push delivery are stored
+              now and activate when those channels are connected.
+            </p>
+            {ALERT_TYPES.map((a) => {
+              const p = prefFor(a.type)
+              return (
+                <div key={a.type} className="card flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-primary">{a.label}</div>
+                    <div className="text-xs text-muted">{a.hint}</div>
+                  </div>
+                  <div className="flex items-center gap-5">
+                    {(
+                      [
+                        ['inApp', 'In-app'],
+                        ['email', 'Email'],
+                        ['push', 'Push'],
+                      ] as const
+                    ).map(([k, label]) => (
+                      <label key={k} className="flex flex-col items-center gap-1 text-[11px] uppercase tracking-wider text-muted">
+                        {label}
+                        <Switch checked={p[k]} onChange={(v) => setChannel(a.type, k, v)} label={`${a.label} via ${label}`} />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : list.length === 0 ? (
           <EmptyState>{tab === 'unread' ? 'No unread notifications. 🎉' : 'No read notifications yet.'}</EmptyState>
         ) : (
           <ul className="space-y-2">

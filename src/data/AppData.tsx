@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { DataContext, type DataContextValue } from './context'
+import { DataContext, type DataContextValue, type NotificationPref } from './context'
 import type { Field, Inspection, SensorReading, AppNotification, PlacedShelter, ShelterTrayLink, NestingBlock } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import {
@@ -28,6 +28,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
+  const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
@@ -54,6 +55,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       markAllNotificationsRead: () =>
         setNotifications((prev) => prev.map((n) => (n.readAt ? n : { ...n, readAt: nowIso() }))),
       deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
+      notificationPrefs,
+      saveNotificationPref: (type, pref) => setNotificationPrefs((prev) => ({ ...prev, [type]: pref })),
       costPrefsByYear,
       saveCostPrefs: (year, prefs) => setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs })),
       placedShelters,
@@ -64,7 +67,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       addNestingBlock: (input) =>
         setNestingBlocks((prev) => [{ ...input, id: nextId('nb'), createdAt: nowIso() }, ...prev]),
     }),
-    [fields, inspections, readings, notifications, costPrefsByYear, placedShelters, shelterTrayLinks, nestingBlocks],
+    [fields, inspections, readings, notifications, notificationPrefs, costPrefsByYear, placedShelters, shelterTrayLinks, nestingBlocks],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

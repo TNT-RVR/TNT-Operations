@@ -66,6 +66,11 @@ export interface SessionValue {
   signOut: () => void | Promise<void>
   /** Admins assign/approve a user's role (updates `profiles.role` in supabase mode). */
   updateUserRole: (userId: string, role: Role) => void
+  /** Admins rename a user (updates `profiles.name` in supabase mode). */
+  updateUserName: (userId: string, name: string) => void
+  /** Admins remove a user's profile (revokes access; they re-appear as pending
+   *  if they sign in again). Cannot remove yourself. */
+  deleteUser: (userId: string) => void
   authMode: AuthMode
 }
 
@@ -99,6 +104,11 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
       },
       signOut: backToAdmin,
       updateUserRole: (uid, role) => setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, role } : u))),
+      updateUserName: (uid, name) => setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, name } : u))),
+      deleteUser: (uid) => {
+        if (uid === user.id) return
+        setUsers((prev) => prev.filter((u) => u.id !== uid))
+      },
       authMode: 'mock',
     }),
     [user, users],
@@ -204,6 +214,31 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
               return
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
+          })
+      },
+      updateUserName: (userId, name) => {
+        sb.from('profiles')
+          .update({ name })
+          .eq('id', userId)
+          .then(({ error }) => {
+            if (error) {
+              console.error('[auth] updateUserName:', error.message)
+              return
+            }
+            setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, name } : u)))
+          })
+      },
+      deleteUser: (userId) => {
+        if (userId === user.id) return // never remove yourself
+        sb.from('profiles')
+          .delete()
+          .eq('id', userId)
+          .then(({ error }) => {
+            if (error) {
+              console.error('[auth] deleteUser:', error.message)
+              return
+            }
+            setUsers((prev) => prev.filter((u) => u.id !== userId))
           })
       },
       authMode: 'supabase',

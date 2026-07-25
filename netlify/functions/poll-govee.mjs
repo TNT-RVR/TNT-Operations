@@ -112,9 +112,56 @@ export default async () => {
     })
   }
 
+  // ── Integration health: alert when a sensor feed goes stale ────────────────
+  // For every incubator with a device that did NOT return a reading this cycle,
+  // check how old its newest stored reading is. Older than STALE_MIN → raise an
+  // app_notification (deduped: skip if an active stale alert for this incubator
+  // was already raised in the last DEDUPE_H hours).
+  const STALE_MIN = 30
+  const DEDUPE_H = 6
+  let alerts = 0
+  const failed = withDevice.filter((i) => !readings.some((r) => r.incubator_id === i.id))
+  for (const inc of failed) {
+    try {
+      const last = await fetch(
+        `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at&order=at.desc&limit=1`,
+        { headers: sb },
+      ).then((r) => r.json())
+      const lastAt = Array.isArray(last) && last[0]?.at ? new Date(last[0].at).getTime() : 0
+      const ageMin = (Date.now() - lastAt) / 60000
+      if (ageMin < STALE_MIN) continue
+
+      const since = new Date(Date.now() - DEDUPE_H * 3600_000).toISOString()
+      const dupe = await fetch(
+        `${SB_URL}/rest/v1/app_notifications?type=eq.sensor_feed_stale&source=eq.govee_poller&deleted_at=is.null` +
+          `&created_at=gte.${since}&body=like.*${encodeURIComponent(inc.name)}*&select=id&limit=1`,
+        { headers: sb },
+      ).then((r) => r.json())
+      if (Array.isArray(dupe) && dupe.length > 0) continue
+
+      const ageTxt = lastAt ? `${Math.round(ageMin)} minutes` : 'ever (no readings on record)'
+      await fetch(`${SB_URL}/rest/v1/app_notifications`, {
+        method: 'POST',
+        headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          category: 'integration',
+          type: 'sensor_feed_stale',
+          severity: 'critical',
+          title: `${inc.name} sensor feed is stale`,
+          body: `No reading from ${inc.name} in ${ageTxt} — the Govee sensor or gateway may be offline.`,
+          source: 'govee_poller',
+        }),
+      })
+      alerts++
+    } catch {
+      /* health check must never break the poll */
+    }
+  }
+
   const total = Array.isArray(incs) ? incs.length : 0
   return new Response(
-    `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ${readings.length} readings written`,
+    `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +
+      `${readings.length} readings written, ${alerts} stale alerts raised`,
     { status: 200 },
   )
 }

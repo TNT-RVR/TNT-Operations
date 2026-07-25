@@ -14,6 +14,13 @@ import type {
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
+/** Which channels a given alert type is delivered on, for the current user. */
+export interface NotificationPref {
+  inApp: boolean
+  email: boolean
+  push: boolean
+}
+
 /**
  * The ONE seam every screen talks to. Screens import `useData()` — never a
  * backend directly. Two providers implement this contract:
@@ -43,6 +50,10 @@ export interface DataContextValue {
   markNotificationsRead: (ids: string[]) => void
   markAllNotificationsRead: () => void
   deleteNotification: (id: string) => void
+  /** Per-user alert preferences: which alert types arrive on which channel.
+   *  Missing type = default (in-app on, email/push off). */
+  notificationPrefs: Record<string, NotificationPref>
+  saveNotificationPref: (type: string, pref: NotificationPref) => void
 
   /** Cost-estimator pricing forms, keyed by pricing year (spec Part 8). */
   costPrefsByYear: Record<string, Partial<CostPrefs>>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DataContext, type DataContextValue } from './context'
+import { DataContext, type DataContextValue, type NotificationPref } from './context'
 import type {
   Field,
   Incubator,
@@ -66,6 +66,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
+  const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
@@ -145,6 +146,18 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       else setShelterTrayLinks(((stl.data as ShelterTrayLinkRow[]) ?? []).map(toShelterTrayLink))
       if (nb.error) console.warn('[data] load nesting_blocks:', nb.error.message)
       else setNestingBlocks(((nb.data as NestingBlockRow[]) ?? []).map(toNestingBlock))
+
+      // Per-user alert channel prefs (RLS limits to own rows).
+      const prefs = await sb.from('app_notification_prefs').select('*')
+      if (cancelled) return
+      if (prefs.error) console.warn('[data] load notification prefs:', prefs.error.message)
+      else {
+        const byType: Record<string, NotificationPref> = {}
+        for (const row of (prefs.data as Array<{ type: string; in_app: boolean; email: boolean; push: boolean }>) ?? []) {
+          byType[row.type] = { inApp: row.in_app, email: row.email, push: row.push }
+        }
+        setNotificationPrefs(byType)
+      }
 
       const PAGE = 1000
       const allTrays: Tray[] = []
@@ -303,6 +316,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           .eq('id', id)
           .then(({ error }) => error && console.error('[data] deleteNotification:', error.message))
       },
+      notificationPrefs,
+      saveNotificationPref: (type: string, pref: NotificationPref) => {
+        if (!supabase) return
+        setNotificationPrefs((prev) => ({ ...prev, [type]: pref }))
+        supabase.auth.getUser().then(({ data }) => {
+          const uid = data.user?.id
+          if (!uid) return
+          supabase!
+            .from('app_notification_prefs')
+            .upsert({ user_id: uid, type, in_app: pref.inApp, email: pref.email, push: pref.push })
+            .then(({ error }) => error && console.error('[data] saveNotificationPref:', error.message))
+        })
+      },
       costPrefsByYear,
       saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => {
         if (!supabase) return
@@ -367,7 +393,21 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           })
       },
     }),
-    [fields, incubators, inspections, readings, notifications, samples, trays, batches, costPrefsByYear],
+    [
+      fields,
+      incubators,
+      inspections,
+      readings,
+      notifications,
+      notificationPrefs,
+      samples,
+      trays,
+      batches,
+      costPrefsByYear,
+      placedShelters,
+      shelterTrayLinks,
+      nestingBlocks,
+    ],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

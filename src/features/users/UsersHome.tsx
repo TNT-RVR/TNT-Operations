@@ -1,5 +1,6 @@
-import { Moon, Sun } from 'lucide-react'
-import { PageHeader, Badge, Card, Switch } from '@/components/ui'
+import { useState } from 'react'
+import { Moon, Sun, Pencil, Trash2, Check, X } from 'lucide-react'
+import { PageHeader, Badge, Card, Switch, IconButton } from '@/components/ui'
 import { useSession, ASSIGNABLE_ROLES, type Role } from '@/auth/session'
 import { useTheme } from '@/styles/theme'
 
@@ -15,6 +16,22 @@ export default function UsersHome() {
   const pendingCount = s.users.filter((u) => u.role === 'pending').length
   const { theme, setTheme } = useTheme()
   const light = theme === 'light'
+
+  // Inline rename state.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  // Two-step delete confirmation.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  function startEdit(id: string, name: string) {
+    setEditingId(id)
+    setEditName(name)
+    setConfirmDeleteId(null)
+  }
+  function commitEdit() {
+    if (editingId && editName.trim()) s.updateUserName(editingId, editName.trim())
+    setEditingId(null)
+  }
 
   return (
     <div>
@@ -47,18 +64,44 @@ export default function UsersHome() {
                 <th className="th">Name</th>
                 <th className="th">Email</th>
                 <th className="th">Role</th>
+                {canEdit && <th className="th w-24"></th>}
               </tr>
             </thead>
             <tbody>
               {s.users.map((u) => {
                 const isSelf = u.id === s.user.id
+                const editing = editingId === u.id
+                const confirming = confirmDeleteId === u.id
                 return (
                   <tr
                     key={u.id}
                     className="border-t border-subtle"
                     style={u.role === 'pending' ? { background: 'var(--warn-bg)', color: 'var(--warn-fg)' } : undefined}
                   >
-                    <td className="px-3 py-2 font-medium">{u.name}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {editing ? (
+                        <span className="flex items-center gap-1.5">
+                          <input
+                            className="input min-h-0 w-44 px-2 py-1 text-sm"
+                            value={editName}
+                            autoFocus
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitEdit()
+                              if (e.key === 'Escape') setEditingId(null)
+                            }}
+                          />
+                          <IconButton label="Save name" onClick={commitEdit}>
+                            <Check size={15} />
+                          </IconButton>
+                          <IconButton label="Cancel" onClick={() => setEditingId(null)}>
+                            <X size={15} />
+                          </IconButton>
+                        </span>
+                      ) : (
+                        u.name || <span className="text-faint">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-secondary">{u.email}</td>
                     <td className="px-3 py-2">
                       {canEdit ? (
@@ -84,6 +127,38 @@ export default function UsersHome() {
                         <Badge tone={roleTone(u.role)}>{u.role}</Badge>
                       )}
                     </td>
+                    {canEdit && (
+                      <td className="px-3 py-2">
+                        {confirming ? (
+                          <span className="flex items-center gap-1.5">
+                            <button
+                              className="rounded-sm px-2 py-1 text-xs font-semibold"
+                              style={{ background: 'var(--red-500)', color: 'var(--white)' }}
+                              onClick={() => {
+                                s.deleteUser(u.id)
+                                setConfirmDeleteId(null)
+                              }}
+                            >
+                              Remove
+                            </button>
+                            <IconButton label="Cancel" onClick={() => setConfirmDeleteId(null)}>
+                              <X size={15} />
+                            </IconButton>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <IconButton label="Edit name" onClick={() => startEdit(u.id, u.name)}>
+                              <Pencil size={15} />
+                            </IconButton>
+                            {!isSelf && (
+                              <IconButton label="Remove user" onClick={() => setConfirmDeleteId(u.id)}>
+                                <Trash2 size={15} />
+                              </IconButton>
+                            )}
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -92,7 +167,7 @@ export default function UsersHome() {
         </div>
         <p className="mt-4 text-sm text-muted">
           {s.authMode === 'supabase'
-            ? 'People sign up at the app and land here as “pending.” Assign them a role to grant access — no Supabase dashboard needed.'
+            ? 'People sign up at the app and land here as "pending." Assign them a role to grant access. Removing a user revokes access — if they sign in again they re-appear as pending.'
             : 'Mock mode uses seeded users. In the Supabase backend, new sign-ups appear here for approval.'}
         </p>
       </div>

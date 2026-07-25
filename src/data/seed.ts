@@ -34,9 +34,20 @@ export const seedFields: Field[] = [
       num_structures: '24',
       Planting_angle: '0',
       shelters_in_outside_pass: 'Yes',
-      pivot_tracks: [],
+      // Overlay demo data: three wheel tracks, a wet zone, and site pins.
+      pivot_tracks: [130, 260, 390],
       track_exclusion_ft: '10',
       pass_edge_buffer_ft: '25',
+      wet_zones: [
+        [
+          [49.8315, -111.5945],
+          [49.832, -111.5938],
+          [49.8312, -111.5932],
+          [49.8308, -111.594],
+        ],
+      ],
+      parking_pin: [49.8336, -111.595],
+      entrance_pin: [49.8266, -111.6],
     },
   },
   {

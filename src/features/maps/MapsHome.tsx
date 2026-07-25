@@ -9,11 +9,34 @@ import { useSession } from '@/auth/session'
 import type { Field, FieldGeometry } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { FieldEditor } from './FieldEditor'
+import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 
 // Theme colours (tailwind.config.js) used for map features.
 const BRAND = '#B8860B' // honey amber — shelter pins
 const FIELD = '#4D7C0F' // canola green — field boundary
 const INK = '#1A1206' // pivot centre
+
+// Overlay colours — matched to the old desktop app.
+const TRACK = '#FF2A2A' // pivot wheel tracks / corner arms
+const INNER = '#FF6600' // inner boundary exclusion
+const ACCESS = '#FF2D95' // pivot access road
+const WET = '#1E90FF' // wet zones (fill)
+const WET_LINE = '#0A3D7A' // wet zones (outline)
+const PIN_COLORS: Record<PinKind, string> = { entrance: '#16A34A', parking: '#F59E0B', home: '#2563EB' }
+const PIN_LABEL: Record<PinKind, string> = { entrance: 'E', parking: 'P', home: 'H' }
+
+/** Legend rows for the overlays actually present on a field. */
+function legendItems(geom: FieldGeometry): Array<{ label: string; color: string }> {
+  const nonEmpty = (v: unknown) => Array.isArray(v) && v.length > 0
+  const items: Array<{ label: string; color: string }> = []
+  if (nonEmpty(geom.pivot_tracks)) items.push({ label: 'Wheel tracks', color: TRACK })
+  if (nonEmpty(geom.corner_arms)) items.push({ label: 'Corner arms', color: TRACK })
+  if (nonEmpty(geom.boundary_inner)) items.push({ label: 'Inner boundary', color: INNER })
+  if (nonEmpty(geom.access_road_boundary)) items.push({ label: 'Access road', color: ACCESS })
+  if (nonEmpty(geom.wet_zones)) items.push({ label: 'Wet zone', color: WET })
+  for (const p of overlayPins(geom)) items.push({ label: p.kind, color: PIN_COLORS[p.kind] })
+  return items
+}
 
 // Satellite basemap — Esri World Imagery (free raster tiles, no API key), with a
 // light labels/roads overlay so towns + roads stay legible over the imagery.
@@ -116,6 +139,7 @@ export default function MapsHome() {
   const [draftName, setDraftName] = useState('')
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const [ready, setReady] = useState(false)
 
   const selectedField: Field | null = useMemo(
@@ -203,6 +227,22 @@ export default function MapsHome() {
       map.addSource('boundary', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'boundary', paint: { 'fill-color': FIELD, 'fill-opacity': 0.1 } })
       map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD, 'line-width': 2 } })
+
+      // ── Overlay exclusion zones (below shelters) ───────────────────────────
+      map.addSource('inner', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'inner-fill', type: 'fill', source: 'inner', paint: { 'fill-color': INNER, 'fill-opacity': 0.08 } })
+      map.addSource('access', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'access-fill', type: 'fill', source: 'access', paint: { 'fill-color': ACCESS, 'fill-opacity': 0.08 } })
+      map.addSource('wetzones', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'wet-fill', type: 'fill', source: 'wetzones', paint: { 'fill-color': WET, 'fill-opacity': 0.3 } })
+      map.addLayer({ id: 'inner-line', type: 'line', source: 'inner', paint: { 'line-color': INNER, 'line-width': 1.5 } })
+      map.addLayer({ id: 'access-line', type: 'line', source: 'access', paint: { 'line-color': ACCESS, 'line-width': 1.5 } })
+      map.addLayer({ id: 'wet-line', type: 'line', source: 'wetzones', paint: { 'line-color': WET_LINE, 'line-width': 1.5 } })
+      map.addSource('tracks', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85 } })
+      map.addSource('corner', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'corner-line', type: 'line', source: 'corner', paint: { 'line-color': TRACK, 'line-width': 2 } })
+
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'shelters',
@@ -226,6 +266,8 @@ export default function MapsHome() {
     })
 
     return () => {
+      pinMarkersRef.current.forEach((m) => m.remove())
+      pinMarkersRef.current = []
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -245,6 +287,30 @@ export default function MapsHome() {
       pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
     )
     ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(sheltersCollection(shelters))
+
+    // Overlays: tracks, exclusion zones, corner arms.
+    const geom = previewGeom ?? {}
+    const corner = cornerArms(geom)
+    ;(map.getSource('tracks') as GeoJSONSource | undefined)?.setData(trackRings(geom))
+    ;(map.getSource('inner') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.boundary_inner))
+    ;(map.getSource('access') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.access_road_boundary))
+    ;(map.getSource('wetzones') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.wet_zones))
+    ;(map.getSource('corner') as GeoJSONSource | undefined)?.setData({
+      type: 'FeatureCollection',
+      features: [...corner.lines.features, ...corner.circles.features],
+    })
+
+    // Entrance / parking / home pins as lettered HTML markers.
+    pinMarkersRef.current.forEach((m) => m.remove())
+    pinMarkersRef.current = overlayPins(geom).map((pin) => {
+      const el = document.createElement('div')
+      el.textContent = PIN_LABEL[pin.kind]
+      el.style.cssText =
+        `display:flex;align-items:center;justify-content:center;width:20px;height:20px;` +
+        `border-radius:9999px;background:${PIN_COLORS[pin.kind]};color:#fff;font:700 11px/1 sans-serif;` +
+        `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)`
+      return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
+    })
   }, [ready, previewGeom, shelters])
 
   // Fit the view when the SELECTED FIELD changes (not on every draft keystroke).
@@ -327,13 +393,25 @@ export default function MapsHome() {
                 {selectedField.region} · {selectedField.client}
               </div>
               {selectedField.geometry ? (
-                <div className="mt-2 flex items-center gap-3 text-sm">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BRAND }} />
-                    <span className="font-semibold text-slate-900">{shelters.length}</span>
-                    <span className="text-slate-500">shelters (live)</span>
-                  </span>
-                </div>
+                <>
+                  <div className="mt-2 flex items-center gap-3 text-sm">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BRAND }} />
+                      <span className="font-semibold text-slate-900">{shelters.length}</span>
+                      <span className="text-slate-500">shelters (live)</span>
+                    </span>
+                  </div>
+                  {hasOverlays(selectedField.geometry) && (
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] capitalize text-slate-600">
+                      {legendItems(selectedField.geometry).map((it) => (
+                        <span key={it.label} className="inline-flex items-center gap-1">
+                          <span className="inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: it.color }} />
+                          {it.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="mt-2 text-sm text-slate-500">No field geometry imported yet.</p>
               )}

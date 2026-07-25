@@ -14,9 +14,11 @@
     "lint:tokens": "node scripts/check-tokens.mjs"
   },
   "dependencies": {
+    "@mapbox/shp-write": "^0.4.3",
     "@supabase/supabase-js": "^2.110.8",
     "@tmcw/togeojson": "^7.1.2",
     "@turf/turf": "^7.1.0",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.446.0",
     "maplibre-gl": "^4.7.1",

@@ -12,7 +12,7 @@ import { getTentPositions } from '@/domain/tentGrid'
 import { FieldEditor } from './FieldEditor'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
-import { shelterCsv, sheltersKml, fieldGeoJson, downloadText, slug } from './exports'
+import { shelterCsv, sheltersKml, fieldGeoJson, fieldPdf, shelterShapefileZip, downloadText, downloadBlob, slug } from './exports'
 
 // Theme colours (tailwind.config.js) used for map features.
 const BRAND = '#B8860B' // honey amber — shelter pins
@@ -273,13 +273,24 @@ export default function MapsHome() {
     }
   }
 
-  function exportField(kind: 'kml' | 'geojson' | 'csv') {
+  async function exportField(kind: 'kml' | 'geojson' | 'csv' | 'pdf' | 'shp') {
     if (!selectedField) return
-    const s = slug(selectedField.name)
-    const g = selectedField.geometry
-    if (kind === 'kml') downloadText(`${s}.kml`, 'application/vnd.google-earth.kml+xml', sheltersKml(selectedField.name, shelters, g))
-    else if (kind === 'geojson') downloadText(`${s}.geojson`, 'application/geo+json', fieldGeoJson(selectedField.name, shelters, g))
-    else downloadText(`${s}_shelters.csv`, 'text/csv', shelterCsv(shelters))
+    const f = selectedField
+    const s = slug(f.name)
+    const g = f.geometry
+    if (kind === 'kml') downloadText(`${s}.kml`, 'application/vnd.google-earth.kml+xml', sheltersKml(f.name, shelters, g))
+    else if (kind === 'geojson') downloadText(`${s}.geojson`, 'application/geo+json', fieldGeoJson(f.name, shelters, g))
+    else if (kind === 'csv') downloadText(`${s}_shelters.csv`, 'text/csv', shelterCsv(shelters))
+    else if (kind === 'pdf') {
+      const lines = [
+        `${f.client || '—'} · ${f.region || '—'}`,
+        `Company: ${str(g?.company) || '—'}   Year: ${str(g?.year) || '—'}`,
+        `Type: ${f.shapeType}   Acres: ${str(g?.acres) || '—'}   Shelters: ${shelters.length}`,
+      ]
+      downloadBlob(`${s}.pdf`, await fieldPdf(f.name, lines, shelters))
+    } else if (kind === 'shp') {
+      downloadBlob(`${s}_shp.zip`, await shelterShapefileZip(f.name, shelters, g))
+    }
   }
 
   function onChange(key: string, value: unknown) {
@@ -700,7 +711,7 @@ export default function MapsHome() {
                 <div className="mt-3">
                   <div className="label mb-1">Export</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {(['kml', 'geojson', 'csv'] as const).map((k) => (
+                    {(['kml', 'geojson', 'csv', 'pdf', 'shp'] as const).map((k) => (
                       <button
                         key={k}
                         className="btn-ghost min-h-0 px-2 py-1 text-[11px] uppercase"

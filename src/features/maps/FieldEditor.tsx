@@ -254,7 +254,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, onName, onChan
               <ToggleRow label="Shelter at pivot centre" checked={truthy(draft.shelter_at_pivot)} onChange={(v) => onChange('shelter_at_pivot', v)} />
               <div className="grid grid-cols-2 gap-3">
                 <NumField label="Directional offset" fieldKey="directional_offset" draft={draft} onChange={onChange} suffix="m" />
-                <NumField label="Force rows" fieldKey="shelter_rows" draft={draft} onChange={onChange} step="1" />
+                <NumField label="Force row count" fieldKey="shelter_rows" draft={draft} onChange={onChange} step="1" suffix="blank = auto" />
               </div>
               {isPivot && (
                 <>

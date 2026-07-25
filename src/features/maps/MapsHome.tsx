@@ -14,18 +14,18 @@ import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type Pi
 import { boundaryFromFile, ringAcres } from './importBoundary'
 import { shelterCsv, sheltersKml, fieldGeoJson, fieldPdf, shelterShapefileZip, downloadText, downloadBlob, slug } from './exports'
 
-// Theme colours (tailwind.config.js) used for map features.
-const BRAND = '#B8860B' // honey amber — shelter pins
-const FIELD = '#4D7C0F' // canola green — field boundary
-const INK = '#1A1206' // pivot centre
-
-// Overlay colours — matched to the old desktop app.
-const TRACK = '#FF2A2A' // pivot wheel tracks / corner arms
+// Canonical overlay palette — docs/web-rebuild-spec.md Part 13. Keep identical
+// across all surfaces (desktop/web/tablet) so crews and operators see the same map.
+const BRAND = '#FFCE3A' // shelter pins (filled, dark outline)
+const PIN_OUTLINE = '#1A1A1A'
+const FIELD = '#00CED1' // field boundary (cyan)
+const PIVOT_PT = '#F5453D' // pivot point
+const TRACK = '#FF8A2B' // pivot wheel tracks (dashed) / corner arms
 const INNER = '#FF6600' // inner boundary exclusion
 const ACCESS = '#FF2D95' // pivot access road
-const WET = '#1E90FF' // wet zones (fill)
-const WET_LINE = '#0A3D7A' // wet zones (outline)
-const PIN_COLORS: Record<PinKind, string> = { entrance: '#16A34A', parking: '#F59E0B', home: '#2563EB' }
+const WET = '#39B7D6' // wet zones (translucent fill)
+const WET_LINE = '#39B7D6'
+const PIN_COLORS: Record<PinKind, string> = { entrance: '#16A34A', parking: '#F59E0B', home: '#2F7FE6' }
 const PIN_LABEL: Record<PinKind, string> = { entrance: 'E', parking: 'P', home: 'H' }
 
 /** Legend rows for the overlays actually present on a field. */
@@ -109,27 +109,44 @@ function sheltersCollection(pins: { lng: number; lat: number }[]): FeatureCollec
   }
 }
 
-/** A sensible default pivot field, centred where the user is looking. */
+/**
+ * A sensible default pivot field, centred where the user is looking. Defaults
+ * follow the old app's blank_field() (docs/web-rebuild-spec.md Part 4): 133 ft
+ * sprayer, 8F/2M bays at 22 in over a 20-row planter, trays_2 count mode at
+ * 3 gal/ac ÷ 2 gal/tray. Acres seeded from the pivot circle so the trays math
+ * works before a boundary exists.
+ */
 function defaultPivotGeometry([lng, lat]: [number, number]): FieldGeometry {
+  const radiusM = 400
+  const acres = Math.round(((Math.PI * radiusM * radiusM) / 4046.8564224) * 10) / 10
   return {
     PP_Longitude: String(lng),
     PP_Latitude: String(lat),
-    Radius: '400',
-    Sprayer_width: '120',
+    Radius: String(radiusM),
+    Sprayer_width: '133',
     num_female_rows: '8',
     num_male_rows: '2',
     row_spacing_in: '22',
-    total_rows: '10',
+    bay_gap_in: '0',
+    total_rows: '20',
     row_layout: 'centered',
     custom_row_mask: '',
     use_bays: true,
-    shelter_mode: 'total',
-    num_structures: '24',
+    shelter_mode: 'trays_2',
+    gals_per_acre: '3',
+    gals_per_tray: '2',
+    tray_distribution: 'even',
+    acres: String(acres),
+    num_structures: '',
     Planting_angle: '0',
+    Spray_angle: '',
     shelters_in_outside_pass: 'Yes',
     pivot_tracks: [],
     track_exclusion_ft: '10',
     pass_edge_buffer_ft: '25',
+    tire_width_ft: '14',
+    shelter_buffer_m: '1.524',
+    manual_shelter_pins: [],
   }
 }
 
@@ -355,7 +372,7 @@ export default function MapsHome() {
       map.addLayer({ id: 'access-line', type: 'line', source: 'access', paint: { 'line-color': ACCESS, 'line-width': 1.5 } })
       map.addLayer({ id: 'wet-line', type: 'line', source: 'wetzones', paint: { 'line-color': WET_LINE, 'line-width': 1.5 } })
       map.addSource('tracks', { type: 'geojson', data: EMPTY })
-      map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85 } })
+      map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85, 'line-dasharray': [2, 2] } })
       map.addSource('corner', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'corner-line', type: 'line', source: 'corner', paint: { 'line-color': TRACK, 'line-width': 2 } })
 
@@ -367,7 +384,7 @@ export default function MapsHome() {
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 5, 16, 7],
           'circle-color': BRAND,
-          'circle-stroke-color': '#ffffff',
+          'circle-stroke-color': PIN_OUTLINE,
           'circle-stroke-width': 1,
         },
       })
@@ -376,7 +393,7 @@ export default function MapsHome() {
         id: 'pivot',
         type: 'circle',
         source: 'pivot',
-        paint: { 'circle-radius': 5, 'circle-color': INK, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+        paint: { 'circle-radius': 5, 'circle-color': PIVOT_PT, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
       })
 
       // In-progress boundary draw (on top).
@@ -458,7 +475,7 @@ export default function MapsHome() {
       el.title = 'Drag to move · double-click to delete'
       el.style.cssText =
         `width:14px;height:14px;border-radius:9999px;background:${BRAND};` +
-        `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
+        `border:2px solid ${PIN_OUTLINE};box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
       el.addEventListener('dblclick', (ev) => {
         ev.stopPropagation()
         deleteManualPin(i)

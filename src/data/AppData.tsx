@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Field, Inspection, SensorReading, AppNotification } from './types'
+import type { Field, Inspection, SensorReading, AppNotification, PlacedShelter, ShelterTrayLink, NestingBlock } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import {
   seedFields,
@@ -25,6 +25,9 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
+  const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
+  const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
+  const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
   const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
@@ -53,8 +56,15 @@ function MockProvider({ children }: { children: ReactNode }) {
       deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
       costPrefsByYear,
       saveCostPrefs: (year, prefs) => setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs })),
+      placedShelters,
+      addPlacedShelter: (input) => setPlacedShelters((prev) => [{ ...input, id: nextId('ps') }, ...prev]),
+      shelterTrayLinks,
+      linkTrayToShelter: (input) => setShelterTrayLinks((prev) => [{ ...input, id: nextId('stl') }, ...prev]),
+      nestingBlocks,
+      addNestingBlock: (input) =>
+        setNestingBlocks((prev) => [{ ...input, id: nextId('nb'), createdAt: nowIso() }, ...prev]),
     }),
-    [fields, inspections, readings, notifications, costPrefsByYear],
+    [fields, inspections, readings, notifications, costPrefsByYear, placedShelters, shelterTrayLinks, nestingBlocks],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

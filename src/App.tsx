@@ -7,6 +7,7 @@ import CostsHome from './features/maps/CostsHome'
 import IncubationHome from './features/incubation/IncubationHome'
 import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
+import LineageHome from './features/incubation/LineageHome'
 import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
 import NotificationsHome from './features/notifications/NotificationsHome'
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="incubation/samples" element={<Protected module="incubation"><SamplesHome /></Protected>} />
         <Route path="incubation/trays" element={<Protected module="incubation"><TraysHome /></Protected>} />
+        <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />
         {/* Notifications are visible to any signed-in user (no module gate). */}

@@ -8,6 +8,9 @@ import type {
   SensorReading,
   Tray,
   AppNotification,
+  PlacedShelter,
+  ShelterTrayLink,
+  NestingBlock,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
@@ -44,6 +47,17 @@ export interface DataContextValue {
   /** Cost-estimator pricing forms, keyed by pricing year (spec Part 8). */
   costPrefsByYear: Record<string, Partial<CostPrefs>>
   saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => void
+
+  // ── Bee lineage (blocks → shelters → trays → incubators, spec Part 1.3) ──
+  /** Physically placed shelters (QR + GPS), as captured in the field. */
+  placedShelters: PlacedShelter[]
+  addPlacedShelter: (input: Omit<PlacedShelter, 'id'>) => void
+  /** Tray↔shelter scan links. */
+  shelterTrayLinks: ShelterTrayLink[]
+  linkTrayToShelter: (input: Omit<ShelterTrayLink, 'id'>) => void
+  /** Nesting blocks (bees' homes), tied to their shelter. */
+  nestingBlocks: NestingBlock[]
+  addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => void
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

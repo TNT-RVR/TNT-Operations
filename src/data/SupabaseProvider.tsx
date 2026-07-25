@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue } from './context'
-import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification } from './types'
+import type {
+  Field,
+  Incubator,
+  IncubationBatch,
+  Inspection,
+  Sample,
+  SensorReading,
+  Tray,
+  AppNotification,
+  PlacedShelter,
+  ShelterTrayLink,
+  NestingBlock,
+} from './types'
 import type { CostPrefs } from '@/domain/cost'
 import { supabase } from './supabaseClient'
 import {
@@ -12,6 +24,9 @@ import {
   toSample,
   toTray,
   toBatch,
+  toPlacedShelter,
+  toShelterTrayLink,
+  toNestingBlock,
   inspectionInsert,
   type FieldRow,
   type IncubatorRow,
@@ -21,6 +36,9 @@ import {
   type SampleRow,
   type TrayRow,
   type BatchRow,
+  type PlacedShelterRow,
+  type ShelterTrayLinkRow,
+  type NestingBlockRow,
 } from './mappers'
 
 /**
@@ -45,6 +63,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [trays, setTrays] = useState<Tray[]>([])
   const [batches, setBatches] = useState<IncubationBatch[]>([])
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
+  const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
+  const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
+  const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
@@ -109,6 +130,21 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
         setCostPrefsByYear(byYear)
       }
+
+      // Bee lineage (0008): placed shelters + tray links + nesting blocks.
+      // Missing tables degrade to empty lists.
+      const [ps, stl, nb] = await Promise.all([
+        sb.from('placed_shelters').select('*').order('placed_at', { ascending: false }),
+        sb.from('shelter_tray_links').select('*'),
+        sb.from('nesting_blocks').select('*'),
+      ])
+      if (cancelled) return
+      if (ps.error) console.warn('[data] load placed_shelters:', ps.error.message)
+      else setPlacedShelters(((ps.data as PlacedShelterRow[]) ?? []).map(toPlacedShelter))
+      if (stl.error) console.warn('[data] load shelter_tray_links:', stl.error.message)
+      else setShelterTrayLinks(((stl.data as ShelterTrayLinkRow[]) ?? []).map(toShelterTrayLink))
+      if (nb.error) console.warn('[data] load nesting_blocks:', nb.error.message)
+      else setNestingBlocks(((nb.data as NestingBlockRow[]) ?? []).map(toNestingBlock))
 
       const PAGE = 1000
       const allTrays: Tray[] = []
@@ -275,6 +311,60 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           .from('cost_prefs')
           .upsert({ year, data: prefs })
           .then(({ error }) => error && console.error('[data] saveCostPrefs:', error.message))
+      },
+      placedShelters,
+      addPlacedShelter: (input: Omit<PlacedShelter, 'id'>) => {
+        if (!supabase) return
+        supabase
+          .from('placed_shelters')
+          .insert({
+            field_id: input.fieldId,
+            qr_code: input.qrCode,
+            grid_idx: input.gridIdx,
+            lat: input.lat,
+            lon: input.lng,
+            placed_at: input.placedAt,
+            placed_by: input.placedBy,
+            status: input.status,
+            notes: input.notes,
+          })
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) return console.error('[data] addPlacedShelter:', error.message)
+            setPlacedShelters((prev) => [toPlacedShelter(data as PlacedShelterRow), ...prev])
+          })
+      },
+      shelterTrayLinks,
+      linkTrayToShelter: (input: Omit<ShelterTrayLink, 'id'>) => {
+        if (!supabase) return
+        supabase
+          .from('shelter_tray_links')
+          .insert({
+            shelter_id: input.shelterId,
+            tray_id: input.trayId,
+            scanned_at: input.scannedAt,
+            scanned_by: input.scannedBy,
+          })
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) return console.error('[data] linkTrayToShelter:', error.message)
+            setShelterTrayLinks((prev) => [toShelterTrayLink(data as ShelterTrayLinkRow), ...prev])
+          })
+      },
+      nestingBlocks,
+      addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => {
+        if (!supabase) return
+        supabase
+          .from('nesting_blocks')
+          .insert({ qr_code: input.qrCode, shelter_id: input.shelterId, notes: input.notes })
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) return console.error('[data] addNestingBlock:', error.message)
+            setNestingBlocks((prev) => [toNestingBlock(data as NestingBlockRow), ...prev])
+          })
       },
     }),
     [fields, incubators, inspections, readings, notifications, samples, trays, batches, costPrefsByYear],

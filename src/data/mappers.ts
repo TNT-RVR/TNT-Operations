@@ -20,6 +20,9 @@ import type {
   SensorSource,
   AppNotification,
   NotificationSeverity,
+  PlacedShelter,
+  ShelterTrayLink,
+  NestingBlock,
 } from './types'
 
 type Num = number | string | null | undefined
@@ -318,4 +321,70 @@ export function inspectionInsert(input: Omit<Inspection, 'id'>): Record<string, 
   if (input.blackLightsOk !== undefined) row.black_lights_ok = input.blackLightsOk
   if (input.batchId != null) row.batch_id = input.batchId
   return row
+}
+
+// ── Bee lineage rows (0008) ──────────────────────────────────────────────────
+
+export interface PlacedShelterRow {
+  id: string
+  field_id: string | null
+  qr_code: string | null
+  grid_idx: Num
+  lat: Num
+  lon: Num
+  placed_at: string
+  placed_by: string
+  status: string
+  notes: string
+}
+
+export function toPlacedShelter(row: PlacedShelterRow): PlacedShelter {
+  return {
+    id: row.id,
+    fieldId: row.field_id,
+    qrCode: row.qr_code,
+    gridIdx: numOrNull(row.grid_idx),
+    lat: numOrNull(row.lat),
+    lng: numOrNull(row.lon),
+    placedAt: row.placed_at,
+    placedBy: row.placed_by ?? '',
+    status: row.status ?? 'placed',
+    notes: row.notes ?? '',
+  }
+}
+
+export interface ShelterTrayLinkRow {
+  id: string
+  shelter_id: string
+  tray_id: string
+  scanned_at: string
+  scanned_by: string
+}
+
+export function toShelterTrayLink(row: ShelterTrayLinkRow): ShelterTrayLink {
+  return {
+    id: row.id,
+    shelterId: row.shelter_id,
+    trayId: row.tray_id,
+    scannedAt: row.scanned_at,
+    scannedBy: row.scanned_by ?? '',
+  }
+}
+
+export interface NestingBlockRow {
+  id: string
+  qr_code: string | null
+  shelter_id: string | null
+  notes: string
+  created_at: string
+}
+
+export function toNestingBlock(row: NestingBlockRow): NestingBlock {
+  return {
+    id: row.id,
+    qrCode: row.qr_code,
+    shelterId: row.shelter_id,
+    notes: row.notes ?? '',
+    createdAt: row.created_at,
+  }
 }

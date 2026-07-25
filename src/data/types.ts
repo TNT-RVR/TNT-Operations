@@ -137,6 +137,44 @@ export interface IncubationBatch {
   notes: string
 }
 
+// ── Bee lineage (spec Part 1.3): blocks → shelters → trays → incubators ──────
+
+/** A physically placed shelter in a field (QR + GPS), as scanned by a crew. */
+export interface PlacedShelter {
+  id: string
+  fieldId: string | null
+  qrCode: string | null
+  /** Computed grid pin this placement corresponds to (null = manual/extra). */
+  gridIdx: number | null
+  lat: number | null
+  lng: number | null
+  /** ISO UTC. */
+  placedAt: string
+  placedBy: string
+  status: string
+  notes: string
+}
+
+/** A tray scanned into a placed shelter (the tray↔shelter lineage link). */
+export interface ShelterTrayLink {
+  id: string
+  shelterId: string
+  trayId: string
+  /** ISO UTC. */
+  scannedAt: string
+  scannedBy: string
+}
+
+/** A nesting block (where the bees actually live), tied to its shelter. */
+export interface NestingBlock {
+  id: string
+  qrCode: string | null
+  shelterId: string | null
+  notes: string
+  /** ISO UTC. */
+  createdAt: string
+}
+
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 /** An alert shown in the notification view (integration health, thresholds, …). */

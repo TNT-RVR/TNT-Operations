@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification } from './types'
+import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -206,5 +206,66 @@ export const seedBatches: IncubationBatch[] = [
     startDate: '2026-07-05', vaponaIn: '2026-07-06', vaponaOut: '2026-07-09', airOut: '2026-07-10',
     male10pctEmergence: '2026-07-24', earliestCool: '2026-07-26', estimatedRelease: '2026-07-28',
     latestRelease: '2026-07-31', status: 'active', notes: '',
+  },
+]
+
+/** Demo grants so the pipeline is populated in mock mode. */
+export const seedGrants: Grant[] = [
+  {
+    id: 'gr1',
+    title: 'Sustainable CAP — On-Farm Efficiency',
+    funder: 'Agriculture and Agri-Food Canada / Alberta',
+    url: 'https://www.alberta.ca/sustainable-canadian-agricultural-partnership',
+    status: 'reviewing',
+    amountMin: 0,
+    amountMax: 150000,
+    eligibilitySummary: 'Alberta producers investing in equipment or practices that improve efficiency and reduce emissions.',
+    summary: 'Cost-share funding for on-farm efficiency upgrades.',
+    notesMd: 'Shelter trailers and incubator controls likely qualify.',
+    opensOn: null,
+    closesOn: '2026-09-15',
+    region: 'Alberta',
+    categories: ['equipment', 'sustainability'],
+    assignedTo: null,
+    source: 'auto',
+    createdAt: '2026-07-20T15:00:00Z',
+  },
+  {
+    id: 'gr2',
+    title: 'Pollinator Health Research Fund',
+    funder: 'Results Driven Agriculture Research',
+    url: 'https://rdar.ca/',
+    status: 'new',
+    amountMin: 25000,
+    amountMax: 250000,
+    eligibilitySummary: 'Applied research projects improving pollinator health, survival, or management in Alberta crops.',
+    summary: 'Research funding for pollinator health projects.',
+    notesMd: null,
+    opensOn: null,
+    closesOn: '2026-08-08',
+    region: 'Alberta',
+    categories: ['research', 'pollination'],
+    assignedTo: null,
+    source: 'auto',
+    createdAt: '2026-07-24T15:00:00Z',
+  },
+  {
+    id: 'gr3',
+    title: 'Canada Digital Adoption Program',
+    funder: 'Innovation, Science and Economic Development Canada',
+    url: 'https://ised-isde.canada.ca/',
+    status: 'submitted',
+    amountMin: null,
+    amountMax: 15000,
+    eligibilitySummary: 'Small businesses adopting digital technology; covers software and implementation planning.',
+    summary: 'Grant + loan for small-business digital adoption.',
+    notesMd: 'Submitted 2026-06-30. Waiting on confirmation.',
+    opensOn: null,
+    closesOn: null,
+    region: 'Canada',
+    categories: ['small business', 'technology'],
+    assignedTo: null,
+    source: 'manual',
+    createdAt: '2026-06-30T15:00:00Z',
   },
 ]

@@ -1,4 +1,7 @@
 /** Shared domain types for TNT Operations. Backend-agnostic. */
+import type { GrantStatus } from '@/domain/grants'
+
+export type { GrantStatus }
 
 export type ShapeType = 'pivot' | 'polygon'
 
@@ -171,6 +174,44 @@ export interface NestingBlock {
   qrCode: string | null
   shelterId: string | null
   notes: string
+  /** ISO UTC. */
+  createdAt: string
+}
+
+// ── Grants (funding pipeline; mirrors the RVR Management App) ────────────────
+
+/** A funding opportunity we're tracking through the application workflow. */
+export interface Grant {
+  id: string
+  title: string
+  funder: string | null
+  url: string | null
+  status: GrantStatus
+  amountMin: number | null
+  amountMax: number | null
+  eligibilitySummary: string | null
+  summary: string | null
+  /** Our notes (markdown-ish free text). */
+  notesMd: string | null
+  opensOn: string | null
+  closesOn: string | null
+  region: string | null
+  categories: string[]
+  assignedTo: string | null
+  /** 'manual' (added by hand) | 'auto' (weekly Claude web-search pull). */
+  source: string
+  /** ISO UTC. */
+  createdAt: string
+}
+
+/** An assignable work item / subtask on a grant application. */
+export interface GrantTask {
+  id: string
+  grantId: string
+  title: string
+  /** 'open' | 'done'. */
+  status: string
+  assignedTo: string | null
   /** ISO UTC. */
   createdAt: string
 }

@@ -5,7 +5,7 @@ import { PendingApproval } from './PendingApproval'
 import { BeeMark } from '@/components/BeeMark'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
-export const MODULES = ['dashboard', 'maps', 'incubation', 'sensors', 'users'] as const
+export const MODULES = ['dashboard', 'maps', 'incubation', 'sensors', 'grants', 'users'] as const
 export type Module = (typeof MODULES)[number]
 export type Action = 'view' | 'edit'
 
@@ -24,12 +24,12 @@ export interface User {
 /** Role → what it can do. `edit` implies `view`. */
 const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Full access — highest grant wins.
-  admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', sensors: 'edit', users: 'edit' },
-  developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', sensors: 'edit', users: 'edit' },
+  admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', sensors: 'edit', grants: 'edit', users: 'edit' },
+  developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', sensors: 'edit', grants: 'edit', users: 'edit' },
   // Field/office staff: run the operation, but not user administration.
-  operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', sensors: 'edit' },
+  operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', sensors: 'edit', grants: 'edit' },
   // Read-only.
-  viewer: { dashboard: 'view', maps: 'view', incubation: 'view', sensors: 'view' },
+  viewer: { dashboard: 'view', maps: 'view', incubation: 'view', sensors: 'view', grants: 'view' },
   // Signed up, awaiting admin approval — no access to anything.
   pending: {},
 }

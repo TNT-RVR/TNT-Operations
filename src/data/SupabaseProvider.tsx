@@ -12,6 +12,8 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  Grant,
+  GrantTask,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import { supabase } from './supabaseClient'
@@ -27,6 +29,9 @@ import {
   toPlacedShelter,
   toShelterTrayLink,
   toNestingBlock,
+  toGrant,
+  toGrantTask,
+  grantPatch,
   inspectionInsert,
   type FieldRow,
   type IncubatorRow,
@@ -39,6 +44,8 @@ import {
   type PlacedShelterRow,
   type ShelterTrayLinkRow,
   type NestingBlockRow,
+  type GrantRow,
+  type GrantTaskRow,
 } from './mappers'
 
 /**
@@ -67,6 +74,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  const [grants, setGrants] = useState<Grant[]>([])
+  const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   const readingsRef = useRef<SensorReading[]>([])
@@ -146,6 +155,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       else setShelterTrayLinks(((stl.data as ShelterTrayLinkRow[]) ?? []).map(toShelterTrayLink))
       if (nb.error) console.warn('[data] load nesting_blocks:', nb.error.message)
       else setNestingBlocks(((nb.data as NestingBlockRow[]) ?? []).map(toNestingBlock))
+
+      // Grants pipeline + their work items (0009).
+      const [gr, gt] = await Promise.all([
+        sb.from('grants').select('*').order('closes_on', { ascending: true, nullsFirst: false }),
+        sb.from('grant_tasks').select('*').order('created_at', { ascending: true }),
+      ])
+      if (cancelled) return
+      if (gr.error) console.warn('[data] load grants:', gr.error.message)
+      else setGrants(((gr.data as GrantRow[]) ?? []).map(toGrant))
+      if (gt.error) console.warn('[data] load grant_tasks:', gt.error.message)
+      else setGrantTasks(((gt.data as GrantTaskRow[]) ?? []).map(toGrantTask))
 
       // Per-user alert channel prefs (RLS limits to own rows).
       const prefs = await sb.from('app_notification_prefs').select('*')
@@ -316,6 +336,76 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           .eq('id', id)
           .then(({ error }) => error && console.error('[data] deleteNotification:', error.message))
       },
+      grants,
+      addGrant: async (input: Partial<Grant> & { title: string }) => {
+        if (!supabase) return ''
+        const { data, error } = await supabase
+          .from('grants')
+          .insert({ source: 'manual', ...grantPatch(input), title: input.title })
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] addGrant:', error.message)
+          return ''
+        }
+        const g = toGrant(data as GrantRow)
+        setGrants((prev) => [g, ...prev])
+        return g.id
+      },
+      updateGrant: (id: string, patch: Partial<Grant>) => {
+        if (!supabase) return
+        setGrants((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)))
+        supabase
+          .from('grants')
+          .update(grantPatch(patch))
+          .eq('id', id)
+          .then(({ error }) => error && console.error('[data] updateGrant:', error.message))
+      },
+      deleteGrant: (id: string) => {
+        if (!supabase) return
+        setGrants((prev) => prev.filter((g) => g.id !== id))
+        setGrantTasks((prev) => prev.filter((t) => t.grantId !== id))
+        supabase
+          .from('grants')
+          .delete()
+          .eq('id', id)
+          .then(({ error }) => error && console.error('[data] deleteGrant:', error.message))
+      },
+      grantTasks,
+      addGrantTask: (input: Omit<GrantTask, 'id' | 'createdAt'>) => {
+        if (!supabase) return
+        supabase
+          .from('grant_tasks')
+          .insert({ grant_id: input.grantId, title: input.title, status: input.status, assigned_to: input.assignedTo })
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) return console.error('[data] addGrantTask:', error.message)
+            setGrantTasks((prev) => [...prev, toGrantTask(data as GrantTaskRow)])
+          })
+      },
+      updateGrantTask: (id: string, patch: Partial<GrantTask>) => {
+        if (!supabase) return
+        setGrantTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+        const row: Record<string, unknown> = {}
+        if (patch.title !== undefined) row.title = patch.title
+        if (patch.status !== undefined) row.status = patch.status
+        if (patch.assignedTo !== undefined) row.assigned_to = patch.assignedTo
+        supabase
+          .from('grant_tasks')
+          .update(row)
+          .eq('id', id)
+          .then(({ error }) => error && console.error('[data] updateGrantTask:', error.message))
+      },
+      deleteGrantTask: (id: string) => {
+        if (!supabase) return
+        setGrantTasks((prev) => prev.filter((t) => t.id !== id))
+        supabase
+          .from('grant_tasks')
+          .delete()
+          .eq('id', id)
+          .then(({ error }) => error && console.error('[data] deleteGrantTask:', error.message))
+      },
       notificationPrefs,
       saveNotificationPref: (type: string, pref: NotificationPref) => {
         if (!supabase) return
@@ -407,6 +497,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,
+      grants,
+      grantTasks,
     ],
   )
 

@@ -9,6 +9,7 @@ const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'sensor_feed_stale', label: 'Sensor feed stale', hint: 'A Govee/ESP32 feed stops reporting (integration health).' },
   { type: 'temp_out_of_range', label: 'Temperature out of range', hint: 'An incubator leaves its temperature band.' },
   { type: 'humidity_out_of_range', label: 'Humidity out of range', hint: 'An incubator leaves its humidity band.' },
+  { type: 'grant_new', label: 'New grant found', hint: 'The weekly search finds a funding program you could apply for.' },
   { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
 ]
 const DEFAULT_PREF: NotificationPref = { inApp: true, email: false, push: false }

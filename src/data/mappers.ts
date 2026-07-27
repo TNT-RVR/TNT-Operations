@@ -23,6 +23,9 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  Grant,
+  GrantStatus,
+  GrantTask,
 } from './types'
 
 type Num = number | string | null | undefined
@@ -385,6 +388,91 @@ export function toNestingBlock(row: NestingBlockRow): NestingBlock {
     qrCode: row.qr_code,
     shelterId: row.shelter_id,
     notes: row.notes ?? '',
+    createdAt: row.created_at,
+  }
+}
+
+// ── Grants (0009) ────────────────────────────────────────────────────────────
+
+export interface GrantRow {
+  id: string
+  title: string
+  funder: string | null
+  url: string | null
+  status: string
+  amount_min: Num
+  amount_max: Num
+  eligibility_summary: string | null
+  summary: string | null
+  notes_md: string | null
+  opens_on: string | null
+  closes_on: string | null
+  region: string | null
+  categories: string[] | null
+  assigned_to: string | null
+  source: string
+  created_at: string
+}
+
+export function toGrant(row: GrantRow): Grant {
+  return {
+    id: row.id,
+    title: row.title,
+    funder: row.funder,
+    url: row.url,
+    status: row.status as GrantStatus,
+    amountMin: numOrNull(row.amount_min),
+    amountMax: numOrNull(row.amount_max),
+    eligibilitySummary: row.eligibility_summary,
+    summary: row.summary,
+    notesMd: row.notes_md,
+    opensOn: row.opens_on,
+    closesOn: row.closes_on,
+    region: row.region,
+    categories: row.categories ?? [],
+    assignedTo: row.assigned_to,
+    source: row.source ?? 'manual',
+    createdAt: row.created_at,
+  }
+}
+
+/** App grant patch → snake_case row patch (only the provided keys). */
+export function grantPatch(patch: Partial<Grant>): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
+  if (patch.title !== undefined) row.title = patch.title
+  if (patch.funder !== undefined) row.funder = patch.funder
+  if (patch.url !== undefined) row.url = patch.url
+  if (patch.status !== undefined) row.status = patch.status
+  if (patch.amountMin !== undefined) row.amount_min = patch.amountMin
+  if (patch.amountMax !== undefined) row.amount_max = patch.amountMax
+  if (patch.eligibilitySummary !== undefined) row.eligibility_summary = patch.eligibilitySummary
+  if (patch.summary !== undefined) row.summary = patch.summary
+  if (patch.notesMd !== undefined) row.notes_md = patch.notesMd
+  if (patch.opensOn !== undefined) row.opens_on = patch.opensOn
+  if (patch.closesOn !== undefined) row.closes_on = patch.closesOn
+  if (patch.region !== undefined) row.region = patch.region
+  if (patch.categories !== undefined) row.categories = patch.categories
+  if (patch.assignedTo !== undefined) row.assigned_to = patch.assignedTo
+  if (patch.source !== undefined) row.source = patch.source
+  return row
+}
+
+export interface GrantTaskRow {
+  id: string
+  grant_id: string
+  title: string
+  status: string
+  assigned_to: string | null
+  created_at: string
+}
+
+export function toGrantTask(row: GrantTaskRow): GrantTask {
+  return {
+    id: row.id,
+    grantId: row.grant_id,
+    title: row.title,
+    status: row.status ?? 'open',
+    assignedTo: row.assigned_to,
     createdAt: row.created_at,
   }
 }

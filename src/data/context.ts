@@ -11,6 +11,8 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  Grant,
+  GrantTask,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
@@ -69,6 +71,18 @@ export interface DataContextValue {
   /** Nesting blocks (bees' homes), tied to their shelter. */
   nestingBlocks: NestingBlock[]
   addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => void
+
+  // ── Grants (funding pipeline) ────────────────────────────────────────────
+  grants: Grant[]
+  /** Returns the new grant's id so the UI can open it immediately. */
+  addGrant: (input: Partial<Grant> & { title: string }) => Promise<string> | string
+  updateGrant: (id: string, patch: Partial<Grant>) => void
+  deleteGrant: (id: string) => void
+  /** Assignable work items / subtasks per grant. */
+  grantTasks: GrantTask[]
+  addGrantTask: (input: Omit<GrantTask, 'id' | 'createdAt'>) => void
+  updateGrantTask: (id: string, patch: Partial<GrantTask>) => void
+  deleteGrantTask: (id: string) => void
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

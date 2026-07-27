@@ -1,6 +1,16 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue, type NotificationPref } from './context'
-import type { Field, Inspection, SensorReading, AppNotification, PlacedShelter, ShelterTrayLink, NestingBlock } from './types'
+import type {
+  Field,
+  Inspection,
+  SensorReading,
+  AppNotification,
+  PlacedShelter,
+  ShelterTrayLink,
+  NestingBlock,
+  Grant,
+  GrantTask,
+} from './types'
 import type { CostPrefs } from '@/domain/cost'
 import {
   seedFields,
@@ -11,6 +21,7 @@ import {
   seedSamples,
   seedTrays,
   seedBatches,
+  seedGrants,
 } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
@@ -29,6 +40,8 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  const [grants, setGrants] = useState<Grant[]>(seedGrants)
+  const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
@@ -66,8 +79,56 @@ function MockProvider({ children }: { children: ReactNode }) {
       nestingBlocks,
       addNestingBlock: (input) =>
         setNestingBlocks((prev) => [{ ...input, id: nextId('nb'), createdAt: nowIso() }, ...prev]),
+      grants,
+      addGrant: (input) => {
+        const id = nextId('g')
+        const grant: Grant = {
+          funder: null,
+          url: null,
+          status: 'new',
+          amountMin: null,
+          amountMax: null,
+          eligibilitySummary: null,
+          summary: null,
+          notesMd: null,
+          opensOn: null,
+          closesOn: null,
+          region: null,
+          categories: [],
+          assignedTo: null,
+          source: 'manual',
+          ...input,
+          id,
+          createdAt: nowIso(),
+        }
+        setGrants((prev) => [grant, ...prev])
+        return id
+      },
+      updateGrant: (id, patch) => setGrants((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g))),
+      deleteGrant: (id) => {
+        setGrants((prev) => prev.filter((g) => g.id !== id))
+        setGrantTasks((prev) => prev.filter((t) => t.grantId !== id))
+      },
+      grantTasks,
+      addGrantTask: (input) =>
+        setGrantTasks((prev) => [...prev, { ...input, id: nextId('gt'), createdAt: nowIso() }]),
+      updateGrantTask: (id, patch) =>
+        setGrantTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t))),
+      deleteGrantTask: (id) => setGrantTasks((prev) => prev.filter((t) => t.id !== id)),
     }),
-    [fields, inspections, readings, notifications, notificationPrefs, costPrefsByYear, placedShelters, shelterTrayLinks, nestingBlocks],
+    [
+      fields,
+      inspections,
+      readings,
+      notifications,
+      notificationPrefs,
+      costPrefsByYear,
+      placedShelters,
+      shelterTrayLinks,
+      nestingBlocks,
+      grants,
+      grantTasks,
+    ],
   )
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>

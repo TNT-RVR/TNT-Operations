@@ -10,6 +10,7 @@ import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
 import LineageHome from './features/incubation/LineageHome'
 import AlertsHome from './features/incubation/AlertsHome'
+import ScanHome from './features/incubation/ScanHome'
 import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
 import GrantsHome from './features/grants/GrantsHome'
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="incubation/trays" element={<Protected module="incubation"><TraysHome /></Protected>} />
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
+        <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
         <Route path="grants" element={<Protected module="grants"><GrantsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />

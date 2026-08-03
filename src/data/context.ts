@@ -67,6 +67,23 @@ export interface DataContextValue {
    * fast cadence (see netlify/functions/poll-govee.mjs).
    */
   saveIncubator: (id: string, patch: Partial<Incubator>) => void
+  /**
+   * Put a physical tray into service: link the scanned label to the sample it
+   * holds and the incubator it's in.
+   *
+   * Upserts on `(sample_id, tray_number)` — the tray's real identity (see
+   * migration 0010). Same sample, different incubator → UPDATES that row (a
+   * mid-season move, not a duplicate). New sample → INSERTS a new row, so the
+   * physical tray keeps its history across seasons.
+   *
+   * Weight comes from the sample's per-tray figure and the date is stamped
+   * automatically; neither is entered by hand.
+   */
+  assignTray: (input: {
+    trayNumber: string
+    sampleId: string
+    incubatorId: string
+  }) => Promise<{ ok: boolean; created: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

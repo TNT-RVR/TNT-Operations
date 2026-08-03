@@ -203,23 +203,23 @@ export const seedAlerts: IncubatorAlert[] = [
 
 const nullSampleStats = {
   xrayParasitePct: null, xrayDeadPct: null, totalWeightKg: null, liveBeesPerKg: null,
-  parasites: null, chalkbrood: null, incubatorSpace: null,
+  parasites: null, chalkbrood: null, incubatorSpace: null, kgPer2Gal: null,
 }
 
 export const seedSamples: Sample[] = [
   {
     id: 's1', name: '26-102', source: 'King Hill', lotNumber: 'KH-26-102',
-    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250,
+    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250, lbsPer2Gal: 5.66,
     notes: 'Strong lot.', importDate: '2026-06-15T00:00:00Z', ...nullSampleStats,
   },
   {
     id: 's2', name: '#4 Sanfoin', source: 'Sanfoin', lotNumber: 'SF-04',
-    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71,
+    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71, lbsPer2Gal: 5.12,
     notes: '', importDate: '2026-06-18T00:00:00Z', ...nullSampleStats,
   },
   {
     id: 's3', name: '#9 Phacelia', source: 'Phacelia', lotNumber: 'PH-09',
-    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null,
+    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null, lbsPer2Gal: null,
     notes: 'Awaiting x-ray.', importDate: '2026-06-20T00:00:00Z', ...nullSampleStats,
   },
 ]

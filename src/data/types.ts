@@ -100,6 +100,10 @@ export interface Sample {
   chalkbrood: number | null
   totalTrays: number | null
   incubatorSpace: number | null
+  /** Pounds of raw sample per 2-gal tray — the per-tray weight the scan flow
+   *  stamps onto a tray. Stored (not derived): no sample carries xrayLivePct. */
+  lbsPer2Gal: number | null
+  kgPer2Gal: number | null
   notes: string
   importDate: string | null
 }

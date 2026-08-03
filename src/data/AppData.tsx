@@ -3,6 +3,7 @@ import { DataContext, type DataContextValue, type NotificationPref } from './con
 import type {
   Field,
   Incubator,
+  Tray,
   Inspection,
   SensorReading,
   AppNotification,
@@ -36,6 +37,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
   const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
+  const [trays, setTrays] = useState<Tray[]>(seedTrays)
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
@@ -54,7 +56,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       inspections,
       readings,
       samples: seedSamples,
-      trays: seedTrays,
+      trays,
       batches: seedBatches,
       alerts: seedAlerts,
       addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),
@@ -68,6 +70,29 @@ function MockProvider({ children }: { children: ReactNode }) {
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
       saveIncubator: (id, patch) =>
         setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
+      assignTray: async ({ trayNumber, sampleId, incubatorId }) => {
+        const weight = seedSamples.find((s) => s.id === sampleId)?.lbsPer2Gal ?? null
+        const today = new Date().toISOString().slice(0, 10)
+        let created = false
+        setTrays((prev) => {
+          const i = prev.findIndex((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
+          if (i >= 0) {
+            const next = [...prev]
+            next[i] = { ...next[i], incubatorId, weightLbs: weight ?? next[i].weightLbs, status: 'active' }
+            return next
+          }
+          created = true
+          return [
+            {
+              id: nextId('t'), trayNumber, sampleId, incubationBatchId: null, incubatorId,
+              weightLbs: weight, liveCount: null, parasiteLevelPct: null, volumeGal: null,
+              inDate: today, outDate: null, coolDate: null, status: 'active', notes: '',
+            },
+            ...prev,
+          ]
+        })
+        return { ok: true, created }
+      },
       notifications,
       markNotificationsRead: (ids) =>
         setNotifications((prev) =>
@@ -128,6 +153,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       fields,
       incubators,
       inspections,
+      trays,
       readings,
       notifications,
       notificationPrefs,

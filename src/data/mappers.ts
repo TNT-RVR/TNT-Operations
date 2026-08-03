@@ -231,6 +231,8 @@ export interface SampleRow {
   chalkbrood: Num
   total_trays: Num
   incubator_space: Num
+  lbs_per_2gal: Num
+  kg_per_2gal: Num
   notes: string
   import_date: string | null
 }
@@ -253,6 +255,8 @@ export function toSample(row: SampleRow): Sample {
     chalkbrood: numOrNull(row.chalkbrood),
     totalTrays: numOrNull(row.total_trays),
     incubatorSpace: numOrNull(row.incubator_space),
+    lbsPer2Gal: numOrNull(row.lbs_per_2gal),
+    kgPer2Gal: numOrNull(row.kg_per_2gal),
     notes: row.notes,
     importDate: row.import_date,
   }

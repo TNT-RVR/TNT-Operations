@@ -374,6 +374,50 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             setIncubators((prev) => prev.map((i) => (i.id === id ? toIncubator(data as IncubatorRow) : i)))
           })
       },
+      assignTray: async ({
+        trayNumber,
+        sampleId,
+        incubatorId,
+      }: {
+        trayNumber: string
+        sampleId: string
+        incubatorId: string
+      }) => {
+        if (!supabase) return { ok: false, created: false, error: 'No backend connection.' }
+        const existing = trays.find((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
+        const weight = samples.find((s) => s.id === sampleId)?.lbsPer2Gal ?? null
+        const row: Record<string, unknown> = {
+          tray_number: trayNumber,
+          sample_id: sampleId,
+          incubator_id: incubatorId,
+          status: 'active',
+        }
+        // Weight comes from the sample; date is stamped on first use only, so
+        // re-scanning a tray to move it doesn't rewrite when it went in.
+        if (weight != null) row.weight_lbs = weight
+        if (!existing) row.in_date = new Date().toISOString().slice(0, 10)
+
+        // Upsert on the tray's real identity (migration 0010): same sample →
+        // update that row (a move), new sample → new row (next season).
+        const { data, error } = await supabase
+          .from('trays')
+          .upsert(row, { onConflict: 'sample_id,tray_number' })
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] assignTray:', error.message)
+          return { ok: false, created: false, error: error.message }
+        }
+        const saved = toTray(data as TrayRow)
+        setTrays((prev) => {
+          const i = prev.findIndex((t) => t.id === saved.id)
+          if (i < 0) return [saved, ...prev]
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, created: !existing }
+      },
       notifications,
       markNotificationsRead: (ids: string[]) => {
         if (!supabase || ids.length === 0) return

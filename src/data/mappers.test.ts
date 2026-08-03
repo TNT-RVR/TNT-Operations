@@ -269,7 +269,7 @@ describe('supabase row mappers', () => {
       xray_live_pct: '0.86', xray_parasite_pct: null, xray_dead_pct: null,
       total_volume_gal: '520', total_weight_lbs: '1117', total_weight_kg: null,
       live_bees_per_lb: '4475', live_bees_per_kg: null, parasites: null, chalkbrood: null,
-      total_trays: '250', incubator_space: null, notes: '', import_date: '2026-06-15T00:00:00Z',
+      total_trays: '250', incubator_space: null, lbs_per_2gal: '5.66', kg_per_2gal: null, notes: '', import_date: '2026-06-15T00:00:00Z',
     })
     expect(sample.xrayLivePct).toBe(0.86)
     expect(sample.totalWeightLbs).toBe(1117)

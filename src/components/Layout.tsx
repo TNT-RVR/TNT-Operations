@@ -52,6 +52,7 @@ const NAV: NavItem[] = [
     module: 'incubation',
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
+      { to: '/incubation/scan', label: 'Scan' },
       { to: '/incubation/samples', label: 'Samples' },
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },

@@ -10,6 +10,11 @@ const READER_ID = 'tray-qr-reader'
 /** Ignore the same code re-decoding while it sits in frame. */
 const SAME_CODE_COOLDOWN_MS = 2500
 
+/** Minimal shape of a WakeLockSentinel (not in every TS lib version). */
+interface WakeLockLike {
+  release: () => Promise<void>
+}
+
 /**
  * Pull a tray label out of whatever the camera read. Labels are the tray
  * numbers stored in Supabase, but a QR may also carry a URL (the old desktop
@@ -51,6 +56,9 @@ interface Entry {
   key: string
   label: string
   state: EntryState
+  /** Which sample this tray went to — samples change mid-run. */
+  sampleId: string
+  sampleName: string
   error?: string
   created?: boolean
 }
@@ -97,15 +105,31 @@ export default function ScanHome() {
   const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
   /** Labels already accepted this session — the guard against double-counting. */
   const seenRef = useRef<Set<string>>(new Set())
+  const wakeRef = useRef<WakeLockLike | null>(null)
   /** Live copies so the scan callback isn't rebound (which would restart the camera). */
-  const ctxRef = useRef({ sampleId, incubatorId, trays })
-  ctxRef.current = { sampleId, incubatorId, trays }
+  const ctxRef = useRef({ sampleId, incubatorId, trays, samples })
+  ctxRef.current = { sampleId, incubatorId, trays, samples }
 
   const sample = samples.find((x) => x.id === sampleId)
   const incubator = incubators.find((i) => i.id === incubatorId)
   const ready = !!sampleId && !!incubatorId && canEdit
   const okCount = entries.filter((e) => e.state === 'ok').length
   const failed = entries.filter((e) => e.state === 'error')
+
+  /** Samples used this run, most-used first — one-tap switching back and forth. */
+  const recentSamples = (() => {
+    const counts = new Map<string, { id: string; name: string; count: number }>()
+    for (const e of entries) {
+      if (e.state === 'duplicate') continue
+      const cur = counts.get(e.sampleId)
+      if (cur) cur.count++
+      else counts.set(e.sampleId, { id: e.sampleId, name: e.sampleName, count: 1 })
+    }
+    if (sampleId && !counts.has(sampleId)) {
+      counts.set(sampleId, { id: sampleId, name: sample?.name ?? 'sample', count: 0 })
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 6)
+  })()
 
   const record = useCallback(
     (rawLabel: string) => {
@@ -119,16 +143,26 @@ export default function ScanHome() {
       lastRef.current = { label, at: now }
 
       const canonical = findTrays(allTrays, label)[0]?.trayNumber ?? label
-      if (seenRef.current.has(canonical)) {
+      const sName = ctxRef.current.samples.find((x) => x.id === sid)?.name ?? 'sample'
+      // Keyed by sample too: re-scanning a tray AFTER switching samples is a
+      // real correction (it went in the wrong lot), not a double-scan.
+      const seenKey = `${sid}|${canonical}`
+      if (seenRef.current.has(seenKey)) {
         feedback('warn')
-        setEntries((prev) => [{ key: `${canonical}-${now}`, label: canonical, state: 'duplicate' }, ...prev])
+        setEntries((prev) => [
+          { key: `${seenKey}-${now}`, label: canonical, state: 'duplicate', sampleId: sid, sampleName: sName },
+          ...prev,
+        ])
         return
       }
-      seenRef.current.add(canonical)
+      seenRef.current.add(seenKey)
       feedback('ok')
 
-      const key = `${canonical}-${now}`
-      setEntries((prev) => [{ key, label: canonical, state: 'saving' }, ...prev])
+      const key = `${seenKey}-${now}`
+      setEntries((prev) => [
+        { key, label: canonical, state: 'saving', sampleId: sid, sampleName: sName },
+        ...prev,
+      ])
       // Fire and forget: the camera must never wait on the network.
       void assignTray({ trayNumber: canonical, sampleId: sid, incubatorId: iid }).then((r) =>
         setEntries((prev) =>
@@ -143,10 +177,32 @@ export default function ScanHome() {
     [assignTray],
   )
 
+  /** Keep the screen awake during a run — a phone locking mid-batch is a stall. */
+  const acquireWakeLock = useCallback(async () => {
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<WakeLockLike> } }
+    if (!nav.wakeLock) return
+    try {
+      wakeRef.current = await nav.wakeLock.request('screen')
+    } catch {
+      /* denied or unsupported — scanning still works, the screen just sleeps */
+    }
+  }, [])
+
+  const releaseWakeLock = useCallback(() => {
+    const w = wakeRef.current
+    wakeRef.current = null
+    try {
+      void w?.release()
+    } catch {
+      /* best-effort */
+    }
+  }, [])
+
   const stopCamera = useCallback(async () => {
     const inst = scannerRef.current
     scannerRef.current = null
     setScanning(false)
+    releaseWakeLock()
     if (inst) {
       try {
         await inst.stop()
@@ -154,9 +210,20 @@ export default function ScanHome() {
         /* already stopped */
       }
     }
-  }, [])
+  }, [releaseWakeLock])
 
   useEffect(() => () => void stopCamera(), [stopCamera])
+
+  // The browser drops a wake lock whenever the page is hidden (a call, a
+  // notification, pocketing the phone), so take it again on return.
+  useEffect(() => {
+    if (!scanning) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && !wakeRef.current) void acquireWakeLock()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [scanning, acquireWakeLock])
 
   async function startCamera() {
     setCamError(null)
@@ -165,6 +232,7 @@ export default function ScanHome() {
       return
     }
     setScanning(true)
+    void acquireWakeLock()
     try {
       const { Html5Qrcode } = await import('html5-qrcode')
       const inst = new Html5Qrcode(READER_ID)
@@ -182,7 +250,7 @@ export default function ScanHome() {
   function undoLast() {
     const last = entries[0]
     if (!last) return
-    seenRef.current.delete(last.label)
+    seenRef.current.delete(`${last.sampleId}|${last.label}`)
     lastRef.current = { label: '', at: 0 }
     setEntries((prev) => prev.slice(1))
   }
@@ -190,7 +258,7 @@ export default function ScanHome() {
   function retryFailed() {
     for (const e of failed) {
       setEntries((prev) => prev.map((x) => (x.key === e.key ? { ...x, state: 'saving' } : x)))
-      void assignTray({ trayNumber: e.label, sampleId, incubatorId }).then((r) =>
+      void assignTray({ trayNumber: e.label, sampleId: e.sampleId, incubatorId }).then((r) =>
         setEntries((prev) =>
           prev.map((x) => (x.key === e.key ? { ...x, state: r.ok ? 'ok' : 'error', error: r.error } : x)),
         ),
@@ -286,6 +354,45 @@ export default function ScanHome() {
 
           {!ready && <p className="text-xs text-muted">Choose a sample and incubator to start.</p>}
 
+          {/* Sample switcher, kept right on the camera. Samples change often
+              mid-run, and scrolling back up to the setup row would stall it.
+              Also shown once a run has started, so manual entry gets it too. */}
+          {(scanning || entries.length > 0) && ready && (
+            <div className="mb-2 space-y-2 rounded-sm border border-default p-2">
+              <label className="flex items-center gap-2">
+                <span className="label shrink-0">Now filling</span>
+                <select
+                  className="min-w-0 flex-1 rounded-sm border border-default bg-inset px-2 py-1.5 text-base text-primary"
+                  value={sampleId}
+                  onChange={(e) => setSampleId(e.target.value)}
+                >
+                  {samples.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {recentSamples.length > 1 && (
+                <div className="flex flex-wrap gap-1">
+                  {recentSamples.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSampleId(r.id)}
+                      className={`rounded-sm px-2 py-1 font-mono text-xs transition ${
+                        r.id === sampleId
+                          ? 'bg-brand text-on-brand'
+                          : 'text-secondary hover:bg-[color:var(--hover-wash)]'
+                      }`}
+                    >
+                      {r.name} · {r.count}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* html5-qrcode injects the video here; keep it mounted while scanning */}
           <div id={READER_ID} className={scanning ? 'overflow-hidden rounded-lg' : 'hidden'} />
 
@@ -340,7 +447,8 @@ export default function ScanHome() {
           <ul className="divide-y divide-subtle rounded-lg border border-subtle">
             {entries.slice(0, 60).map((e) => (
               <li key={e.key} className="flex items-center gap-2 px-3 py-1.5">
-                <span className="flex-1 font-mono text-sm text-primary">{e.label}</span>
+                <span className="font-mono text-sm text-primary">{e.label}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted">{e.sampleName}</span>
                 {e.state === 'duplicate' && <span className="text-xs text-muted">already scanned</span>}
                 {e.created && e.state === 'ok' && <span className="text-xs text-faint">new</span>}
                 <Badge tone={tone[e.state]}>{e.state === 'ok' ? 'saved' : e.state}</Badge>

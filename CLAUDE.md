@@ -165,9 +165,16 @@ _Last reviewed 2026-08-03._
         tray_number)` — already unique in the data. Moving a tray to another
         incubator WITHIN a season must UPDATE that row; reuse NEXT season inserts
         a NEW row. Repeated `tray_number`s are history, NOT duplicates.
-        TODO: enforce it — `unique (sample_id, tray_number)` + make whatever
-        WRITES trays upsert on that key (the desktop app and/or the import
-        script; don't add the constraint unilaterally — shared DB).
+        Enforced in the DB by `0010_tray_unique.sql`
+        (`unique (sample_id, tray_number)`), so an accidental duplicate INSERT
+        now fails loudly. Rows with `sample_id IS NULL` (11 today) are NOT
+        covered — Postgres treats NULLs as distinct.
+        TODO: whatever WRITES trays should upsert on that key
+        (`on conflict (sample_id, tray_number) do update set incubator_id = …`)
+        so a mid-season move updates the row. `scripts/import_incubation.py`
+        still emits `on conflict (id) do nothing`, which is fine for a normal
+        re-import (ids are deterministic) but would ERROR if a tray were
+        re-keyed while keeping the same sample + label.
       - "Year" has NO column: it's derived in-app from tray `out_date` →
         `cool_date` → `in_date`. `samples.import_date` is the import timestamp,
         NOT the season — never use it for year.

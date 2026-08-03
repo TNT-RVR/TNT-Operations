@@ -22,6 +22,7 @@ import {
   seedSamples,
   seedTrays,
   seedBatches,
+  seedAlerts,
   seedGrants,
 } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
@@ -55,6 +56,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       samples: seedSamples,
       trays: seedTrays,
       batches: seedBatches,
+      alerts: seedAlerts,
       addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),
       latestReading: (incubatorId) =>
         readings

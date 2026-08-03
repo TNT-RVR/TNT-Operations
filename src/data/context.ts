@@ -3,6 +3,7 @@ import type {
   Field,
   Incubator,
   IncubationBatch,
+  IncubatorAlert,
   Inspection,
   Sample,
   SensorReading,
@@ -41,6 +42,12 @@ export interface DataContextValue {
   trays: Tray[]
   /** Incubation batches (runs) with timeline milestones. */
   batches: IncubationBatch[]
+  /**
+   * Incubation alert history from the monitoring rules (temp/humidity out of
+   * band, thermometer drift, Vapona sensor offline). Distinct from
+   * `notifications`, which is the app-wide bell inbox.
+   */
+  alerts: IncubatorAlert[]
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined

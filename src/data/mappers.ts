@@ -20,6 +20,7 @@ import type {
   SensorSource,
   AppNotification,
   NotificationSeverity,
+  IncubatorAlert,
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
@@ -180,6 +181,36 @@ export function toNotification(row: NotificationRow): AppNotification {
     source: row.source,
     createdAt: row.created_at,
     readAt: row.read_at,
+  }
+}
+
+export interface AlertRow {
+  id: string
+  alert_type: string
+  severity: string
+  incubator_id: string | null
+  tray_id: string | null
+  batch_id: string | null
+  message: string
+  triggered_at: string
+  acknowledged: boolean
+  acknowledged_at: string | null
+  notified: boolean
+}
+
+export function toAlert(row: AlertRow): IncubatorAlert {
+  return {
+    id: row.id,
+    alertType: row.alert_type,
+    severity: (row.severity as NotificationSeverity) ?? 'info',
+    incubatorId: row.incubator_id,
+    trayId: row.tray_id,
+    batchId: row.batch_id,
+    message: row.message,
+    triggeredAt: row.triggered_at,
+    acknowledged: !!row.acknowledged,
+    acknowledgedAt: row.acknowledged_at,
+    notified: !!row.notified,
   }
 }
 

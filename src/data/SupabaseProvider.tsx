@@ -4,6 +4,7 @@ import type {
   Field,
   Incubator,
   IncubationBatch,
+  IncubatorAlert,
   Inspection,
   Sample,
   SensorReading,
@@ -26,6 +27,7 @@ import {
   toSample,
   toTray,
   toBatch,
+  toAlert,
   toPlacedShelter,
   toShelterTrayLink,
   toNestingBlock,
@@ -42,6 +44,7 @@ import {
   type SampleRow,
   type TrayRow,
   type BatchRow,
+  type AlertRow,
   type PlacedShelterRow,
   type ShelterTrayLinkRow,
   type NestingBlockRow,
@@ -70,6 +73,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [samples, setSamples] = useState<Sample[]>([])
   const [trays, setTrays] = useState<Tray[]>([])
   const [batches, setBatches] = useState<IncubationBatch[]>([])
+  const [alerts, setAlerts] = useState<IncubatorAlert[]>([])
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
@@ -130,6 +134,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Incubation alert history (the old app's rules). Newest first, capped —
+      // this is a log, so the most recent season is what matters.
+      const al = await sb
+        .from('alerts')
+        .select('*')
+        .order('triggered_at', { ascending: false })
+        .limit(1000)
+      if (cancelled) return
+      if (al.error) console.warn('[data] load alerts:', al.error.message)
+      else setAlerts(((al.data as AlertRow[]) ?? []).map(toAlert))
 
       // Cost-estimator pricing forms (one row per year). Missing table (0007
       // not yet applied) degrades to an empty store — the UI uses defaults.
@@ -265,6 +280,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       samples,
       trays,
       batches,
+      alerts,
       addInspection: (input: Omit<Inspection, 'id'>) => {
         if (!supabase) return
         supabase
@@ -547,6 +563,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       samples,
       trays,
       batches,
+      alerts,
       costPrefsByYear,
       placedShelters,
       shelterTrayLinks,

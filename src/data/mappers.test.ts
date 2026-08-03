@@ -5,6 +5,7 @@ import {
   toInspection,
   toSensorReading,
   incubatorUpdate,
+  toAlert,
   toSample,
   toTray,
   toBatch,
@@ -221,6 +222,29 @@ describe('supabase row mappers', () => {
       notes: 'ok',
     })
     expect('id' in payload).toBe(false)
+  })
+
+  it('maps an alert row (incubation alert history)', () => {
+    const a = toAlert({
+      id: 'al1',
+      alert_type: 'temp_humidity',
+      severity: 'warning',
+      incubator_id: 'i2',
+      tray_id: null,
+      batch_id: null,
+      message: 'Incubator 2: Temp 35.4°C above maximum 35.0°C',
+      triggered_at: '2026-07-23T17:47:00Z',
+      acknowledged: true,
+      acknowledged_at: '2026-07-23T18:02:00Z',
+      notified: false,
+    })
+    expect(a.alertType).toBe('temp_humidity')
+    expect(a.severity).toBe('warning')
+    expect(a.incubatorId).toBe('i2')
+    expect(a.trayId).toBeNull()
+    expect(a.acknowledged).toBe(true)
+    expect(a.acknowledgedAt).toBe('2026-07-23T18:02:00Z')
+    expect(a.notified).toBe(false)
   })
 
   it('builds an incubator update patch (only the keys present, snake_case)', () => {

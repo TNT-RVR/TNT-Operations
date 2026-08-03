@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
+import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -180,6 +180,24 @@ export const seedNotifications: AppNotification[] = [
     source: 'system',
     createdAt: '2026-07-23T09:00:00Z',
     readAt: '2026-07-23T09:05:00Z',
+  },
+]
+
+export const seedAlerts: IncubatorAlert[] = [
+  {
+    id: 'al1', alertType: 'temp_humidity', severity: 'warning', incubatorId: 'i2', trayId: null, batchId: null,
+    message: 'Incubator B: Temp 35.4°C above maximum 35.0°C',
+    triggeredAt: '2026-07-21T17:47:00Z', acknowledged: true, acknowledgedAt: '2026-07-21T18:02:00Z', notified: false,
+  },
+  {
+    id: 'al2', alertType: 'inspection_temp', severity: 'warning', incubatorId: 'i1', trayId: null, batchId: null,
+    message: 'Inspection temp alert — Incubator A: Thermometer 27.0°C vs Govee 16.0°C (Δ 11.0°C)',
+    triggeredAt: '2026-07-20T10:48:00Z', acknowledged: true, acknowledgedAt: '2026-07-20T11:00:00Z', notified: false,
+  },
+  {
+    id: 'al3', alertType: 'vapona_sensor', severity: 'warning', incubatorId: 'i2', trayId: null, batchId: null,
+    message: 'Vapona sensor “Vapsens” (Incubator B) is offline — no contact for 31 min.',
+    triggeredAt: '2026-07-15T14:05:00Z', acknowledged: false, acknowledgedAt: null, notified: true,
   },
 ]
 

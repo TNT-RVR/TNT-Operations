@@ -143,7 +143,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           <p className="-mt-3 text-xs text-faint">
             {d.running
               ? 'Running — sensors are logged every 15 minutes.'
-              : 'Off — sensors are checked every 6 hours until this is switched on (or the temperature shows it is running).'}
+              : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
           </p>
         )}
         {p && (

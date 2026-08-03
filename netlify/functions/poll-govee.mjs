@@ -7,28 +7,26 @@
  * ── Adaptive cadence (why this isn't a simple "poll everything") ─────────────
  * Polling every incubator every 5 min regardless of state buried the real data:
  * by 2026-08-03, 56% of all sensor_readings were ambient noise logged while every
- * incubator was switched off. But gating on `temp_mode` ALONE is also unsafe: it
- * is only ever as accurate as the last person to set it, and a wrong `off`
- * silently skips a REAL incubation run and loses irreplaceable data.
+ * incubator was switched off. So an incubator's `temp_mode` decides its cadence:
  *
- * (Supabase IS the source of truth for `temp_mode` — the old Python desktop app
- * was a prototype and is not the ongoing control surface. The temperature check
- * below is a backstop for a mode nobody remembered to change, not a workaround
- * for a competing writer.)
+ * Running (`temp_mode` is not `off`) → polled every FAST_MIN.
+ * Idle                               → one poll per IDLE_HEARTBEAT_H, NEVER
+ *                                      fully stopped.
  *
- * So an incubator is treated as RUNNING when EITHER signal says so:
- *   1. `temp_mode` is a running mode, OR
- *   2. its latest reading is displaced from shop ambient (~19-21 °C) in a way
- *      only active heating/cooling explains.
+ * That heartbeat is the safety net. Supabase is the source of truth for
+ * `temp_mode` (the app writes it via `saveIncubator`; the old Python desktop app
+ * was only a prototype), but a mode is still only as accurate as the last person
+ * to set it. Because idle incubators keep logging every few hours, a forgotten
+ * `off` costs resolution — never the run itself.
  *
- * Running  → polled every cycle (FAST_MIN).
- * Idle     → polled once per IDLE_HEARTBEAT_H, never fully stopped. That
- *            heartbeat is what NOTICES an incubator being switched on, so a
- *            stale `temp_mode` can cost at most one heartbeat of resolution —
- *            it can never lose the run entirely.
- *
- * The thresholds deliberately bias toward FALSE POSITIVES: a brief sensor spike
- * costs a few extra polls, while a miss costs data you cannot get back.
+ * DO NOT re-add "detect running from temperature". It was tried and removed
+ * (2026-08-03): an incubator that is switched OFF still reaches incubation
+ * temperatures on a hot day, purely from ambient. On the day it was removed,
+ * with all 8 incubators off, four had already exceeded a 24 °C "running"
+ * threshold (peaks of 26.4 / 28.6 / 29.5 / 50.0 °C). The mirror-image trick —
+ * inferring cool storage from a low reading — fails the same way in an unheated
+ * shop in winter. Temperature simply cannot distinguish "heated to 30" from
+ * "hot outside", so it must not drive polling.
  *
  * Server-side only — the secrets live in Netlify env, never in the browser:
  *   GOVEE_API_KEY          — your Govee API key (same one the desktop poller uses)
@@ -46,20 +44,10 @@ export const config = {
 
 /** Cadence for a running incubator — must match the cron above. */
 const FAST_MIN = 15
-/** Idle incubators still get one poll this often, to catch being switched on. */
+/** Idle incubators still get one poll this often, so nothing goes fully dark. */
 const IDLE_HEARTBEAT_H = 6
 
-/**
- * Temperature evidence of an active incubator, vs ~19-21 °C shop ambient.
- * Incubation band is 25-35 °C → 24 gives margin for warm-up and door-open dips.
- * Cool storage is 0-12 °C, but ambient itself dips to ~10 °C overnight, so the
- * cold threshold sits well below that floor to avoid false "running" at night.
- * NOTE: `holding` (10-18 °C) overlaps ambient and is NOT reliably detectable
- * from temperature — it relies on `temp_mode` being set.
- */
-const RUN_HOT_C = 24
-const RUN_COLD_C = 8
-
+/** Anything that isn't `off` is actively being held at a temperature. */
 const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
 
 const V2_STATE = 'https://openapi.api.govee.com/router/api/v1/device/state'
@@ -136,35 +124,28 @@ export default async () => {
 
   const withDevice = (Array.isArray(incs) ? incs : []).filter((i) => i.govee_device_id && i.govee_sku)
 
-  // Decide per incubator whether to poll this cycle (see the adaptive-cadence
-  // note at the top). One small query each for its most recent reading, which
-  // gives us both the staleness age and the temperature evidence.
+  // Decide per incubator whether to poll this cycle (see the note at the top).
+  // A running incubator always polls; an idle one only once its last reading is
+  // older than the heartbeat, so we need that timestamp.
   const plan = []
   for (const inc of withDevice) {
-    let lastAt = 0
-    let lastTemp = null
-    try {
-      const last = await fetch(
-        `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at,temp_c&order=at.desc&limit=1`,
-        { headers: sb },
-      ).then((r) => r.json())
-      if (Array.isArray(last) && last[0]) {
-        lastAt = new Date(last[0].at).getTime() || 0
-        lastTemp = last[0].temp_c == null ? null : Number(last[0].temp_c)
+    const running = RUNNING_MODES.has(inc.temp_mode)
+
+    let ageH = Infinity // no history (or an unreadable one) → poll
+    if (!running) {
+      try {
+        const last = await fetch(
+          `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at&order=at.desc&limit=1`,
+          { headers: sb },
+        ).then((r) => r.json())
+        const lastAt = Array.isArray(last) && last[0]?.at ? new Date(last[0].at).getTime() : 0
+        if (lastAt) ageH = (Date.now() - lastAt) / 3600_000
+      } catch {
+        /* never skip a poll because a history lookup failed */
       }
-    } catch {
-      /* if we can't read history, fall through and poll — never skip on error */
     }
 
-    const modeRunning = RUNNING_MODES.has(inc.temp_mode)
-    const tempRunning = lastTemp != null && (lastTemp >= RUN_HOT_C || lastTemp <= RUN_COLD_C)
-    const running = modeRunning || tempRunning
-
-    // Idle incubators still get a heartbeat; no history at all → always poll.
-    const ageH = lastAt ? (Date.now() - lastAt) / 3600_000 : Infinity
-    const shouldPoll = running || ageH >= IDLE_HEARTBEAT_H
-
-    plan.push({ inc, running, shouldPoll, why: modeRunning ? 'mode' : tempRunning ? 'temp' : 'heartbeat' })
+    plan.push({ inc, running, shouldPoll: running || ageH >= IDLE_HEARTBEAT_H })
   }
 
   const due = plan.filter((p) => p.shouldPoll)
@@ -234,7 +215,7 @@ export default async () => {
   }
 
   const total = Array.isArray(incs) ? incs.length : 0
-  const runningNames = plan.filter((p) => p.running).map((p) => `${p.inc.name}(${p.why})`)
+  const runningNames = plan.filter((p) => p.running).map((p) => p.inc.name)
   const heartbeats = due.filter((p) => !p.running).length
   return new Response(
     `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +

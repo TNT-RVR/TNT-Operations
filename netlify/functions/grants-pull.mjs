@@ -10,7 +10,7 @@
  *   ANTHROPIC_API_KEY      — required; the function no-ops (501) without it
  *   SUPABASE_SERVICE_ROLE  — Supabase service_role key (full access; server only)
  *   SUPABASE_URL           — optional; falls back to VITE_SUPABASE_URL
- *   ANTHROPIC_MODEL        — optional; defaults to claude-sonnet-4-5
+ *   ANTHROPIC_MODEL        — optional; defaults to claude-sonnet-5
  *
  * Uses global fetch + the PostgREST API — no dependencies.
  */
@@ -33,7 +33,7 @@ export default async (req) => {
   const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const SB_KEY = process.env.SUPABASE_SERVICE_ROLE
   const apiKey = process.env.ANTHROPIC_API_KEY
-  const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5'
+  const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5'
 
   if (!SB_URL || !SB_KEY) return new Response('grants-pull: not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE)', { status: 500 })
   if (!apiKey) {

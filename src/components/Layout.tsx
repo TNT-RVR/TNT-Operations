@@ -140,6 +140,8 @@ export default function Layout() {
   const { pathname } = useLocation()
   const items = NAV.filter((n) => s.can(n.module, 'view'))
   const currentLabel = NAV.find((n) => n.to === pathname)?.label
+  /** The section the current route sits under, for the mobile subsection strip. */
+  const activeSection = items.find((n) => n.to !== '/' && pathname.startsWith(n.to))
 
   return (
     <div className="flex h-full flex-col">
@@ -186,6 +188,27 @@ export default function Layout() {
 
         {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}
         <main className="min-w-0 flex-1 overflow-y-auto bg-base">
+          {/* Subsection strip (mobile only). The sidebar is desktop-only and the
+              bottom bar carries only top-level items, so without this a phone
+              cannot reach a subsection at all. */}
+          {activeSection?.children && (
+            <div className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-subtle bg-surface px-3 py-2 md:hidden">
+              {activeSection.children.map((c) => (
+                <NavLink
+                  key={c.to}
+                  to={c.to}
+                  end={c.end}
+                  className={({ isActive }) =>
+                    `shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition ${
+                      isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
+                    }`
+                  }
+                >
+                  {c.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
           <ErrorBoundary key={pathname} label={currentLabel}>
             <Outlet />
           </ErrorBoundary>

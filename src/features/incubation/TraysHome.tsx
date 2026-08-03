@@ -261,7 +261,32 @@ export default function TraysHome() {
         {filtered.length === 0 ? (
           <EmptyState>No trays match these filters.</EmptyState>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-subtle">
+          <>
+            {/* Phones: stacked cards. A 640px table in a 375px viewport means
+                side-scrolling to read a row, which is unusable in the shop. */}
+            <ul className="divide-y divide-subtle rounded-lg border border-subtle md:hidden">
+              {pageRows.map((t) => (
+                <li key={t.id} className="px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <button className="font-medium text-brand hover:underline" onClick={() => setOpenTrayNumber(t.trayNumber)}>
+                      {t.trayNumber}
+                    </button>
+                    <span className="font-mono text-xs text-muted">{trayYear(t) ?? '—'}</span>
+                  </div>
+                  <div className="mt-0.5 text-sm text-secondary">
+                    {t.sampleId ? sampleName.get(t.sampleId) ?? '—' : '—'}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-xs text-faint">
+                    <span>{t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}</span>
+                    <span>{t.status}</span>
+                    {t.weightLbs != null && <span>{num(t.weightLbs)} lb</span>}
+                    {t.liveCount != null && <span>{num(t.liveCount)} live</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="hidden overflow-x-auto rounded-lg border border-subtle md:block">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
@@ -293,7 +318,8 @@ export default function TraysHome() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
 
         {pageCount > 1 && (

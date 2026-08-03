@@ -3,7 +3,14 @@ import { Modal, Badge, Gauge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
-import { incubationProgress, getIncubationDay, incubatorDisplay, formatTemp } from '@/domain/incubation'
+import {
+  incubationProgress,
+  getIncubationDay,
+  incubatorDisplay,
+  formatTemp,
+  TEMP_MODES,
+  type TempMode,
+} from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
 
 const TZ = 'America/Edmonton'
@@ -35,7 +42,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, readings, latestReading, addInspection } = useData()
+  const { inspections, readings, latestReading, addInspection, saveIncubator } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -107,13 +114,38 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
       <div className="space-y-5">
         {/* Mode + progress */}
         <div className="flex flex-wrap items-center gap-3">
-          <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          {canEdit ? (
+            <label className="flex items-center gap-2">
+              <span className="label">Mode</span>
+              <select
+                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                value={incubator.tempMode ?? 'off'}
+                onChange={(e) => saveIncubator(incubator.id, { tempMode: e.target.value })}
+              >
+                {(Object.keys(TEMP_MODES) as TempMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {TEMP_MODES[m].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          )}
           {incubator.location && <span className="text-sm text-muted">{incubator.location}</span>}
           {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
           {incubator.capacity != null && (
             <span className="text-sm text-faint">capacity {incubator.capacity}</span>
           )}
         </div>
+        {/* The cloud poller reads this mode to decide how often to log readings. */}
+        {canEdit && (
+          <p className="-mt-3 text-xs text-faint">
+            {d.running
+              ? 'Running — sensors are logged every 15 minutes.'
+              : 'Off — sensors are checked every 6 hours until this is switched on (or the temperature shows it is running).'}
+          </p>
+        )}
         {p && (
           <div>
             <div className="mb-1 flex justify-between text-xs text-muted">

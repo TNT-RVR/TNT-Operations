@@ -33,6 +33,7 @@ import {
   toGrantTask,
   grantPatch,
   inspectionInsert,
+  incubatorUpdate,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
@@ -302,6 +303,24 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
               return
             }
             setFields((prev) => prev.map((f) => (f.id === id ? toField(data as FieldRow) : f)))
+          })
+      },
+      saveIncubator: (id: string, patch: Partial<Incubator>) => {
+        if (!supabase) return
+        const row = incubatorUpdate(patch)
+        if (Object.keys(row).length === 0) return
+        supabase
+          .from('incubators')
+          .update(row)
+          .eq('id', id)
+          .select()
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('[data] saveIncubator:', error.message)
+              return
+            }
+            setIncubators((prev) => prev.map((i) => (i.id === id ? toIncubator(data as IncubatorRow) : i)))
           })
       },
       notifications,

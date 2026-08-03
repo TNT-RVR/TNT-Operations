@@ -300,6 +300,26 @@ export function toBatch(row: BatchRow): IncubationBatch {
 }
 
 /**
+ * Partial app Incubator → snake_case row patch for an update. Only the keys
+ * actually present are emitted, so a patch never clobbers untouched columns.
+ */
+export function incubatorUpdate(patch: Partial<Incubator>): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.location !== undefined) row.location = patch.location
+  if (patch.status !== undefined) row.status = patch.status
+  if (patch.startedAt !== undefined) row.started_at = patch.startedAt
+  if (patch.tempTargetC !== undefined) row.temp_target_c = patch.tempTargetC
+  if (patch.humidityTargetPct !== undefined) row.humidity_target_pct = patch.humidityTargetPct
+  if (patch.tempMode !== undefined) row.temp_mode = patch.tempMode
+  if (patch.humidityMin !== undefined) row.humidity_min = patch.humidityMin
+  if (patch.humidityMax !== undefined) row.humidity_max = patch.humidityMax
+  if (patch.incubationStart !== undefined) row.incubation_start = patch.incubationStart
+  if (patch.capacity !== undefined) row.capacity = patch.capacity
+  return row
+}
+
+/**
  * App inspection (sans id) → the row shape for an insert. Rich checklist fields
  * are only included when provided, so the DB defaults (period='manual', booleans
  * false, etc.) apply for a bare insert.

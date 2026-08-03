@@ -1,8 +1,34 @@
 /**
  * Cloud Govee poller — runs on a schedule in Netlify's cloud (NO always-on
- * computer needed). Every few minutes it reads the incubators from Supabase,
- * polls each running sensor's temp/humidity from the Govee API, and writes the
- * readings back to Supabase's `sensor_readings`. The web app then shows live data.
+ * computer needed). It reads the incubators from Supabase, polls each RUNNING
+ * sensor's temp/humidity from the Govee API, and writes the readings back to
+ * `sensor_readings`. The web app then shows live data.
+ *
+ * ── Adaptive cadence (why this isn't a simple "poll everything") ─────────────
+ * Polling every incubator every 5 min regardless of state buried the real data:
+ * by 2026-08-03, 56% of all sensor_readings were ambient noise logged while every
+ * incubator was switched off. But gating on `temp_mode` ALONE is also unsafe: it
+ * is only ever as accurate as the last person to set it, and a wrong `off`
+ * silently skips a REAL incubation run and loses irreplaceable data.
+ *
+ * (Supabase IS the source of truth for `temp_mode` — the old Python desktop app
+ * was a prototype and is not the ongoing control surface. The temperature check
+ * below is a backstop for a mode nobody remembered to change, not a workaround
+ * for a competing writer.)
+ *
+ * So an incubator is treated as RUNNING when EITHER signal says so:
+ *   1. `temp_mode` is a running mode, OR
+ *   2. its latest reading is displaced from shop ambient (~19-21 °C) in a way
+ *      only active heating/cooling explains.
+ *
+ * Running  → polled every cycle (FAST_MIN).
+ * Idle     → polled once per IDLE_HEARTBEAT_H, never fully stopped. That
+ *            heartbeat is what NOTICES an incubator being switched on, so a
+ *            stale `temp_mode` can cost at most one heartbeat of resolution —
+ *            it can never lose the run entirely.
+ *
+ * The thresholds deliberately bias toward FALSE POSITIVES: a brief sensor spike
+ * costs a few extra polls, while a miss costs data you cannot get back.
  *
  * Server-side only — the secrets live in Netlify env, never in the browser:
  *   GOVEE_API_KEY          — your Govee API key (same one the desktop poller uses)
@@ -14,9 +40,27 @@
  */
 
 export const config = {
-  // every 5 minutes; make it finer/coarser by editing this cron expression
-  schedule: '*/5 * * * *',
+  // Runs at the FAST rate; idle incubators are throttled per-incubator below.
+  schedule: '*/15 * * * *',
 }
+
+/** Cadence for a running incubator — must match the cron above. */
+const FAST_MIN = 15
+/** Idle incubators still get one poll this often, to catch being switched on. */
+const IDLE_HEARTBEAT_H = 6
+
+/**
+ * Temperature evidence of an active incubator, vs ~19-21 °C shop ambient.
+ * Incubation band is 25-35 °C → 24 gives margin for warm-up and door-open dips.
+ * Cool storage is 0-12 °C, but ambient itself dips to ~10 °C overnight, so the
+ * cold threshold sits well below that floor to avoid false "running" at night.
+ * NOTE: `holding` (10-18 °C) overlaps ambient and is NOT reliably detectable
+ * from temperature — it relies on `temp_mode` being set.
+ */
+const RUN_HOT_C = 24
+const RUN_COLD_C = 8
+
+const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
 
 const V2_STATE = 'https://openapi.api.govee.com/router/api/v1/device/state'
 const V1_STATE = 'https://developer-api.govee.com/v1/devices/state'
@@ -85,21 +129,49 @@ export default async () => {
 
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
 
-  // Poll every incubator that has a Govee device configured. We intentionally do
-  // NOT gate on temp_mode: that value is frozen at import time in Supabase (the
-  // desktop app changes modes only in the local SQLite), so it can't be trusted
-  // here. The physical sensor reports regardless of the app's "mode", and an
-  // offline sensor simply returns nothing and is skipped below.
   const incs = await fetch(
-    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku`,
+    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode`,
     { headers: sb },
   ).then((r) => r.json())
 
   const withDevice = (Array.isArray(incs) ? incs : []).filter((i) => i.govee_device_id && i.govee_sku)
 
+  // Decide per incubator whether to poll this cycle (see the adaptive-cadence
+  // note at the top). One small query each for its most recent reading, which
+  // gives us both the staleness age and the temperature evidence.
+  const plan = []
+  for (const inc of withDevice) {
+    let lastAt = 0
+    let lastTemp = null
+    try {
+      const last = await fetch(
+        `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at,temp_c&order=at.desc&limit=1`,
+        { headers: sb },
+      ).then((r) => r.json())
+      if (Array.isArray(last) && last[0]) {
+        lastAt = new Date(last[0].at).getTime() || 0
+        lastTemp = last[0].temp_c == null ? null : Number(last[0].temp_c)
+      }
+    } catch {
+      /* if we can't read history, fall through and poll — never skip on error */
+    }
+
+    const modeRunning = RUNNING_MODES.has(inc.temp_mode)
+    const tempRunning = lastTemp != null && (lastTemp >= RUN_HOT_C || lastTemp <= RUN_COLD_C)
+    const running = modeRunning || tempRunning
+
+    // Idle incubators still get a heartbeat; no history at all → always poll.
+    const ageH = lastAt ? (Date.now() - lastAt) / 3600_000 : Infinity
+    const shouldPoll = running || ageH >= IDLE_HEARTBEAT_H
+
+    plan.push({ inc, running, shouldPoll, why: modeRunning ? 'mode' : tempRunning ? 'temp' : 'heartbeat' })
+  }
+
+  const due = plan.filter((p) => p.shouldPoll)
+
   const at = new Date().toISOString()
   const readings = []
-  for (const inc of withDevice) {
+  for (const { inc } of due) {
     const rd = await pollDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
     if (rd) readings.push({ incubator_id: inc.id, at, temp_c: rd.temp, humidity_pct: rd.hum, source: 'govee' })
   }
@@ -113,14 +185,17 @@ export default async () => {
   }
 
   // ── Integration health: alert when a sensor feed goes stale ────────────────
-  // For every incubator with a device that did NOT return a reading this cycle,
-  // check how old its newest stored reading is. Older than STALE_MIN → raise an
-  // app_notification (deduped: skip if an active stale alert for this incubator
-  // was already raised in the last DEDUPE_H hours).
+  // Only RUNNING incubators are watched. An idle one is polled just once every
+  // IDLE_HEARTBEAT_H by design, so its readings are legitimately hours apart —
+  // watching it here would fire a "stale feed" alert on every single cycle.
+  // A running incubator is the one whose data actually matters.
   const STALE_MIN = 30
   const DEDUPE_H = 6
   let alerts = 0
-  const failed = withDevice.filter((i) => !readings.some((r) => r.incubator_id === i.id))
+  const failed = plan
+    .filter((p) => p.running)
+    .map((p) => p.inc)
+    .filter((i) => !readings.some((r) => r.incubator_id === i.id))
   for (const inc of failed) {
     try {
       const last = await fetch(
@@ -159,9 +234,13 @@ export default async () => {
   }
 
   const total = Array.isArray(incs) ? incs.length : 0
+  const runningNames = plan.filter((p) => p.running).map((p) => `${p.inc.name}(${p.why})`)
+  const heartbeats = due.filter((p) => !p.running).length
   return new Response(
     `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +
-      `${readings.length} readings written, ${alerts} stale alerts raised`,
+      `${runningNames.length} running [${runningNames.join(', ') || 'none'}], ` +
+      `${heartbeats} idle heartbeat(s), ${readings.length} readings written, ` +
+      `${alerts} stale alerts raised`,
     { status: 200 },
   )
 }

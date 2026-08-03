@@ -46,6 +46,13 @@ export interface DataContextValue {
   latestReading: (incubatorId: string) => SensorReading | undefined
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
+  /**
+   * Persist edits to an incubator (temp mode, targets, location…).
+   * `tempMode` is operationally important: the cloud Govee poller reads it to
+   * decide whether an incubator is running and therefore worth polling at the
+   * fast cadence (see netlify/functions/poll-govee.mjs).
+   */
+  saveIncubator: (id: string, patch: Partial<Incubator>) => void
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

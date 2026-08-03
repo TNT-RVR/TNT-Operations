@@ -4,6 +4,7 @@ import {
   toIncubator,
   toInspection,
   toSensorReading,
+  incubatorUpdate,
   toSample,
   toTray,
   toBatch,
@@ -220,6 +221,22 @@ describe('supabase row mappers', () => {
       notes: 'ok',
     })
     expect('id' in payload).toBe(false)
+  })
+
+  it('builds an incubator update patch (only the keys present, snake_case)', () => {
+    // The poller keys off temp_mode, so a mode-only save must not touch anything else.
+    const modeOnly = incubatorUpdate({ tempMode: 'incubation' })
+    expect(modeOnly).toEqual({ temp_mode: 'incubation' })
+
+    expect(incubatorUpdate({ tempMode: 'off', humidityMin: 55, incubationStart: '2026-07-10' })).toEqual({
+      temp_mode: 'off',
+      humidity_min: 55,
+      incubation_start: '2026-07-10',
+    })
+
+    // Nulls are meaningful (clearing a value) and must survive; empty patch stays empty.
+    expect(incubatorUpdate({ incubationStart: null })).toEqual({ incubation_start: null })
+    expect(incubatorUpdate({})).toEqual({})
   })
 
   it('maps sample / tray / batch rows (numeric coercion + null-safety)', () => {

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useData } from '@/data/context'
 import type { SensorReading } from '@/data/types'
 
 const TZ = 'America/Edmonton'
@@ -39,15 +40,34 @@ type RangeKey = (typeof RANGES)[number]['key']
  */
 export function ReadingsChart({
   readings,
+  incubatorId,
   targetC,
   tolerance = 1.5,
 }: {
   readings: SensorReading[]
+  incubatorId: string
   /** Target for the current mode, or null when the incubator is off (no target). */
   targetC: number | null
   tolerance?: number
 }) {
+  const { loadReadings } = useData()
   const [range, setRange] = useState<RangeKey>('24h')
+  const [loading, setLoading] = useState(false)
+
+  // Hydration only holds a recent window per incubator, so a longer range has
+  // to go and get the rest — otherwise 7D/30D/ALL all render the same ~16h.
+  useEffect(() => {
+    const hours = RANGES.find((r) => r.key === range)?.hours ?? null
+    const since = hours == null ? new Date(0) : new Date(Date.now() - hours * 3600_000)
+    let cancelled = false
+    setLoading(true)
+    loadReadings(incubatorId, since.toISOString()).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [incubatorId, range, loadReadings])
 
   const all = [...readings].sort((a, b) => a.at.localeCompare(b.at))
   const hours = RANGES.find((r) => r.key === range)?.hours ?? null
@@ -69,6 +89,7 @@ export function ReadingsChart({
           {r.label}
         </button>
       ))}
+      {loading && <span className="ml-1 font-mono text-xs text-faint">loading…</span>}
     </div>
   )
 
@@ -77,7 +98,11 @@ export function ReadingsChart({
       <div>
         {picker}
         <div className="grid h-28 place-items-center rounded-lg border border-dashed border-default text-sm text-muted">
-          {all.length < 2 ? 'Not enough readings to chart yet.' : 'No readings in this window — try a longer range.'}
+          {loading
+            ? 'Loading readings…'
+            : all.length < 2
+              ? 'Not enough readings to chart yet.'
+              : 'No readings in this window — try a longer range.'}
         </div>
       </div>
     )

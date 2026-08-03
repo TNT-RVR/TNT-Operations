@@ -44,6 +44,13 @@ export interface DataContextValue {
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined
+  /**
+   * Pull this incubator's readings back to `sinceIso` and merge them in.
+   * Hydration only loads a recent window per incubator (~16h of live data), so
+   * anything asking for a longer span — the chart's 7D/30D/ALL ranges — must
+   * request it. Idempotent: already-loaded windows resolve without refetching.
+   */
+  loadReadings: (incubatorId: string, sinceIso: string) => Promise<void>
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
   /**

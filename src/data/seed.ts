@@ -140,7 +140,9 @@ function seedSeries(incubatorId: string, endIso: string, days: number, targetC: 
 }
 
 export const seedReadings: SensorReading[] = [
-  ...seedSeries('i1', '2026-07-22T13:00:00Z', 3, 30),
+  // 35 days so the chart's 1H/6H/24H/7D/30D/ALL ranges each show something
+  // different in mock mode (live mode fetches on demand via loadReadings).
+  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30),
   ...seedSeries('i2', '2026-07-22T13:00:00Z', 2, 29.5),
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
 ]

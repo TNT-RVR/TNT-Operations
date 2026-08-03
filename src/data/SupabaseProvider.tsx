@@ -79,6 +79,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
+  /** Oldest timestamp already fetched per incubator, so ranges load once. */
+  const loadedSinceRef = useRef<Map<string, string>>(new Map())
   const readingsRef = useRef<SensorReading[]>([])
   readingsRef.current = readings
   const notifRef = useRef<AppNotification[]>([])
@@ -282,6 +284,39 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         readings
           .filter((r) => r.incubatorId === incubatorId)
           .sort((a, b) => b.at.localeCompare(a.at))[0],
+      loadReadings: async (incubatorId: string, sinceIso: string) => {
+        if (!supabase) return
+        // Skip if this incubator has already been loaded at least this far back.
+        const loadedFrom = loadedSinceRef.current.get(incubatorId)
+        if (loadedFrom && loadedFrom <= sinceIso) return
+        loadedSinceRef.current.set(incubatorId, sinceIso)
+
+        const PAGE = 1000
+        const fetched: SensorReading[] = []
+        for (let from = 0; ; from += PAGE) {
+          const res = await supabase
+            .from('sensor_readings')
+            .select('*')
+            .eq('incubator_id', incubatorId)
+            .gte('at', sinceIso)
+            .order('at', { ascending: false })
+            .range(from, from + PAGE - 1)
+          if (res.error) {
+            console.error('[data] loadReadings:', res.error.message)
+            loadedSinceRef.current.delete(incubatorId) // let it retry
+            return
+          }
+          const rows = (res.data as SensorReadingRow[]) ?? []
+          fetched.push(...rows.map(toSensorReading))
+          if (rows.length < PAGE) break
+        }
+
+        setReadings((prev) => {
+          const seen = new Set(prev.map((r) => r.id))
+          const added = fetched.filter((r) => !seen.has(r.id))
+          return added.length ? [...added, ...prev] : prev
+        })
+      },
       saveField: (id: string, patch: Partial<Field>) => {
         if (!supabase) return
         const row: Record<string, unknown> = {}

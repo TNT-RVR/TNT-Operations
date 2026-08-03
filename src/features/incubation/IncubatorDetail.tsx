@@ -189,7 +189,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               </span>
             )}
           </div>
-          <ReadingsChart readings={myReadings} targetC={targetC} tolerance={tolC} />
+          <ReadingsChart readings={myReadings} incubatorId={incubator.id} targetC={targetC} tolerance={tolC} />
         </section>
 
         {/* Add inspection */}

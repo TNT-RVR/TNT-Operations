@@ -14,6 +14,7 @@ const LABEL = { fill: 'var(--text-faint)' } as const
 
 /** Selectable windows, newest-anchored. `hours: null` = everything held. */
 const RANGES = [
+  { key: '1h', label: '1H', hours: 1 },
   { key: '6h', label: '6H', hours: 6 },
   { key: '24h', label: '24H', hours: 24 },
   { key: '7d', label: '7D', hours: 24 * 7 },

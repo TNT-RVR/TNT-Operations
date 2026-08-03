@@ -13,14 +13,16 @@ const REF = 'var(--text-faint)'
 const BAND = 'var(--data-honey)'
 const LABEL = { fill: 'var(--text-faint)' } as const
 
-/** Selectable windows, newest-anchored. `hours: null` = everything held. */
+/**
+ * Selectable windows, newest-anchored. 30D is deliberately the longest — an
+ * unbounded "all" meant fetching thousands of rows for a marginal view.
+ */
 const RANGES = [
   { key: '1h', label: '1H', hours: 1 },
   { key: '6h', label: '6H', hours: 6 },
   { key: '24h', label: '24H', hours: 24 },
   { key: '7d', label: '7D', hours: 24 * 7 },
   { key: '30d', label: '30D', hours: 24 * 30 },
-  { key: 'all', label: 'ALL', hours: null },
 ] as const
 
 type RangeKey = (typeof RANGES)[number]['key']
@@ -55,24 +57,24 @@ export function ReadingsChart({
   const [loading, setLoading] = useState(false)
 
   // Hydration only holds a recent window per incubator, so a longer range has
-  // to go and get the rest — otherwise 7D/30D/ALL all render the same ~16h.
+  // to go and get the rest — otherwise 7D and 30D render the same ~16h as 24H.
+  const hours = RANGES.find((r) => r.key === range)?.hours ?? 24
+
   useEffect(() => {
-    const hours = RANGES.find((r) => r.key === range)?.hours ?? null
-    const since = hours == null ? new Date(0) : new Date(Date.now() - hours * 3600_000)
+    const since = new Date(Date.now() - hours * 3600_000).toISOString()
     let cancelled = false
     setLoading(true)
-    loadReadings(incubatorId, since.toISOString()).finally(() => {
+    loadReadings(incubatorId, since).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => {
       cancelled = true
     }
-  }, [incubatorId, range, loadReadings])
+  }, [incubatorId, hours, loadReadings])
 
   const all = [...readings].sort((a, b) => a.at.localeCompare(b.at))
-  const hours = RANGES.find((r) => r.key === range)?.hours ?? null
   const newest = all.length ? Date.parse(all[all.length - 1].at) : 0
-  const pts = hours == null ? all : all.filter((p) => Date.parse(p.at) >= newest - hours * 3600_000)
+  const pts = all.filter((p) => Date.parse(p.at) >= newest - hours * 3600_000)
 
   const picker = (
     <div className="mb-2 flex flex-wrap items-center gap-1">

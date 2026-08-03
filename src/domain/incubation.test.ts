@@ -17,6 +17,9 @@ import {
   fToC,
   formatTemp,
   type Batch,
+  trayYear,
+  lbsToKg,
+  perLbToPerKg,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -254,5 +257,26 @@ describe('unit conversion', () => {
     expect(formatTemp(25.0, 'F')).toBe('77.0°F')
     expect(formatTemp(-1.24, 'C')).toBe('-1.2°C')
     expect(formatTemp(30.06, 'F')).toBe('86.1°F')
+  })
+})
+
+describe('trayYear + unit helpers', () => {
+  it('prefers out, then cool, then in date', () => {
+    expect(trayYear({ outDate: '2026-07-28', coolDate: '2025-01-01', inDate: '2024-01-01' })).toBe(2026)
+    expect(trayYear({ outDate: null, coolDate: '2025-06-02', inDate: '2024-01-01' })).toBe(2025)
+    expect(trayYear({ outDate: null, coolDate: null, inDate: '2024-05-05' })).toBe(2024)
+  })
+
+  it('returns null when a tray has no dates ("undated" is a real bucket)', () => {
+    expect(trayYear({})).toBeNull()
+    expect(trayYear({ outDate: null, coolDate: null, inDate: null })).toBeNull()
+  })
+
+  it('converts pounds and per-pound rates to metric, passing null through', () => {
+    expect(lbsToKg(100)).toBeCloseTo(45.359237, 6)
+    expect(lbsToKg(null)).toBeNull()
+    // 4475 bees/lb is ~9866 bees/kg
+    expect(perLbToPerKg(4475)).toBeCloseTo(9866.0, 0)
+    expect(perLbToPerKg(null)).toBeNull()
   })
 })

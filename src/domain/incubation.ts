@@ -408,3 +408,38 @@ export function formatTemp(tempC: number, unit: 'C' | 'F' = 'C'): string {
   if (unit === 'F') return `${cToF(tempC).toFixed(1)}°F`
   return `${tempC.toFixed(1)}°C`
 }
+
+// ── Season / units ────────────────────────────────────────────────────────────
+
+export const LBS_PER_KG = 0.45359237
+
+/** Pounds → kilograms, passing null through. */
+export function lbsToKg(lbs: number | null | undefined): number | null {
+  return lbs == null ? null : lbs * LBS_PER_KG
+}
+
+/** Per-pound → per-kilogram (e.g. bees per lb → bees per kg). */
+export function perLbToPerKg(perLb: number | null | undefined): number | null {
+  return perLb == null ? null : perLb / LBS_PER_KG
+}
+
+/**
+ * The season a tray usage belongs to.
+ *
+ * There is no season column: it's derived from the tray's own operational
+ * dates, newest meaningful one first. `samples.import_date` is the import
+ * timestamp (uniformly 2026) and must NOT be used for this.
+ * Returns null for a tray with no dates at all — "undated" is a real bucket.
+ */
+export function trayYear(tray: {
+  outDate?: string | null
+  coolDate?: string | null
+  inDate?: string | null
+}): number | null {
+  for (const d of [tray.outDate, tray.coolDate, tray.inDate]) {
+    if (!d) continue
+    const y = Number(String(d).slice(0, 4))
+    if (Number.isFinite(y) && y > 0) return y
+  }
+  return null
+}

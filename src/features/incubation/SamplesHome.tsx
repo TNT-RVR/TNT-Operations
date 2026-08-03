@@ -2,7 +2,15 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
-import { calcSampleSummary, formatDays, daysFromNow, BATCH_EVENT_FIELDS } from '@/domain/incubation'
+import {
+  calcSampleSummary,
+  formatDays,
+  daysFromNow,
+  BATCH_EVENT_FIELDS,
+  trayYear,
+  lbsToKg,
+  perLbToPerKg,
+} from '@/domain/incubation'
 import type { Sample, Tray, IncubationBatch } from '@/data/types'
 
 const num = (v: number | null | undefined, digits = 0) =>
@@ -14,6 +22,32 @@ const pct = (v: number | null) => {
   const f = liveFraction(v)
   return f == null ? '—' : `${Math.round(f * 100)}%`
 }
+
+const ALL = '__all__'
+
+type SampleSortKey =
+  | 'name' | 'kg' | 'perKg' | 'parasites' | 'chalkbrood' | 'gal' | 'kg2gal' | 'expected' | 'actual' | 'space' | 'notes'
+
+const SAMPLE_COLUMNS: Array<{ key: SampleSortKey; label: string; align?: 'right' }> = [
+  { key: 'name', label: 'Name' },
+  { key: 'kg', label: 'Total Kg', align: 'right' },
+  { key: 'perKg', label: 'Live Bees/Kg', align: 'right' },
+  { key: 'parasites', label: 'Parasites', align: 'right' },
+  { key: 'chalkbrood', label: 'Chalkbrood', align: 'right' },
+  { key: 'gal', label: 'Total Gal', align: 'right' },
+  { key: 'kg2gal', label: 'Kg for 2gal', align: 'right' },
+  { key: 'expected', label: 'Expected', align: 'right' },
+  { key: 'actual', label: 'Actual', align: 'right' },
+  { key: 'space', label: 'Inc. Space' },
+  { key: 'notes', label: 'Notes' },
+]
+
+/** Flag a sample that filled fewer trays than the x-ray predicted. */
+const shortfall = (expected: number | null, actual: number) => expected != null && actual < expected
+
+/** Notes on one line — they're free text and can contain line breaks. */
+const flattenNotes = (notes: string | null | undefined) =>
+  (notes ?? '').split(/\s*[\r\n]+\s*/).join(' ').trim() || '—'
 
 export default function SamplesHome() {
   const { samples, trays, batches, incubators } = useData()
@@ -50,6 +84,78 @@ export default function SamplesHome() {
     return { byIncubator, byStatus, unassigned }
   }, [trays])
 
+  const [search, setSearch] = useState('')
+  const [year, setYear] = useState(ALL)
+  const [sortKey, setSortKey] = useState<SampleSortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  function toggleSort(key: SampleSortKey) {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  /** Years a sample was actually used in, taken from its trays' dates. */
+  const sampleYears = useMemo(() => {
+    const ys = new Set<number>()
+    for (const t of trays) {
+      const y = trayYear(t)
+      if (y != null) ys.add(y)
+    }
+    return [...ys].sort((a, b) => b - a)
+  }, [trays])
+
+  const visibleSamples = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = samples
+      .filter((s) => {
+        if (q && !s.name.toLowerCase().includes(q)) return false
+        if (year !== ALL) {
+          // Keep samples used by a tray started in the chosen year.
+          const used = traysBySample.get(s.id) ?? []
+          if (!used.some((t) => trayYear(t) === Number(year))) return false
+        }
+        return true
+      })
+      .map((s) => ({
+        s,
+        actual: (traysBySample.get(s.id) ?? []).length,
+        expected: s.totalTrays == null ? null : Math.ceil(s.totalTrays),
+      }))
+
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (r: (typeof rows)[number]): string | number | null => {
+      switch (sortKey) {
+        case 'name': return r.s.name
+        case 'kg': return lbsToKg(r.s.totalWeightLbs) ?? r.s.totalWeightKg
+        case 'perKg': return r.s.liveBeesPerKg ?? perLbToPerKg(r.s.liveBeesPerLb)
+        case 'parasites': return r.s.parasites
+        case 'chalkbrood': return r.s.chalkbrood
+        case 'gal': return r.s.totalVolumeGal
+        case 'kg2gal': return r.s.kgPer2Gal ?? lbsToKg(r.s.lbsPer2Gal)
+        case 'expected': return r.expected
+        case 'actual': return r.actual
+        case 'space': return r.s.incubatorSpace
+        case 'notes': return r.s.notes || null
+      }
+    }
+    return rows.sort((a, b) => {
+      const av = val(a)
+      const bv = val(b)
+      // Blanks always sort last, like the desktop table.
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      return String(av).localeCompare(String(bv)) * dir
+    })
+  }, [samples, trays, traysBySample, search, year, sortKey, sortDir])
+
+  const withExpected = visibleSamples.filter((r) => r.expected != null).length
+  const shortCount = visibleSamples.filter((r) => shortfall(r.expected, r.actual)).length
+
   const activeBatches = batches.filter((b) => b.status !== 'released' && b.status !== 'complete')
 
   return (
@@ -61,10 +167,14 @@ export default function SamplesHome() {
           <StatTile label="Samples" value={samples.length} />
           <StatTile label="Trays" value={num(trays.length)} hint="all statuses" />
           <StatTile label="Batches" value={batches.length} hint={`${activeBatches.length} active`} />
+          {/* Reconciliation, not a vanity count: which lots filled fewer trays
+              than the x-ray predicted. (A "graded samples" tile keyed on
+              xrayLivePct read 0 forever — no sample carries that field.) */}
           <StatTile
-            label="Graded samples"
-            value={samples.filter((s) => s.xrayLivePct != null).length}
-            hint="have x-ray data"
+            label="Short of expected"
+            value={shortCount}
+            tone={shortCount > 0 ? 'warn' : 'good'}
+            hint={`of ${withExpected} with an expected count`}
           />
         </div>
 
@@ -82,44 +192,80 @@ export default function SamplesHome() {
           )}
         </section>
 
-        {/* Samples table */}
+        {/* Samples table — mirrors the desktop app's "X-Ray results & sample
+            records" chart: metric units, and Expected vs Actual trays. */}
         <section>
-          <h2 className="mb-2 font-semibold">Samples</h2>
-          {samples.length === 0 ? (
-            <EmptyState>No samples yet.</EmptyState>
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+            <h2 className="font-semibold">Samples</h2>
+            <div className="flex flex-wrap items-end gap-2">
+              <input
+                className="input w-40"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Sample name…"
+              />
+              <select
+                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+              >
+                <option value={ALL}>All years</option>
+                {sampleYears.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <span className="font-mono text-xs text-faint">{visibleSamples.length} shown</span>
+            </div>
+          </div>
+          {visibleSamples.length === 0 ? (
+            <EmptyState>{samples.length === 0 ? 'No samples yet.' : 'No samples match.'}</EmptyState>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-subtle">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[880px] text-sm">
                 <thead>
                   <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
-                    <th className="px-3 py-2">Sample</th>
-                    <th className="px-3 py-2">Source</th>
-                    <th className="px-3 py-2 text-right">Live %</th>
-                    <th className="px-3 py-2 text-right">Weight (lb)</th>
-                    <th className="px-3 py-2 text-right">Bees/lb</th>
-                    <th className="px-3 py-2 text-right">Trays</th>
+                    {SAMPLE_COLUMNS.map((c) => (
+                      <th
+                        key={c.key}
+                        className={`cursor-pointer select-none px-3 py-2 hover:text-secondary ${
+                          c.align === 'right' ? 'text-right' : ''
+                        }`}
+                        onClick={() => toggleSort(c.key)}
+                      >
+                        {c.label}
+                        <span className="ml-1 inline-block w-3 text-faint">
+                          {sortKey === c.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-subtle">
-                  {samples.map((s) => {
-                    const trayCount = traysBySample.get(s.id)?.length ?? 0
-                    return (
-                      <tr
-                        key={s.id}
-                        className="cursor-pointer hover:bg-[color:var(--hover-wash)]"
-                        onClick={() => setOpenSample(s)}
-                      >
-                        <td className="px-3 py-2 font-medium text-primary">{s.name}</td>
-                        <td className="px-3 py-2 text-muted">{s.source || '—'}</td>
-                        <td className="px-3 py-2 text-right">{pct(s.xrayLivePct)}</td>
-                        <td className="px-3 py-2 text-right">{num(s.totalWeightLbs)}</td>
-                        <td className="px-3 py-2 text-right">{num(s.liveBeesPerLb)}</td>
-                        <td className="px-3 py-2 text-right">
-                          {trayCount > 0 ? num(trayCount) : <span className="text-faint">—</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {visibleSamples.map(({ s, actual, expected }) => (
+                    <tr
+                      key={s.id}
+                      className="cursor-pointer hover:bg-[color:var(--hover-wash)]"
+                      onClick={() => setOpenSample(s)}
+                    >
+                      <td className="px-3 py-2 font-medium text-brand">{s.name}</td>
+                      <td className="px-3 py-2 text-right">{num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)}
+                      </td>
+                      <td className="px-3 py-2 text-right">{num(s.parasites, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.chalkbrood, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.totalVolumeGal, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.kgPer2Gal ?? lbsToKg(s.lbsPer2Gal), 2)}</td>
+                      <td className="px-3 py-2 text-right">{expected == null ? '—' : expected}</td>
+                      <td className={`px-3 py-2 text-right ${shortfall(expected, actual) ? 'text-danger' : ''}`}>
+                        {actual}
+                      </td>
+                      <td className="px-3 py-2 text-muted">{s.incubatorSpace ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted">{flattenNotes(s.notes)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

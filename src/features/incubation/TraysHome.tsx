@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { PageHeader, EmptyState, Modal, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import type { Tray } from '@/data/types'
+import { trayYear } from '@/domain/incubation'
 
 const PAGE_SIZE = 50
 const num = (v: number | null | undefined) =>
@@ -9,13 +10,6 @@ const num = (v: number | null | undefined) =>
 const ALL = '__all__'
 const UNDATED = '__undated__'
 
-const dateYear = (s: string | null): number | null => (s ? Number(s.slice(0, 4)) || null : null)
-/**
- * Season/year of a tray usage. The DB has no season column, so derive it from
- * the tray's operational dates (out → cool → in). Trays with no dates are
- * "Undated". (sample.import_date is the import timestamp, not the season.)
- */
-const trayYear = (t: Tray): number | null => dateYear(t.outDate) ?? dateYear(t.coolDate) ?? dateYear(t.inDate)
 
 type SortKey = 'trayNumber' | 'year' | 'sample' | 'incubator' | 'status' | 'weightLbs' | 'liveCount'
 type SortDir = 'asc' | 'desc'

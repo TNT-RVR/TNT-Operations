@@ -44,8 +44,22 @@ export interface DataContextValue {
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined
+  /**
+   * Pull this incubator's readings back to `sinceIso` and merge them in.
+   * Hydration only loads a recent window per incubator (~16h of live data), so
+   * anything asking for a longer span — the chart's 7D/30D/ALL ranges — must
+   * request it. Idempotent: already-loaded windows resolve without refetching.
+   */
+  loadReadings: (incubatorId: string, sinceIso: string) => Promise<void>
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
+  /**
+   * Persist edits to an incubator (temp mode, targets, location…).
+   * `tempMode` is operationally important: the cloud Govee poller reads it to
+   * decide whether an incubator is running and therefore worth polling at the
+   * fast cadence (see netlify/functions/poll-govee.mjs).
+   */
+  saveIncubator: (id: string, patch: Partial<Incubator>) => void
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

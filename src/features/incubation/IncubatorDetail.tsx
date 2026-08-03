@@ -3,7 +3,14 @@ import { Modal, Badge, Gauge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
-import { incubationProgress, getIncubationDay, incubatorDisplay, formatTemp } from '@/domain/incubation'
+import {
+  incubationProgress,
+  getIncubationDay,
+  incubatorDisplay,
+  formatTemp,
+  TEMP_MODES,
+  type TempMode,
+} from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
 
 const TZ = 'America/Edmonton'
@@ -35,7 +42,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, readings, latestReading, addInspection } = useData()
+  const { inspections, readings, latestReading, addInspection, saveIncubator } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -58,9 +65,15 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   if (latest && humOut)
     alerts.push(`Humidity ${latest.humidityPct}% is outside ${fmtRange(d.humMin, d.humMax, '%', '')}`)
 
-  // Chart reference = middle of the mode band (tolerance = half-band), else the target.
-  const targetC = d.tempMin != null && d.tempMax != null ? (d.tempMin + d.tempMax) / 2 : incubator.tempTargetC
-  const tolC = d.tempMin != null && d.tempMax != null ? (d.tempMax - d.tempMin) / 2 : 1.5
+  // Chart reference = middle of the mode band (tolerance = half-band). An
+  // incubator that's OFF is not being held anywhere, so it has no target at all
+  // — don't fall back to the stored tempTargetC, which would draw a 30°C line
+  // the incubator isn't failing to meet.
+  const hasBand = d.tempMin != null && d.tempMax != null
+  const targetC = !d.running ? null : hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC
+  const tolC = hasBand ? (d.tempMax! - d.tempMin!) / 2 : 1.5
+  /** Target text for the current mode; an off incubator shows none. */
+  const targetLabel = d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`) : '—'
 
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
@@ -107,13 +120,38 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
       <div className="space-y-5">
         {/* Mode + progress */}
         <div className="flex flex-wrap items-center gap-3">
-          <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          {canEdit ? (
+            <label className="flex items-center gap-2">
+              <span className="label">Mode</span>
+              <select
+                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                value={incubator.tempMode ?? 'off'}
+                onChange={(e) => saveIncubator(incubator.id, { tempMode: e.target.value })}
+              >
+                {(Object.keys(TEMP_MODES) as TempMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {TEMP_MODES[m].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          )}
           {incubator.location && <span className="text-sm text-muted">{incubator.location}</span>}
           {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
           {incubator.capacity != null && (
             <span className="text-sm text-faint">capacity {incubator.capacity}</span>
           )}
         </div>
+        {/* The cloud poller reads this mode to decide how often to log readings. */}
+        {canEdit && (
+          <p className="-mt-3 text-xs text-faint">
+            {d.running
+              ? 'Running — sensors are logged every 15 minutes.'
+              : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
+          </p>
+        )}
         {p && (
           <div>
             <div className="mb-1 flex justify-between text-xs text-muted">
@@ -145,13 +183,13 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                 <span className={tempOut ? 'font-semibold text-danger' : 'font-semibold text-primary'}>
                   {formatTemp(latest.tempC)}
                 </span>{' '}
-                / {fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`)} ·{' '}
+                / {targetLabel} ·{' '}
                 <span className={humOut ? 'font-semibold text-danger' : ''}>{latest.humidityPct}%</span> RH /{' '}
-                {fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`)}
+                {d.running ? fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`) : '—'}
               </span>
             )}
           </div>
-          <ReadingsChart readings={myReadings} targetC={targetC} tolerance={tolC} />
+          <ReadingsChart readings={myReadings} incubatorId={incubator.id} targetC={targetC} tolerance={tolC} />
         </section>
 
         {/* Add inspection */}

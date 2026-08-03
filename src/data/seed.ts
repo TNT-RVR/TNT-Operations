@@ -110,9 +110,40 @@ export const seedInspections: Inspection[] = [
   },
 ]
 
+/**
+ * A few days of readings at the real 15-minute poll rate, so mock mode actually
+ * exercises the chart (its range picker needs more than a couple of points).
+ * Deterministic — a sine wiggle, not Math.random — so the mock stays stable.
+ */
+function seedSeries(incubatorId: string, endIso: string, days: number, targetC: number): SensorReading[] {
+  const stepMs = 15 * 60_000
+  const n = Math.round((days * 24 * 60) / 15)
+  const end = Date.parse(endIso)
+  const out: SensorReading[] = []
+  for (let i = 0; i < n; i++) {
+    const t = end - (n - 1 - i) * stepMs
+    // Slow daily swing + a faster ripple, and one dip out of band to show the band.
+    const daily = Math.sin((i / 96) * Math.PI * 2) * 0.8
+    const ripple = Math.sin(i / 7) * 0.25
+    const excursion = i > n * 0.55 && i < n * 0.62 ? -2.6 : 0
+    const tempC = Math.round((targetC + daily + ripple + excursion) * 10) / 10
+    out.push({
+      id: `${incubatorId}-r${i}`,
+      incubatorId,
+      at: new Date(t).toISOString(),
+      tempC,
+      humidityPct: Math.round((58 + Math.sin(i / 11) * 4) * 10) / 10,
+      source: 'govee',
+    })
+  }
+  return out
+}
+
 export const seedReadings: SensorReading[] = [
-  { id: 'r1', incubatorId: 'i1', at: '2026-07-22T12:00:00Z', tempC: 30.1, humidityPct: 54, source: 'govee' },
-  { id: 'r2', incubatorId: 'i1', at: '2026-07-22T13:00:00Z', tempC: 30.3, humidityPct: 53, source: 'govee' },
+  // 35 days so the chart's 1H/6H/24H/7D/30D/ALL ranges each show something
+  // different in mock mode (live mode fetches on demand via loadReadings).
+  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30),
+  ...seedSeries('i2', '2026-07-22T13:00:00Z', 2, 29.5),
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
 ]
 

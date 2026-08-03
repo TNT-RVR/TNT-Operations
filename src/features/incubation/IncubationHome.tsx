@@ -70,14 +70,19 @@ export default function IncubationHome() {
                   <dt className="text-muted">Temp (latest)</dt>
                   <dd className={`font-semibold ${tempOut ? 'text-danger' : 'text-primary'}`}>
                     {r ? `${r.tempC.toFixed(1)}°C` : '—'}{' '}
-                    <span className="text-xs text-faint">/ {fmtRange(d.tempMin, d.tempMax, '°C', `${i.tempTargetC}°C`)}</span>
+                    {/* An off incubator isn't being held anywhere — it has no target. */}
+                    <span className="text-xs text-faint">
+                      / {d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${i.tempTargetC}°C`) : '—'}
+                    </span>
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted">Humidity (latest)</dt>
                   <dd className={`font-semibold ${humOut ? 'text-danger' : 'text-primary'}`}>
                     {r ? `${r.humidityPct}%` : '—'}{' '}
-                    <span className="text-xs text-faint">/ {fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`)}</span>
+                    <span className="text-xs text-faint">
+                      / {d.running ? fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`) : '—'}
+                    </span>
                   </dd>
                 </div>
               </dl>

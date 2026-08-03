@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue, type NotificationPref } from './context'
 import type {
   Field,
+  Incubator,
   Inspection,
   SensorReading,
   AppNotification,
@@ -32,6 +33,7 @@ const nextId = (prefix: string) => `${prefix}_${++idSeq}`
 /** Mock backend: seeded in-memory state, no server required. */
 function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
+  const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
@@ -47,7 +49,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const value = useMemo<DataContextValue>(
     () => ({
       fields,
-      incubators: seedIncubators,
+      incubators,
       inspections,
       readings,
       samples: seedSamples,
@@ -58,8 +60,12 @@ function MockProvider({ children }: { children: ReactNode }) {
         readings
           .filter((r) => r.incubatorId === incubatorId)
           .sort((a, b) => b.at.localeCompare(a.at))[0],
+      // Mock holds every seeded reading already — nothing to fetch.
+      loadReadings: async () => {},
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
+      saveIncubator: (id, patch) =>
+        setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
       notifications,
       markNotificationsRead: (ids) =>
         setNotifications((prev) =>
@@ -118,6 +124,7 @@ function MockProvider({ children }: { children: ReactNode }) {
     }),
     [
       fields,
+      incubators,
       inspections,
       readings,
       notifications,

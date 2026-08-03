@@ -7,7 +7,8 @@ Python desktop apps into one React site with separate sections:
 - **Incubation** — incubator tracking, inspections, live sensor readings (was `bee-incubation`).
 
 Stack: **React + TypeScript + Vite + Tailwind + MapLibre**. Deploys to Netlify.
-Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
+Backend: **Supabase** (Postgres + Auth + RLS) — LIVE since 2026-07-24, holding the
+real operational data. Scheduled work runs as **Netlify functions**, not Edge Functions.
 
 > **📖 The authoritative product spec is [`docs/web-rebuild-spec.md`](docs/web-rebuild-spec.md)**
 > (copied verbatim from the old app's `WEB_REBUILD_SPEC.md`). It is the *what and
@@ -26,8 +27,8 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
 - Screens talk ONLY to `useData()` (`src/data/context.ts`) and `useSession()`
   (`src/auth/session.tsx`). Never import a backend directly from a feature.
 - Two providers implement `DataContextValue`: `MockProvider` (in `AppData.tsx`,
-  seeded from `src/data/seed.ts`) and — once built — `SupabaseProvider`. Selected
-  by `VITE_DATA_SOURCE` (`mock` | `supabase`). Any new context method must be
+  seeded from `src/data/seed.ts`) and `SupabaseProvider` (live). Selected by
+  `VITE_DATA_SOURCE` (`mock` | `supabase`). Any new context method must be
   implemented in BOTH providers.
 - Business/geometry math lives in `src/domain/` as pure, Vitest-tested functions
   — no React, no DB. Add a test alongside any new domain function.
@@ -72,7 +73,11 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
   don't collide. Never DROP/ALTER the old app's tables (crews/scans/fields/…).
 
 ## Migration status (porting the two Python apps)
-- [x] Phase 1 — scaffold, design system, auth/roles, data seam, section shells.
+_Last reviewed 2026-08-03._
+
+- [x] Phase 1 — scaffold, auth/roles, data seam, section shells. (The original
+      light honey/green design system was REPLACED by the dark-first, token-driven
+      TNT Pollination system — see the Hard rules above + `docs/design-system.md`.)
 - [x] Phase 2 — math ported to `src/domain/`:
       - `get_tent_positions` → `tentGrid.ts` (+ UTM/ENU in `geo.ts`), locked by
         golden-file tests over all 15 real `fields/*.json` (exact pin count, row
@@ -99,36 +104,105 @@ Backend (planned): **Supabase** (Postgres + Auth + Edge Functions).
         session always pairs with the RLS-guarded data. Permission matrix locked
         by `auth/session.test.ts`. First admin: set your `profiles.role` to
         `admin` directly after first sign-in (see `supabase/README.md`).
-- [~] Phase 4/5 — feature UIs (in progress):
-      - Shelter Maps: field geometry flows through the data seam
-        (`Field.geometry`, mapped from Supabase `fields.data`); `MapsHome`
-        renders live `getTentPositions` pins + boundary/pivot on MapLibre. A
-        `FieldEditor` panel edits placement params with LIVE preview (recompute
-        on every change), persists via `saveField` (added to BOTH providers),
-        click-to-move pivot, and a create-pivot bootstrap for geometry-less
-        fields. Gated by `can('maps','edit')`. Verified in-browser (live
-        recompute + save + SPA remount, 0 errors). TODO: freehand boundary
-        DRAWING (needs a draw lib), shelter list/export.
-      - Incubation: clickable incubator cards open an `IncubatorDetail` modal —
-        progress + incubation day (`getIncubationDay`), latest reading + target,
-        threshold alerts, a dependency-free SVG `ReadingsChart` (temp vs target),
-        inspection history, and an add-inspection form (`addInspection`, inspector
-        = session user, gated by `can('incubation','edit')`). Verified in-browser.
-- [ ] Phase 6 — integrations: Govee poller + ESP32 endpoint (Edge Functions),
-      email reports, PDF/KML/shapefile export.
-- [~] Phase 7 — data import (started):
-      - Full incubation schema ported into the SAME Supabase project
-        (`0003_incubation_full.sql`): batches, samples, trays, rich inspections,
-        alerts, settings + VOC subsystem; 0001's incubators/inspections widened
-        to supersets so the app keeps working. `scripts/import_incubation.py`
+- [~] Phase 4/5 — feature UIs (largely built; polish + gaps remain):
+      - **Shelter Maps** (`/maps`) — satellite basemap (Esri, `basemap.ts`), live
+        `getTentPositions` pins, and the full overlay set (tracks, exclusion
+        zones, corner arms, bays) in `overlays.ts` at spec Part 13 colours.
+        `FieldEditor` exposes the FULL engine parameter set with live recompute +
+        `saveField`. Boundary authoring: freehand draw + KML/KMZ/shapefile import
+        (`importBoundary.ts`, computes acreage). Manual per-shelter editing with
+        overrides scoped per combo (`shelterOverrides.ts`), crew route
+        (`crewRoute.ts`), and save-time validation (`fieldWarnings.ts`).
+      - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
+        `cost.ts` port: per-field cost, profitability, season totals, pricing
+        inputs stored PER YEAR (missing years carry forward). Prefs in
+        `0007_cost_prefs.sql`.
+      - **Field Mode** (`/field`) — the crew surface (spec Part 10). Touch-first,
+        GPS-locked, one field at a time: scan-pins (filled = placed), mark-placed
+        at the crew's position, live progress, and a crew-position broadcast the
+        office map listens to. Installable PWA (`manifest.webmanifest` + `sw.js`)
+        with tiles/shell cached offline.
+      - **Incubation** (`/incubation`) — subsections: Incubators / Samples /
+        Trays / Lineage.
+        - Incubators: `IncubatorDetail` modal (progress + `getIncubationDay`,
+          latest reading vs target, threshold alerts, SVG `ReadingsChart`),
+          plus the REAL inspection checklist (period, thermometer-vs-Govee temp
+          diff + drift alert, heat-pumps/fans/black-lights/bees-emerging/
+          parasites-emerging) matching the old app's schema.
+        - Samples: x-ray grading + derived tray math (`calcSampleSummary`).
+        - Trays: full filterable list (search / incubator / sample / status /
+          year), sortable columns, CSV export, 50-per-page paging, and a
+          per-tray HISTORY modal (see the tray identity rule below).
+        - Lineage (`0008_lineage.sql`): sample → batch → incubator → tray →
+          shelter → field (+ nesting blocks) — spec Part 1.3's "biggest new
+          value". Schema + browser exist; the field-side links (`placed_shelters`,
+          `shelter_tray_links`) are populated by crews in Field Mode.
+- [~] Phase 6 — integrations:
+      - [x] **Govee poller** — `netlify/functions/poll-govee.mjs`, scheduled every
+        5 min. Polls every incubator that has a Govee device; deliberately does
+        NOT gate on `temp_mode` (that value is frozen at import in Supabase and
+        can't be trusted server-side). Also raises deduped `sensor_feed_stale`
+        notifications when a feed goes quiet.
+      - [x] **Exports** (`exports.ts`, unit-tested) — shelter-pin KML, GeoJSON
+        bundle, coordinate CSV, field PDF (jspdf), and shapefile (shp-write).
+      - [ ] **ESP32 endpoint** — not built. `'esp32'` exists only as a
+        `SensorSource` enum value / seed row; nothing ingests it yet.
+      - [ ] **Email reports** — not built. The notification prefs grid has an
+        `email` toggle, but there is no sender (no SMTP/Resend wiring).
+- [x] Phase 7 — data import (done):
+      - Full incubation schema in the shared project (`0003_incubation_full.sql`):
+        batches, samples, trays, rich inspections, alerts, settings + VOC; 0001's
+        incubators/inspections widened to supersets. `scripts/import_incubation.py`
         turns a populated `incubation.db` into paste-able SQL (int ids → UUIDs).
-        NOTE: the current `incubation.db` has no operational data (only default
-        presets/settings), so nothing to import yet — confirm if real data lives
-        elsewhere (shop tablet?).
-      - TODO: fields/*.json import; app data-model + Incubation UI to adopt the
-        full model (batches/samples/trays); Firebase (if still needed).
+      - The REAL data is imported and live (~22k rows: 8 incubators, 61 samples,
+        4.6k trays, ~16k sensor readings, inspections, alerts, VOC). The earlier
+        "incubation.db has no operational data" note is OBSOLETE.
+      - Real fields imported too via `scripts/import_fields.py` (`shelter_fields`).
+      - **Tray identity rule (confirmed with Darren 2026-07-24):** a tray is a
+        PHYSICAL object with a permanent label (`tray_number`), reused each season
+        with a different sample/incubator, and ALL history is kept. So each row =
+        one season's usage, and the no-duplicate unit is `(sample_id,
+        tray_number)` — already unique in the data. Moving a tray to another
+        incubator WITHIN a season must UPDATE that row; reuse NEXT season inserts
+        a NEW row. Repeated `tray_number`s are history, NOT duplicates.
+        TODO: enforce it — `unique (sample_id, tray_number)` + make whatever
+        WRITES trays upsert on that key (the desktop app and/or the import
+        script; don't add the constraint unilaterally — shared DB).
+      - "Year" has NO column: it's derived in-app from tray `out_date` →
+        `cool_date` → `in_date`. `samples.import_date` is the import timestamp,
+        NOT the season — never use it for year.
+- [x] Phase 8 — beyond the original port (new modules):
+      - **Notifications** (`0006_notifications.sql`) — in-app alert system: bell
+        with unread dot, list/mark-read/delete, per-type preferences
+        (`app_notifications`, `app_notification_prefs`). Table is named
+        `app_notifications` to avoid a collision in the shared project.
+      - **Grants** (`/grants`, `0009_grants.sql`) — funding pipeline ported from
+        the RVR Management App: status/amount/eligibility/closes table, detail
+        sheet with notes + assignment + subtasks, and a one-click Claude prompt
+        for drafting. Rows arrive from `netlify/functions/grants-pull.mjs`
+        (scheduled Mondays 14:00 UTC; asks Claude with web search for currently
+        OPEN Alberta/Canada ag + small-business programs, upserts, and fires a
+        "New grant" notification). Needs `ANTHROPIC_API_KEY` in Netlify env or it
+        no-ops with 501. Manual first pull: `scripts/grants_pull_manual.sql`.
+      - `grants` is a new `MODULES` key, so it carries its own role permissions.
 
 ## Dev
 - `npm run dev` — runs on mock data, no backend needed.
 - `npm run typecheck && npm test && npm run build` — keep this green before pushing.
-- `npm test` — Vitest (domain functions).
+  (133 tests green as of 2026-08-03.)
+- `npm test` — Vitest: domain math (`tentGrid`, `geo`, `incubation`, `cost`,
+  `crewRoute`, `shelterOverrides`, `fieldWarnings`, `grants`), row mappers, the
+  permission matrix, and the maps helpers (`overlays`, `exports`, `importBoundary`).
+- `npm run lint:tokens` — fails on raw hex outside the token layer (see Hard rules).
+
+## Known gaps / next up
+- **Perf:** `SupabaseProvider` hydrates a lot on mount (~16k sensor readings and
+  ~4.6k trays, the latter paged past PostgREST's 1000-row cap). Needs real
+  pagination/windowing before it feels right on the live site.
+- The `alerts` table (from the old app) is populated but not surfaced in the UI —
+  distinct from the new `app_notifications` system.
+- VOC subsystem (`voc_runs` / `voc_readings` / `voc_alert_events`) has data and
+  schema but no UI.
+- PASS-FOLLOWING placement mode is still unported (`NotPortedError`) — see Phase 2.
+- `xray_live_pct` may be stored as a fraction (0.86) or a percent (86); the
+  Samples UI normalises (>1 ⇒ ÷100), but the true convention is unconfirmed.

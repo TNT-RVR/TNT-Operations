@@ -43,7 +43,8 @@ export function ReadingsChart({
   tolerance = 1.5,
 }: {
   readings: SensorReading[]
-  targetC: number
+  /** Target for the current mode, or null when the incubator is off (no target). */
+  targetC: number | null
   tolerance?: number
 }) {
   const [range, setRange] = useState<RangeKey>('24h')
@@ -91,8 +92,11 @@ export function ReadingsChart({
 
   const temps = pts.map((p) => p.tempC)
   const times = pts.map((p) => Date.parse(p.at))
-  const tMin = Math.min(...temps, targetC)
-  const tMax = Math.max(...temps, targetC)
+  // With no target (incubator off) the scale follows the data alone, so an
+  // irrelevant target doesn't stretch the axis.
+  const scaleRefs = targetC == null ? temps : [...temps, targetC]
+  const tMin = Math.min(...scaleRefs)
+  const tMax = Math.max(...scaleRefs)
   const span = tMax - tMin || 1
   // Pad the temp range a little so the line isn't flush to the edges.
   const yLo = tMin - span * 0.15
@@ -105,17 +109,17 @@ export function ReadingsChart({
   const y = (v: number) => padT + (1 - (v - yLo) / (yHi - yLo)) * (H - padT - padB)
 
   const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(times[i]).toFixed(1)} ${y(p.tempC).toFixed(1)}`).join(' ')
-  const yTarget = y(targetC)
   // Clamp the shaded band to the plot area so it never bleeds past the axes.
-  const bandTop = Math.max(padT, y(targetC + tolerance))
-  const bandBottom = Math.min(H - padB, y(targetC - tolerance))
+  const yTarget = targetC == null ? null : y(targetC)
+  const bandTop = targetC == null ? 0 : Math.max(padT, y(targetC + tolerance))
+  const bandBottom = targetC == null ? 0 : Math.min(H - padB, y(targetC - tolerance))
 
   return (
     <div>
       {picker}
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Temperature over time">
-        {/* in-range band (target ± tolerance) */}
-        {bandBottom > bandTop && (
+        {/* in-range band (target ± tolerance) — omitted when there's no target */}
+        {targetC != null && bandBottom > bandTop && (
           <rect x={padL} y={bandTop} width={W - padL - padR} height={bandBottom - bandTop} fill={BAND} opacity={0.1} />
         )}
 
@@ -123,11 +127,15 @@ export function ReadingsChart({
         <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke={AXIS} />
         <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke={AXIS} />
 
-        {/* target reference line */}
-        <line x1={padL} y1={yTarget} x2={W - padR} y2={yTarget} stroke={REF} strokeDasharray="4 3" />
-        <text x={W - padR} y={yTarget - 4} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
-          target {targetC}°C
-        </text>
+        {/* target reference line — an incubator that's off has no target */}
+        {yTarget != null && (
+          <>
+            <line x1={padL} y1={yTarget} x2={W - padR} y2={yTarget} stroke={REF} strokeDasharray="4 3" />
+            <text x={W - padR} y={yTarget - 4} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
+              target {targetC}°C
+            </text>
+          </>
+        )}
 
         {/* y range labels */}
         <text x={padL - 6} y={y(tMax) + 3} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">

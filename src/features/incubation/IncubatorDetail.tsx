@@ -65,9 +65,15 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   if (latest && humOut)
     alerts.push(`Humidity ${latest.humidityPct}% is outside ${fmtRange(d.humMin, d.humMax, '%', '')}`)
 
-  // Chart reference = middle of the mode band (tolerance = half-band), else the target.
-  const targetC = d.tempMin != null && d.tempMax != null ? (d.tempMin + d.tempMax) / 2 : incubator.tempTargetC
-  const tolC = d.tempMin != null && d.tempMax != null ? (d.tempMax - d.tempMin) / 2 : 1.5
+  // Chart reference = middle of the mode band (tolerance = half-band). An
+  // incubator that's OFF is not being held anywhere, so it has no target at all
+  // — don't fall back to the stored tempTargetC, which would draw a 30°C line
+  // the incubator isn't failing to meet.
+  const hasBand = d.tempMin != null && d.tempMax != null
+  const targetC = !d.running ? null : hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC
+  const tolC = hasBand ? (d.tempMax! - d.tempMin!) / 2 : 1.5
+  /** Target text for the current mode; an off incubator shows none. */
+  const targetLabel = d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`) : '—'
 
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
@@ -177,9 +183,9 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                 <span className={tempOut ? 'font-semibold text-danger' : 'font-semibold text-primary'}>
                   {formatTemp(latest.tempC)}
                 </span>{' '}
-                / {fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`)} ·{' '}
+                / {targetLabel} ·{' '}
                 <span className={humOut ? 'font-semibold text-danger' : ''}>{latest.humidityPct}%</span> RH /{' '}
-                {fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`)}
+                {d.running ? fmtRange(d.humMin, d.humMax, '%', `${incubator.humidityTargetPct}%`) : '—'}
               </span>
             )}
           </div>

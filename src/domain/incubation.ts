@@ -443,3 +443,20 @@ export function trayYear(tray: {
   }
   return null
 }
+
+/**
+ * The nominal weight of one filled tray, in kg — the sample's "Kg for 2 gal".
+ *
+ * Tray weight is LOOKED UP from the sample, never copied onto the tray: an
+ * x-ray correction must flow through to every tray of that lot. (In the live
+ * data 0 of 4,643 trays carry their own weight; `trays.weight_lbs` is reserved
+ * for an actual measurement.)
+ */
+export function trayWeightKg(sample: {
+  kgPer2Gal?: number | null
+  lbsPer2Gal?: number | null
+} | null | undefined): number | null {
+  if (!sample) return null
+  if (sample.kgPer2Gal != null) return sample.kgPer2Gal
+  return lbsToKg(sample.lbsPer2Gal)
+}

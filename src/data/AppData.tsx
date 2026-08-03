@@ -71,21 +71,20 @@ function MockProvider({ children }: { children: ReactNode }) {
       saveIncubator: (id, patch) =>
         setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
       assignTray: async ({ trayNumber, sampleId, incubatorId }) => {
-        const weight = seedSamples.find((s) => s.id === sampleId)?.lbsPer2Gal ?? null
         const today = new Date().toISOString().slice(0, 10)
         let created = false
         setTrays((prev) => {
           const i = prev.findIndex((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
           if (i >= 0) {
             const next = [...prev]
-            next[i] = { ...next[i], incubatorId, weightLbs: weight ?? next[i].weightLbs, status: 'active' }
+            next[i] = { ...next[i], incubatorId, status: 'active' }
             return next
           }
           created = true
           return [
             {
               id: nextId('t'), trayNumber, sampleId, incubationBatchId: null, incubatorId,
-              weightLbs: weight, liveCount: null, parasiteLevelPct: null, volumeGal: null,
+              weightLbs: null, liveCount: null, parasiteLevelPct: null, volumeGal: null,
               inDate: today, outDate: null, coolDate: null, status: 'active', notes: '',
             },
             ...prev,

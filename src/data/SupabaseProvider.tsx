@@ -385,16 +385,16 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       }) => {
         if (!supabase) return { ok: false, created: false, error: 'No backend connection.' }
         const existing = trays.find((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
-        const weight = samples.find((s) => s.id === sampleId)?.lbsPer2Gal ?? null
         const row: Record<string, unknown> = {
           tray_number: trayNumber,
           sample_id: sampleId,
           incubator_id: incubatorId,
           status: 'active',
         }
-        // Weight comes from the sample; date is stamped on first use only, so
-        // re-scanning a tray to move it doesn't rewrite when it went in.
-        if (weight != null) row.weight_lbs = weight
+        // Weight is NOT written here: it's looked up from the sample so an
+        // x-ray correction flows through (see trayWeightKg). `weight_lbs` stays
+        // free for an actual measurement. The date is stamped on first use only,
+        // so re-scanning to move a tray doesn't rewrite when it went in.
         if (!existing) row.in_date = new Date().toISOString().slice(0, 10)
 
         // Upsert on the tray's real identity (migration 0010): same sample →

@@ -5,6 +5,7 @@ import { PageHeader, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Tray } from '@/data/types'
+import { trayWeightKg } from '@/domain/incubation'
 
 const READER_ID = 'tray-qr-reader'
 /** Ignore the same code re-decoding while it sits in frame. */
@@ -112,6 +113,8 @@ export default function ScanHome() {
 
   const sample = samples.find((x) => x.id === sampleId)
   const incubator = incubators.find((i) => i.id === incubatorId)
+  /** Looked up from the sample, so a corrected x-ray reaches every tray. */
+  const weightKg = trayWeightKg(sample)
   const ready = !!sampleId && !!incubatorId && canEdit
   const okCount = entries.filter((e) => e.state === 'ok').length
   const failed = entries.filter((e) => e.state === 'error')
@@ -315,9 +318,16 @@ export default function ScanHome() {
         {ready && (
           <p className="text-xs text-faint">
             Every scan goes to <span className="text-secondary">{sample?.name}</span> in{' '}
-            <span className="text-secondary">{incubator?.name}</span> at{' '}
-            {sample?.lbsPer2Gal != null ? `${sample.lbsPer2Gal} lb/tray` : 'no recorded weight'}. Today's date is
-            stamped automatically.
+            <span className="text-secondary">{incubator?.name}</span>
+            {weightKg != null ? (
+              <>
+                {' '}
+                at <span className="text-secondary">{weightKg.toFixed(2)} kg/tray</span>
+              </>
+            ) : (
+              <span className="text-danger"> — this sample has no Kg for 2 gal recorded</span>
+            )}
+            . Today's date is stamped automatically.
           </p>
         )}
 

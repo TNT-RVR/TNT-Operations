@@ -20,6 +20,7 @@ import {
   trayYear,
   lbsToKg,
   perLbToPerKg,
+  trayWeightKg,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -278,5 +279,21 @@ describe('trayYear + unit helpers', () => {
     // 4475 bees/lb is ~9866 bees/kg
     expect(perLbToPerKg(4475)).toBeCloseTo(9866.0, 0)
     expect(perLbToPerKg(null)).toBeNull()
+  })
+})
+
+describe('trayWeightKg', () => {
+  it('prefers the stored kg figure', () => {
+    expect(trayWeightKg({ kgPer2Gal: 2.57, lbsPer2Gal: 5.66 })).toBe(2.57)
+  })
+
+  it('falls back to converting the pounds figure', () => {
+    expect(trayWeightKg({ kgPer2Gal: null, lbsPer2Gal: 5.66 })).toBeCloseTo(2.567, 3)
+  })
+
+  it('is null when the sample has no per-tray weight, or no sample at all', () => {
+    expect(trayWeightKg({ kgPer2Gal: null, lbsPer2Gal: null })).toBeNull()
+    expect(trayWeightKg(null)).toBeNull()
+    expect(trayWeightKg(undefined)).toBeNull()
   })
 })

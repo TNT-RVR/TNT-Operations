@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { PageHeader, EmptyState, Modal, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import type { Tray } from '@/data/types'
-import { trayYear } from '@/domain/incubation'
+import { trayYear, trayWeightKg, perLbToPerKg } from '@/domain/incubation'
 
 const PAGE_SIZE = 50
 const num = (v: number | null | undefined) =>
@@ -11,7 +11,7 @@ const ALL = '__all__'
 const UNDATED = '__undated__'
 
 
-type SortKey = 'trayNumber' | 'year' | 'sample' | 'incubator' | 'status' | 'weightLbs' | 'liveCount'
+type SortKey = 'trayNumber' | 'year' | 'sample' | 'incubator' | 'status' | 'weightKg' | 'livePerKg'
 type SortDir = 'asc' | 'desc'
 interface Column {
   key: SortKey
@@ -25,8 +25,8 @@ const COLUMNS: Column[] = [
   { key: 'sample', label: 'Sample' },
   { key: 'incubator', label: 'Incubator' },
   { key: 'status', label: 'Status' },
-  { key: 'weightLbs', label: 'Weight (lb)', align: 'right', numeric: true },
-  { key: 'liveCount', label: 'Live count', align: 'right', numeric: true },
+  { key: 'weightKg', label: 'Weight Kg', align: 'right', numeric: true },
+  { key: 'livePerKg', label: 'Live/Kg', align: 'right', numeric: true },
 ]
 
 /** Quote a CSV field only when needed. */
@@ -40,6 +40,14 @@ export default function TraysHome() {
 
   const incubatorName = useMemo(() => new Map(incubators.map((i) => [i.id, i.name])), [incubators])
   const sampleName = useMemo(() => new Map(samples.map((s) => [s.id, s.name])), [samples])
+  const sampleById = useMemo(() => new Map(samples.map((s) => [s.id, s])), [samples])
+  /** Tray weight and live/kg are LOOKED UP from the sample, never stored on the
+   *  tray — an x-ray correction has to reach every tray of that lot. */
+  const weightOf = (t: Tray) => trayWeightKg(t.sampleId ? sampleById.get(t.sampleId) : null)
+  const livePerKgOf = (t: Tray) => {
+    const smp = t.sampleId ? sampleById.get(t.sampleId) : null
+    return smp ? smp.liveBeesPerKg ?? perLbToPerKg(smp.liveBeesPerLb) : null
+  }
   const statuses = useMemo(() => [...new Set(trays.map((t) => t.status))].sort(), [trays])
 
   // Distinct derived years (desc), plus whether any tray is undated.
@@ -82,10 +90,10 @@ export default function TraysHome() {
         return (t.incubatorId && incubatorName.get(t.incubatorId)) || ''
       case 'status':
         return t.status
-      case 'weightLbs':
-        return t.weightLbs
-      case 'liveCount':
-        return t.liveCount
+      case 'weightKg':
+        return weightOf(t)
+      case 'livePerKg':
+        return livePerKgOf(t)
     }
   }
 
@@ -131,7 +139,7 @@ export default function TraysHome() {
   }
 
   function exportCsv() {
-    const header = ['Tray', 'Year', 'Sample', 'Incubator', 'Status', 'Weight (lb)', 'Live count', 'In date', 'Out date', 'Cool date']
+    const header = ['Tray', 'Year', 'Sample', 'Incubator', 'Status', 'Weight Kg', 'Live/Kg', 'In date', 'Out date', 'Cool date']
     const lines = filtered.map((t) =>
       [
         t.trayNumber,
@@ -139,8 +147,8 @@ export default function TraysHome() {
         (t.sampleId && sampleName.get(t.sampleId)) || '',
         (t.incubatorId && incubatorName.get(t.incubatorId)) || '',
         t.status,
-        t.weightLbs ?? '',
-        t.liveCount ?? '',
+        weightOf(t) ?? '',
+        livePerKgOf(t) == null ? '' : Math.round(livePerKgOf(t)!),
         t.inDate ?? '',
         t.outDate ?? '',
         t.coolDate ?? '',
@@ -273,8 +281,8 @@ export default function TraysHome() {
                   <div className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-xs text-faint">
                     <span>{t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}</span>
                     <span>{t.status}</span>
-                    {t.weightLbs != null && <span>{num(t.weightLbs)} lb</span>}
-                    {t.liveCount != null && <span>{num(t.liveCount)} live</span>}
+                    {weightOf(t) != null && <span>{num(weightOf(t))} kg</span>}
+                    {livePerKgOf(t) != null && <span>{Math.round(livePerKgOf(t)!).toLocaleString('en-CA')}/kg</span>}
                   </div>
                 </li>
               ))}
@@ -307,6 +315,8 @@ export default function TraysHome() {
                     tray={t}
                     incubatorName={incubatorName}
                     sampleName={sampleName}
+                    weightKg={weightOf(t)}
+                    livePerKg={livePerKgOf(t)}
                     onOpen={() => setOpenTrayNumber(t.trayNumber)}
                   />
                 ))}
@@ -329,6 +339,7 @@ export default function TraysHome() {
           usages={traysByNumber.get(openTrayNumber) ?? []}
           incubatorName={incubatorName}
           sampleName={sampleName}
+          weightOf={weightOf}
           onClose={() => setOpenTrayNumber(null)}
         />
       )}
@@ -340,11 +351,16 @@ function TrayRow({
   tray: t,
   incubatorName,
   sampleName,
+  weightKg,
+  livePerKg,
   onOpen,
 }: {
   tray: Tray
   incubatorName: Map<string, string>
   sampleName: Map<string, string>
+  /** Both looked up from the tray's sample, not stored on the tray. */
+  weightKg: number | null
+  livePerKg: number | null
   onOpen: () => void
 }) {
   return (
@@ -358,8 +374,8 @@ function TrayRow({
       <td className="px-3 py-1.5 text-muted">{t.sampleId ? sampleName.get(t.sampleId) ?? '—' : '—'}</td>
       <td className="px-3 py-1.5 text-muted">{t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}</td>
       <td className="px-3 py-1.5 text-muted">{t.status}</td>
-      <td className="px-3 py-1.5 text-right">{num(t.weightLbs)}</td>
-      <td className="px-3 py-1.5 text-right">{num(t.liveCount)}</td>
+      <td className="px-3 py-1.5 text-right">{num(weightKg)}</td>
+      <td className="px-3 py-1.5 text-right">{livePerKg == null ? '—' : Math.round(livePerKg).toLocaleString('en-CA')}</td>
     </tr>
   )
 }
@@ -370,12 +386,15 @@ function TrayHistory({
   usages,
   incubatorName,
   sampleName,
+  weightOf,
   onClose,
 }: {
   trayNumber: string
   usages: Tray[]
   incubatorName: Map<string, string>
   sampleName: Map<string, string>
+  /** Sample-derived weight for a usage (kg). */
+  weightOf: (t: Tray) => number | null
   onClose: () => void
 }) {
   // newest season first; undated last.
@@ -405,8 +424,7 @@ function TrayHistory({
                 {t.inDate && <span>In {t.inDate.slice(0, 10)}</span>}
                 {t.outDate && <span>Out {t.outDate.slice(0, 10)}</span>}
                 {t.coolDate && <span>Cool {t.coolDate.slice(0, 10)}</span>}
-                {t.weightLbs != null && <span>{num(t.weightLbs)} lb</span>}
-                {t.liveCount != null && <span>{num(t.liveCount)} live</span>}
+                {weightOf(t) != null && <span>{num(weightOf(t))} kg</span>}
                 {t.notes && <span className="text-secondary">“{t.notes}”</span>}
               </div>
             </li>

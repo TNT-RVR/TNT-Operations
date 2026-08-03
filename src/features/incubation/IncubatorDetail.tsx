@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { QrCode } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
@@ -142,6 +144,16 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
           {incubator.capacity != null && (
             <span className="text-sm text-faint">capacity {incubator.capacity}</span>
+          )}
+          {canEdit && (
+            <Link
+              to={`/incubation/scan?incubator=${incubator.id}`}
+              className="btn-primary ml-auto px-3 py-1.5 text-sm"
+              onClick={onClose}
+            >
+              <QrCode size={16} className="mr-1 inline" />
+              Add trays
+            </Link>
           )}
         </div>
         {/* The cloud poller reads this mode to decide how often to log readings. */}

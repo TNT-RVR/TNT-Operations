@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, X, Check } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Camera, X, Undo2, RotateCw } from 'lucide-react'
 import { PageHeader, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Tray } from '@/data/types'
 
 const READER_ID = 'tray-qr-reader'
+/** Ignore the same code re-decoding while it sits in frame. */
+const SAME_CODE_COOLDOWN_MS = 2500
 
 /**
  * Pull a tray label out of whatever the camera read. Labels are the tray
@@ -43,32 +46,104 @@ export function findTrays(all: Tray[], query: string): Tray[] {
   return all.filter((t) => digits(t.trayNumber) === qd)
 }
 
+type EntryState = 'saving' | 'ok' | 'error' | 'duplicate'
+interface Entry {
+  key: string
+  label: string
+  state: EntryState
+  error?: string
+  created?: boolean
+}
+
+/** Short blip so a scan can be confirmed by ear — you're looking at trays, not the phone. */
+function feedback(kind: 'ok' | 'warn') {
+  try {
+    navigator.vibrate?.(kind === 'ok' ? 40 : [30, 60, 30])
+  } catch {
+    /* vibration is best-effort */
+  }
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) return
+    const ctx = new Ctx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.frequency.value = kind === 'ok' ? 880 : 300
+    gain.gain.value = 0.06
+    osc.connect(gain).connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.09)
+    setTimeout(() => void ctx.close(), 300)
+  } catch {
+    /* audio is best-effort */
+  }
+}
+
 export default function ScanHome() {
   const { trays, samples, incubators, assignTray } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
+  const [params] = useSearchParams()
 
+  const [sampleId, setSampleId] = useState('')
+  const [incubatorId, setIncubatorId] = useState(params.get('incubator') ?? '')
   const [scanning, setScanning] = useState(false)
   const [camError, setCamError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [label, setLabel] = useState<string | null>(null)
-  const [sampleId, setSampleId] = useState('')
-  const [incubatorId, setIncubatorId] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [manual, setManual] = useState('')
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
+  const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
+  /** Labels already accepted this session — the guard against double-counting. */
+  const seenRef = useRef<Set<string>>(new Set())
+  /** Live copies so the scan callback isn't rebound (which would restart the camera). */
+  const ctxRef = useRef({ sampleId, incubatorId, trays })
+  ctxRef.current = { sampleId, incubatorId, trays }
 
-  const matches = useMemo(() => (label ? findTrays(trays, label) : []), [trays, label])
-  /** Previous seasons/samples this physical label has been used for. */
-  const history = useMemo(
-    () => (label ? findTrays(trays, label).slice().sort((a, b) => (b.inDate ?? '').localeCompare(a.inDate ?? '')) : []),
-    [trays, label],
+  const sample = samples.find((x) => x.id === sampleId)
+  const incubator = incubators.find((i) => i.id === incubatorId)
+  const ready = !!sampleId && !!incubatorId && canEdit
+  const okCount = entries.filter((e) => e.state === 'ok').length
+  const failed = entries.filter((e) => e.state === 'error')
+
+  const record = useCallback(
+    (rawLabel: string) => {
+      const label = parseScan(rawLabel)
+      if (!label) return
+      const { sampleId: sid, incubatorId: iid, trays: allTrays } = ctxRef.current
+      if (!sid || !iid) return
+
+      const now = Date.now()
+      if (label === lastRef.current.label && now - lastRef.current.at < SAME_CODE_COOLDOWN_MS) return
+      lastRef.current = { label, at: now }
+
+      const canonical = findTrays(allTrays, label)[0]?.trayNumber ?? label
+      if (seenRef.current.has(canonical)) {
+        feedback('warn')
+        setEntries((prev) => [{ key: `${canonical}-${now}`, label: canonical, state: 'duplicate' }, ...prev])
+        return
+      }
+      seenRef.current.add(canonical)
+      feedback('ok')
+
+      const key = `${canonical}-${now}`
+      setEntries((prev) => [{ key, label: canonical, state: 'saving' }, ...prev])
+      // Fire and forget: the camera must never wait on the network.
+      void assignTray({ trayNumber: canonical, sampleId: sid, incubatorId: iid }).then((r) =>
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.key === key
+              ? { ...e, state: r.ok ? 'ok' : 'error', error: r.error, created: r.created }
+              : e,
+          ),
+        ),
+      )
+    },
+    [assignTray],
   )
-  const sampleName = useMemo(() => new Map(samples.map((x) => [x.id, x.name])), [samples])
-  const chosenSample = samples.find((x) => x.id === sampleId)
 
-  async function stopCamera() {
+  const stopCamera = useCallback(async () => {
     const inst = scannerRef.current
     scannerRef.current = null
     setScanning(false)
@@ -79,15 +154,14 @@ export default function ScanHome() {
         /* already stopped */
       }
     }
-  }
+  }, [])
 
-  useEffect(() => () => void stopCamera(), [])
+  useEffect(() => () => void stopCamera(), [stopCamera])
 
   async function startCamera() {
     setCamError(null)
-    setResult(null)
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setCamError('Camera needs a secure (https) connection — type the tray number instead.')
+      setCamError('Camera needs a secure (https) connection — type labels below instead.')
       return
     }
     setScanning(true)
@@ -95,20 +169,9 @@ export default function ScanHome() {
       const { Html5Qrcode } = await import('html5-qrcode')
       const inst = new Html5Qrcode(READER_ID)
       scannerRef.current = inst
-      await inst.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 220 },
-        (text: string) => {
-          const found = parseScan(text)
-          if (!found) return
-          void stopCamera()
-          setLabel(found)
-          setQuery(found)
-        },
-        () => {
-          /* per-frame decode misses are normal */
-        },
-      )
+      // Camera stays running across scans — restarting it for each of 600 trays
+      // would cost minutes and break the rhythm.
+      await inst.start({ facingMode: 'environment' }, { fps: 10, qrbox: 250 }, record, () => {})
     } catch (e) {
       setScanning(false)
       scannerRef.current = null
@@ -116,158 +179,174 @@ export default function ScanHome() {
     }
   }
 
-  function lookup(text: string) {
-    setResult(null)
-    setLabel(parseScan(text))
+  function undoLast() {
+    const last = entries[0]
+    if (!last) return
+    seenRef.current.delete(last.label)
+    lastRef.current = { label: '', at: 0 }
+    setEntries((prev) => prev.slice(1))
   }
 
-  async function save() {
-    if (!label || !sampleId || !incubatorId) return
-    setSaving(true)
-    const r = await assignTray({ trayNumber: matches[0]?.trayNumber ?? label, sampleId, incubatorId })
-    setSaving(false)
-    if (!r.ok) {
-      setResult({ ok: false, text: r.error ?? 'Could not save.' })
-      return
+  function retryFailed() {
+    for (const e of failed) {
+      setEntries((prev) => prev.map((x) => (x.key === e.key ? { ...x, state: 'saving' } : x)))
+      void assignTray({ trayNumber: e.label, sampleId, incubatorId }).then((r) =>
+        setEntries((prev) =>
+          prev.map((x) => (x.key === e.key ? { ...x, state: r.ok ? 'ok' : 'error', error: r.error } : x)),
+        ),
+      )
     }
-    const inc = incubators.find((i) => i.id === incubatorId)?.name ?? 'incubator'
-    setResult({
-      ok: true,
-      text: `${matches[0]?.trayNumber ?? label} → ${chosenSample?.name ?? 'sample'} in ${inc}${
-        r.created ? ' (new tray record)' : ''
-      }`,
-    })
-    // Ready for the next tray; keep sample + incubator for a fast run.
-    setLabel(null)
-    setQuery('')
+  }
+
+  function startOver() {
+    seenRef.current = new Set()
+    lastRef.current = { label: '', at: 0 }
+    setEntries([])
   }
 
   const selectCls = 'w-full rounded-sm border border-default bg-inset px-2 py-2 text-base text-primary'
+  const tone: Record<EntryState, 'green' | 'amber' | 'red' | 'brand'> = {
+    ok: 'green',
+    saving: 'brand',
+    duplicate: 'amber',
+    error: 'red',
+  }
 
   return (
     <div>
-      <PageHeader title="Scan" subtitle="Scan a tray label to record its sample and incubator" />
+      <PageHeader title="Scan" subtitle="Pick the sample once, then scan tray after tray" />
       <div className="space-y-4 p-4 md:p-6">
         {!canEdit && <EmptyState>You have view-only access, so trays can't be assigned.</EmptyState>}
 
-        {/* Scanner */}
+        {/* Setup — sample and incubator stay fixed for the whole run */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="label">Sample</span>
+            <select className={selectCls} value={sampleId} onChange={(e) => setSampleId(e.target.value)}>
+              <option value="">Choose a sample…</option>
+              {samples.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="label">Incubator</span>
+            <select className={selectCls} value={incubatorId} onChange={(e) => setIncubatorId(e.target.value)}>
+              <option value="">Choose an incubator…</option>
+              {incubators.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {ready && (
+          <p className="text-xs text-faint">
+            Every scan goes to <span className="text-secondary">{sample?.name}</span> in{' '}
+            <span className="text-secondary">{incubator?.name}</span> at{' '}
+            {sample?.lbsPer2Gal != null ? `${sample.lbsPer2Gal} lb/tray` : 'no recorded weight'}. Today's date is
+            stamped automatically.
+          </p>
+        )}
+
+        {/* Counter + camera */}
         <div className="rounded-lg border border-subtle p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {!scanning ? (
-              <button className="btn-primary" onClick={startCamera} disabled={!canEdit}>
-                <Camera size={18} className="mr-1 inline" /> Scan a tray
-              </button>
-            ) : (
-              <button className="btn-ghost" onClick={() => void stopCamera()}>
-                <X size={18} className="mr-1 inline" /> Stop
-              </button>
-            )}
-            <span className="text-xs text-faint">or type the number below</span>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-mono text-3xl font-bold text-primary tabular-nums">{okCount}</div>
+              <div className="font-mono text-xs uppercase tracking-wide text-faint">trays this run</div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {entries.length > 0 && (
+                <button className="btn-ghost px-2 py-1 text-xs" onClick={undoLast}>
+                  <Undo2 size={14} className="mr-1 inline" />
+                  Undo
+                </button>
+              )}
+              {entries.length > 0 && (
+                <button className="btn-ghost px-2 py-1 text-xs" onClick={startOver}>
+                  Reset
+                </button>
+              )}
+              {!scanning ? (
+                <button className="btn-primary" onClick={startCamera} disabled={!ready}>
+                  <Camera size={18} className="mr-1 inline" /> Start scanning
+                </button>
+              ) : (
+                <button className="btn-ghost" onClick={() => void stopCamera()}>
+                  <X size={18} className="mr-1 inline" /> Stop
+                </button>
+              )}
+            </div>
           </div>
 
+          {!ready && <p className="text-xs text-muted">Choose a sample and incubator to start.</p>}
+
           {/* html5-qrcode injects the video here; keep it mounted while scanning */}
-          <div id={READER_ID} className={scanning ? 'mt-3 overflow-hidden rounded-lg' : 'hidden'} />
+          <div id={READER_ID} className={scanning ? 'overflow-hidden rounded-lg' : 'hidden'} />
 
           {camError && (
             <p className="mt-2 rounded-sm border border-default px-2 py-1.5 text-sm text-secondary">{camError}</p>
           )}
 
+          {/* Manual entry — for a damaged label, or when the camera is unavailable */}
           <div className="mt-3 flex gap-2">
             <input
               className="input flex-1"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && lookup(query)}
-              placeholder="e.g. Tray0417"
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || !manual.trim()) return
+                record(manual)
+                setManual('')
+              }}
+              placeholder="Type a label, press Enter"
               inputMode="text"
               autoCapitalize="off"
               autoCorrect="off"
+              disabled={!ready}
             />
-            <button className="btn-ghost" onClick={() => lookup(query)} disabled={!query.trim()}>
-              Find
+            <button
+              className="btn-ghost"
+              disabled={!ready || !manual.trim()}
+              onClick={() => {
+                record(manual)
+                setManual('')
+              }}
+            >
+              Add
             </button>
           </div>
         </div>
 
-        {result && (
-          <div
-            className={`rounded-lg border px-3 py-2 text-sm ${
-              result.ok ? 'border-default text-primary' : 'border-default text-danger'
-            }`}
-          >
-            {result.ok ? <Check size={16} className="mr-1 inline" /> : null}
-            {result.text}
+        {failed.length > 0 && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-default px-3 py-2 text-sm">
+            <span className="text-danger">
+              {failed.length} didn’t save{failed[0].error ? ` — ${failed[0].error}` : ''}
+            </span>
+            <button className="btn-ghost px-2 py-1 text-xs" onClick={retryFailed}>
+              <RotateCw size={14} className="mr-1 inline" />
+              Retry
+            </button>
           </div>
         )}
 
-        {/* Assign */}
-        {label && (
-          <div className="space-y-3 rounded-lg border border-subtle p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-lg font-semibold text-primary">
-                {matches[0]?.trayNumber ?? label}
-              </span>
-              {matches.length === 0 && <Badge tone="amber">not on record</Badge>}
-              {matches.length > 0 && <Badge tone="green">{matches.length} record(s)</Badge>}
-              <button className="btn-ghost ml-auto px-2 py-1 text-xs" onClick={() => setLabel(null)}>
-                Clear
-              </button>
-            </div>
-
-            {matches.length === 0 && (
-              <p className="text-xs text-muted">
-                No tray with this label exists yet — saving will create its first record.
-              </p>
-            )}
-
-            {history.length > 0 && (
-              <div className="text-xs text-muted">
-                <div className="mb-1 font-mono uppercase tracking-wide text-faint">Previously</div>
-                <ul className="space-y-0.5">
-                  {history.slice(0, 4).map((t) => (
-                    <li key={t.id}>
-                      {t.sampleId ? sampleName.get(t.sampleId) ?? 'unknown sample' : 'no sample'} · {t.status}
-                      {t.inDate ? ` · in ${t.inDate}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <label className="block">
-              <span className="label">Sample in this tray</span>
-              <select className={selectCls} value={sampleId} onChange={(e) => setSampleId(e.target.value)}>
-                <option value="">Choose a sample…</option>
-                {samples.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="label">Incubator</span>
-              <select className={selectCls} value={incubatorId} onChange={(e) => setIncubatorId(e.target.value)}>
-                <option value="">Choose an incubator…</option>
-                {incubators.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <p className="text-xs text-faint">
-              Weight is taken from the sample
-              {chosenSample?.lbsPer2Gal != null ? ` (${chosenSample.lbsPer2Gal} lb/tray)` : ' (not recorded yet)'} and
-              the date is stamped automatically.
-            </p>
-
-            <button className="btn-primary w-full py-3" onClick={save} disabled={!canEdit || !sampleId || !incubatorId || saving}>
-              {saving ? 'Saving…' : 'Save tray'}
-            </button>
-          </div>
+        {/* Run log, newest first */}
+        {entries.length > 0 && (
+          <ul className="divide-y divide-subtle rounded-lg border border-subtle">
+            {entries.slice(0, 60).map((e) => (
+              <li key={e.key} className="flex items-center gap-2 px-3 py-1.5">
+                <span className="flex-1 font-mono text-sm text-primary">{e.label}</span>
+                {e.state === 'duplicate' && <span className="text-xs text-muted">already scanned</span>}
+                {e.created && e.state === 'ok' && <span className="text-xs text-faint">new</span>}
+                <Badge tone={tone[e.state]}>{e.state === 'ok' ? 'saved' : e.state}</Badge>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

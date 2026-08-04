@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Check, AlertTriangle, Info } from 'lucide-react'
+import { X, Check, AlertTriangle, Info, Flashlight, FlashlightOff } from 'lucide-react'
 
 /** Result of handling a scan, shown over the camera and then faded out. */
 export interface ScanFeedback {
@@ -45,6 +45,8 @@ export function ScannerOverlay({
   const [error, setError] = useState<string | null>(null)
   const [idle, setIdle] = useState(false)
   const [toast, setToast] = useState<ScanFeedback | null>(null)
+  const [torchOn, setTorchOn] = useState(false)
+  const [hasTorch, setHasTorch] = useState(false)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
@@ -76,6 +78,8 @@ export function ScannerOverlay({
     let cancelled = false
     setError(null)
     setIdle(false)
+    setTorchOn(false)
+    setHasTorch(false)
     lastDecodeRef.current = Date.now()
     ;(async () => {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
@@ -83,13 +87,37 @@ export function ScannerOverlay({
         return
       }
       try {
-        const { Html5Qrcode } = await import('html5-qrcode')
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
         if (cancelled) return
-        const inst = new Html5Qrcode(readerId)
+        const inst = new Html5Qrcode(readerId, {
+          // Use the browser's NATIVE barcode detector where it exists (Chrome on
+          // Android). It's the same engine the phone's own camera app uses, and
+          // it's far faster than decoding frames in JavaScript.
+          useBarCodeDetectorIfSupported: true,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          // Only QR — not trying a dozen barcode formats per frame.
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          verbose: false,
+        })
         scannerRef.current = inst
         await inst.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: 260, aspectRatio: 1 },
+          {
+            facingMode: 'environment',
+            // A higher stream resolves small/distant labels that a default
+            // 640x480 stream simply can't make out.
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            // Phones default to a fixed focus in getUserMedia; without this a
+            // label held close stays blurred.
+            focusMode: 'continuous',
+          } as MediaTrackConstraints,
+          {
+            fps: 20,
+            // No qrbox on purpose: it restricts decoding to a small centre
+            // square, so a label anywhere else in view is ignored. Native
+            // scanners read the whole frame, which is why they feel instant.
+            disableFlip: true,
+          },
           (text: string) => {
             lastDecodeRef.current = Date.now()
             setIdle(false)
@@ -99,6 +127,14 @@ export function ScannerOverlay({
             /* per-frame misses are normal; the idle timer covers a real stall */
           },
         )
+        // Shop lighting is a common reason a label won't read, so offer the
+        // torch when the camera has one.
+        try {
+          const caps = inst.getRunningTrackCapabilities() as MediaTrackCapabilities & { torch?: boolean }
+          setHasTorch(!!caps?.torch)
+        } catch {
+          setHasTorch(false)
+        }
       } catch (e) {
         if (cancelled) return
         setError(
@@ -156,14 +192,37 @@ export function ScannerOverlay({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <span className="font-display font-bold text-white">{title}</span>
-        <button
-          onClick={onClose}
-          className="rounded-sm p-2 text-white"
-          style={{ background: 'rgba(255,255,255,0.14)' }}
-          aria-label="Close scanner"
-        >
-          <X size={22} />
-        </button>
+        <div className="flex items-center gap-2">
+          {hasTorch && (
+            <button
+              onClick={async () => {
+                const next = !torchOn
+                try {
+                  await scannerRef.current?.applyVideoConstraints({
+                    advanced: [{ torch: next }],
+                  } as unknown as MediaTrackConstraints)
+                  setTorchOn(next)
+                } catch {
+                  /* some devices refuse mid-stream; leave the toggle as it was */
+                }
+              }}
+              className="rounded-sm p-2 text-white"
+              style={{ background: torchOn ? 'var(--brand)' : 'rgba(255,255,255,0.14)' }}
+              aria-label={torchOn ? 'Turn the light off' : 'Turn the light on'}
+              aria-pressed={torchOn}
+            >
+              {torchOn ? <Flashlight size={22} /> : <FlashlightOff size={22} />}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="rounded-sm p-2 text-white"
+            style={{ background: 'rgba(255,255,255,0.14)' }}
+            aria-label="Close scanner"
+          >
+            <X size={22} />
+          </button>
+        </div>
       </div>
 
       {/* Camera fills the space between header and footer. */}
@@ -172,6 +231,16 @@ export function ScannerOverlay({
           id={readerId}
           className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover"
         />
+
+        {/* Aiming guide only — the whole frame is scanned, not just this box. */}
+        {!error && !toast && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center">
+            <div
+              className="h-56 w-56 rounded-lg"
+              style={{ boxShadow: '0 0 0 2px rgba(255,255,255,0.55), 0 0 0 9999px rgba(0,0,0,0.25)' }}
+            />
+          </div>
+        )}
 
         {error && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center">

@@ -261,6 +261,30 @@ export interface AppNotification {
   readAt: string | null
 }
 
+/**
+ * One tray examined during an incubator inspection: where it was pulled from,
+ * how many cells were opened, and the developmental stage seen inside.
+ * Belongs to a parent `Inspection` via `inspectionId`.
+ */
+export interface TrayInspection {
+  id: string
+  inspectionId: string | null
+  trayId: string | null
+  /** Denormalised on the row, so a reading survives a missing tray link. */
+  trayNumber: string | null
+  incubatorId: string | null
+  /** ISO UTC. */
+  at: string | null
+  /** Top | Middle | Bottom. */
+  stackPosition: string | null
+  /** Front | Middle | Back. */
+  depthPosition: string | null
+  cellsOpened: number | null
+  /** One of DEV_STAGES — the label is the stored value. */
+  devStage: string | null
+  notes: string
+}
+
 export type SensorSource = 'govee' | 'esp32'
 
 export interface SensorReading {

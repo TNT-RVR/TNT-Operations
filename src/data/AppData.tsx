@@ -1,11 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { DataContext, type DataContextValue, type NotificationPref } from './context'
+import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
   Field,
   Incubator,
   Sample,
   Tray,
   Inspection,
+  TrayInspection,
   SensorReading,
   AppNotification,
   PlacedShelter,
@@ -19,6 +20,7 @@ import {
   seedFields,
   seedIncubators,
   seedInspections,
+  seedTrayInspections,
   seedReadings,
   seedNotifications,
   seedSamples,
@@ -38,6 +40,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
   const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
+  const [trayInspections, setTrayInspections] = useState<TrayInspection[]>(seedTrayInspections)
   const [trays, setTrays] = useState<Tray[]>(seedTrays)
   const [samples, setSamples] = useState<Sample[]>(seedSamples)
   const [readings] = useState<SensorReading[]>(seedReadings)
@@ -64,7 +67,23 @@ function MockProvider({ children }: { children: ReactNode }) {
       loadTrays: async () => {},
       batches: seedBatches,
       alerts: seedAlerts,
-      addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),
+      trayInspections,
+      addInspection: (input, trayObservations?: TrayObservation[]) => {
+        const id = nextId('in')
+        setInspections((prev) => [{ ...input, id }, ...prev])
+        if (trayObservations?.length) {
+          setTrayInspections((prev) => [
+            ...trayObservations.map((o) => ({
+              ...o,
+              id: nextId('ti'),
+              inspectionId: id,
+              incubatorId: input.incubatorId,
+              at: input.at,
+            })),
+            ...prev,
+          ])
+        }
+      },
       latestReading: (incubatorId) =>
         readings
           .filter((r) => r.incubatorId === incubatorId)
@@ -188,6 +207,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       fields,
       incubators,
       inspections,
+      trayInspections,
       samples,
       trays,
       readings,

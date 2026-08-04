@@ -8,6 +8,7 @@ import type {
   Sample,
   SensorReading,
   Tray,
+  TrayInspection,
   AppNotification,
   PlacedShelter,
   ShelterTrayLink,
@@ -16,6 +17,12 @@ import type {
   GrantTask,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+
+/** A tray examined during an inspection, before it has a parent or an id. */
+export type TrayObservation = Pick<
+  TrayInspection,
+  'trayId' | 'trayNumber' | 'stackPosition' | 'depthPosition' | 'cellsOpened' | 'devStage' | 'notes'
+>
 
 /** Which channels a given alert type is delivered on, for the current user. */
 export interface NotificationPref {
@@ -56,7 +63,14 @@ export interface DataContextValue {
    */
   alerts: IncubatorAlert[]
 
-  addInspection: (input: Omit<Inspection, 'id'>) => void
+  /**
+   * Log an inspection, optionally with the trays examined during it. The
+   * observations are written against the new inspection's id, so the provider
+   * does the linking rather than the screen.
+   */
+  addInspection: (input: Omit<Inspection, 'id'>, trayObservations?: TrayObservation[]) => void
+  /** Trays examined during inspections (position, cells opened, stage seen). */
+  trayInspections: TrayInspection[]
   latestReading: (incubatorId: string) => SensorReading | undefined
   /**
    * Pull this incubator's readings back to `sinceIso` and merge them in.

@@ -27,6 +27,9 @@ import {
   dailyMeanTempByIncubator,
   holdingDays,
   runWindow,
+  stageStartDay,
+  expectedStageForDay,
+  stageDelta,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -407,5 +410,41 @@ describe('holding-day reporting', () => {
 
   it('runWindow spans the start through the last milestone', () => {
     expect(runWindow('2026-06-01')).toEqual({ from: '2026-06-01', to: '2026-07-07' })
+  })
+})
+
+describe('developmental stages', () => {
+  it('parses the first day out of each stage label', () => {
+    expect(stageStartDay('Day 1 — Worm/Larva')).toBe(1)
+    expect(stageStartDay('Day 8–9 — Pupal')).toBe(8)
+    expect(stageStartDay('Day 17–18 — Male emergence')).toBe(17)
+    expect(stageStartDay('nonsense')).toBeNull()
+  })
+
+  it('expects the latest stage whose day has been reached', () => {
+    expect(expectedStageForDay(1)).toBe('Day 1 — Worm/Larva')
+    expect(expectedStageForDay(4)).toBe('Day 3 — Whitening') // between stages → the earlier one
+    expect(expectedStageForDay(9)).toBe('Day 8–9 — Pupal')
+    expect(expectedStageForDay(13)).toBe('Day 13 — Male dark eye / Female red eye')
+    expect(expectedStageForDay(25)).toBe('Day 20 — Female emergence') // past the end
+  })
+
+  it('has no expectation before day 1', () => {
+    expect(expectedStageForDay(0)).toBeNull()
+    expect(expectedStageForDay(null)).toBeNull()
+    expect(expectedStageForDay(undefined)).toBeNull()
+  })
+
+  it('measures how far an observation is from the schedule', () => {
+    // On day 13 the tray should be at "Male dark eye"; seeing "Pink-Eyed" is one behind.
+    expect(stageDelta('Day 13 — Male dark eye / Female red eye', 13)).toBe(0)
+    expect(stageDelta('Day 10 — Pink-Eyed', 13)).toBe(-1)
+    // Day 14-15 sits between, so Male emergence is TWO stages ahead of day 13.
+    expect(stageDelta('Day 17–18 — Male emergence', 13)).toBe(2)
+  })
+
+  it('returns no delta for an unknown stage or unknown day', () => {
+    expect(stageDelta('Day 13 — Male dark eye / Female red eye', null)).toBeNull()
+    expect(stageDelta('made up stage', 13)).toBeNull()
   })
 })

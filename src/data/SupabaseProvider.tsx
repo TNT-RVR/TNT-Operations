@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DataContext, type DataContextValue, type NotificationPref } from './context'
+import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
   Field,
   Incubator,
   IncubationBatch,
   IncubatorAlert,
   Inspection,
+  TrayInspection,
   Sample,
   SensorReading,
   Tray,
@@ -28,6 +29,7 @@ import {
   toTray,
   toBatch,
   toAlert,
+  toTrayInspection,
   toPlacedShelter,
   toShelterTrayLink,
   toNestingBlock,
@@ -46,6 +48,7 @@ import {
   type TrayRow,
   type BatchRow,
   type AlertRow,
+  type TrayInspectionRow,
   type PlacedShelterRow,
   type ShelterTrayLinkRow,
   type NestingBlockRow,
@@ -69,6 +72,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>([])
   const [incubators, setIncubators] = useState<Incubator[]>([])
   const [inspections, setInspections] = useState<Inspection[]>([])
+  const [trayInspections, setTrayInspections] = useState<TrayInspection[]>([])
   const [readings, setReadings] = useState<SensorReading[]>([])
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [samples, setSamples] = useState<Sample[]>([])
@@ -149,6 +153,16 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
       if (al.error) console.warn('[data] load alerts:', al.error.message)
       else setAlerts(((al.data as AlertRow[]) ?? []).map(toAlert))
+
+      // Tray observations belonging to those inspections.
+      const ti = await sb
+        .from('tray_inspections')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(1000)
+      if (cancelled) return
+      if (ti.error) console.warn('[data] load tray_inspections:', ti.error.message)
+      else setTrayInspections(((ti.data as TrayInspectionRow[]) ?? []).map(toTrayInspection))
 
       // Cost-estimator pricing forms (one row per year). Missing table (0007
       // not yet applied) degrades to an empty store — the UI uses defaults.
@@ -297,20 +311,46 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       },
       batches,
       alerts,
-      addInspection: (input: Omit<Inspection, 'id'>) => {
+      trayInspections,
+      addInspection: (input: Omit<Inspection, 'id'>, trayObservations?: TrayObservation[]) => {
         if (!supabase) return
-        supabase
-          .from('inspections')
-          .insert(inspectionInsert(input))
-          .select()
-          .single()
-          .then(({ data, error }) => {
-            if (error) {
-              console.error('[data] addInspection:', error.message)
-              return
-            }
-            setInspections((prev) => [toInspection(data as InspectionRow), ...prev])
-          })
+        void (async () => {
+          const { data, error } = await supabase!
+            .from('inspections')
+            .insert(inspectionInsert(input))
+            .select()
+            .single()
+          if (error) {
+            console.error('[data] addInspection:', error.message)
+            return
+          }
+          const saved = toInspection(data as InspectionRow)
+          setInspections((prev) => [saved, ...prev])
+          if (!trayObservations?.length) return
+
+          // Written after the parent exists, so inspection_id is always valid.
+          const rows = trayObservations.map((o) => ({
+            inspection_id: saved.id,
+            tray_id: o.trayId,
+            tray_number: o.trayNumber,
+            incubator_id: input.incubatorId,
+            timestamp: input.at,
+            stack_position: o.stackPosition,
+            depth_position: o.depthPosition,
+            cells_opened: o.cellsOpened,
+            dev_stage: o.devStage,
+            notes: o.notes ?? '',
+          }))
+          const res = await supabase!.from('tray_inspections').insert(rows).select()
+          if (res.error) {
+            console.error('[data] addInspection tray observations:', res.error.message)
+            return
+          }
+          setTrayInspections((prev) => [
+            ...((res.data as TrayInspectionRow[]) ?? []).map(toTrayInspection),
+            ...prev,
+          ])
+        })()
       },
       latestReading: (incubatorId: string) =>
         readings
@@ -665,6 +705,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fields,
       incubators,
       inspections,
+      trayInspections,
       readings,
       notifications,
       notificationPrefs,

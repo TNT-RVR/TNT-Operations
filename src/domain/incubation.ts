@@ -648,3 +648,61 @@ export function runWindow(startYmd: string): { from: string; to: string } {
   const lastDay = INCUBATION_MILESTONES[INCUBATION_MILESTONES.length - 1].day
   return { from: startYmd, to: addDays(startYmd, lastDay - 1) }
 }
+
+// ── Tray inspections ─────────────────────────────────────────────────────────
+
+/**
+ * Leafcutter developmental stages, in order, as recorded when cells are opened
+ * during an inspection. Ported verbatim from the desktop app's `DEV_STAGES` —
+ * the labels ARE the stored values, so they must match exactly.
+ */
+export const DEV_STAGES = [
+  'Day 1 — Worm/Larva',
+  'Day 3 — Whitening',
+  'Day 5 — Nonsymmetrical',
+  'Day 8–9 — Pupal',
+  'Day 10 — Pink-Eyed',
+  'Day 13 — Male dark eye / Female red eye',
+  'Day 14–15 — Male fully dark / Female darkening',
+  'Day 17–18 — Male emergence',
+  'Day 20 — Female emergence',
+] as const
+
+/** Where in the stack a sampled tray came from. */
+export const STACK_POSITIONS = ['Top', 'Middle', 'Bottom'] as const
+/** How deep in the incubator the sampled tray came from. */
+export const DEPTH_POSITIONS = ['Front', 'Middle', 'Back'] as const
+
+/** First day of the range a stage label describes ("Day 8–9 — Pupal" → 8). */
+export function stageStartDay(stage: string): number | null {
+  const m = /^Day\s+(\d+)/.exec(stage.trim())
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * The stage a tray should be showing on a given incubation day — the latest
+ * stage whose start day has been reached.
+ *
+ * Used to compare what was actually seen against the schedule. Note this is the
+ * nominal timeline: holding or cool storage slows development, so a run that
+ * was held will legitimately read behind (see holdingDays).
+ */
+export function expectedStageForDay(day: number | null | undefined): string | null {
+  if (day == null || day < 1) return null
+  let best: string | null = null
+  for (const stage of DEV_STAGES) {
+    const start = stageStartDay(stage)
+    if (start != null && day >= start) best = stage
+  }
+  return best
+}
+
+/** How far an observed stage sits from the expected one, in stage steps. */
+export function stageDelta(observed: string, day: number | null | undefined): number | null {
+  const expected = expectedStageForDay(day)
+  if (!expected) return null
+  const oi = DEV_STAGES.indexOf(observed as (typeof DEV_STAGES)[number])
+  const ei = DEV_STAGES.indexOf(expected as (typeof DEV_STAGES)[number])
+  if (oi < 0 || ei < 0) return null
+  return oi - ei
+}

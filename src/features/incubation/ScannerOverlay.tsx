@@ -100,33 +100,53 @@ export function ScannerOverlay({
           verbose: false,
         })
         scannerRef.current = inst
-        await inst.start(
-          {
-            facingMode: 'environment',
-            // A higher stream resolves small/distant labels that a default
-            // 640x480 stream simply can't make out.
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            // Phones default to a fixed focus in getUserMedia; without this a
-            // label held close stays blurred.
-            focusMode: 'continuous',
-          } as MediaTrackConstraints,
-          {
-            fps: 20,
-            // No qrbox on purpose: it restricts decoding to a small centre
-            // square, so a label anywhere else in view is ignored. Native
-            // scanners read the whole frame, which is why they feel instant.
-            disableFlip: true,
-          },
-          (text: string) => {
-            lastDecodeRef.current = Date.now()
-            setIdle(false)
-            onScanRef.current(text)
-          },
-          () => {
-            /* per-frame misses are normal; the idle timer covers a real stall */
-          },
-        )
+
+        const scanConfig = {
+          fps: 20,
+          // No qrbox on purpose: it restricts decoding to a small centre
+          // square, so a label anywhere else in view is ignored. Native
+          // scanners read the whole frame, which is why they feel instant.
+          disableFlip: true,
+        }
+        const onDecode = (text: string) => {
+          lastDecodeRef.current = Date.now()
+          setIdle(false)
+          onScanRef.current(text)
+        }
+        const onFrameMiss = () => {
+          /* per-frame misses are normal; the idle timer covers a real stall */
+        }
+
+        // Preferred stream: enough resolution for a small label, and autofocus.
+        // `advanced` entries are BEST-EFFORT — a device that can't do continuous
+        // focus ignores them. Asking for focusMode at the top level makes it a
+        // REQUIRED constraint, and phones without it throw OverconstrainedError,
+        // which is what stopped the camera opening at all.
+        const preferred = {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          advanced: [{ focusMode: 'continuous' }],
+        } as unknown as MediaTrackConstraints
+
+        try {
+          await inst.start(preferred, scanConfig, onDecode, onFrameMiss)
+        } catch (preferredErr) {
+          if (cancelled) return
+          // Never let a preference cost us the camera: fall back to the plainest
+          // request that any device can satisfy.
+          console.warn('[scanner] preferred constraints refused, retrying plain:', preferredErr)
+          // A failed start can leave the instance mid-transition, and starting
+          // again in that state throws. Settle it first; it may already be
+          // stopped, which is fine.
+          try {
+            await inst.stop()
+          } catch {
+            /* already stopped */
+          }
+          if (cancelled) return
+          await inst.start({ facingMode: 'environment' }, scanConfig, onDecode, onFrameMiss)
+        }
         // Shop lighting is a common reason a label won't read, so offer the
         // torch when the camera has one.
         try {
@@ -137,10 +157,18 @@ export function ScannerOverlay({
         }
       } catch (e) {
         if (cancelled) return
+        // Log the real error: the generic message below hid an
+        // OverconstrainedError once already, which cost a round of guessing.
+        console.error('[scanner] camera failed to start:', e)
+        const msg = e instanceof Error ? e.message : String(e)
         setError(
-          e instanceof Error && /permission|denied/i.test(e.message)
+          /permission|denied|notallowed/i.test(msg)
             ? 'Camera permission was refused. Allow it in your browser settings, or type the number.'
-            : 'Could not start the camera. Type the number instead.',
+            : /notfound|no camera|devicenotfound/i.test(msg)
+              ? 'No camera was found on this device. Type the number instead.'
+              : /notreadable|in use|trackstart/i.test(msg)
+                ? 'The camera is already in use by another app. Close it and try again.'
+                : `Could not start the camera. Type the number instead. (${msg})`,
         )
       }
     })()

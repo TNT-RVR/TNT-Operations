@@ -110,13 +110,29 @@ _Last reviewed 2026-08-03._
         `admin` directly after first sign-in (see `supabase/README.md`).
 - [~] Phase 4/5 — feature UIs (largely built; polish + gaps remain):
       - **Shelter Maps** (`/maps`) — satellite basemap (Esri, `basemap.ts`), live
-        `getTentPositions` pins, and the full overlay set (tracks, exclusion
-        zones, corner arms, bays) in `overlays.ts` at spec Part 13 colours.
+        `getTentPositions` pins, and the full overlay set at spec Part 13 colours.
         `FieldEditor` exposes the FULL engine parameter set with live recompute +
         `saveField`. Boundary authoring: freehand draw + KML/KMZ/shapefile import
         (`importBoundary.ts`, computes acreage). Manual per-shelter editing with
         overrides scoped per combo (`shelterOverrides.ts`), crew route
         (`crewRoute.ts`), and save-time validation (`fieldWarnings.ts`).
+        - **Authoring surface** (spec Part 6) — `MapToolbar.tsx` renders the
+          LAYERS / TOOL / ACTIONS rows and the dynamic legend over six tool
+          layers (`layers.ts`, device-persisted visibility). Tools: set pivot /
+          2nd pivot, add+delete pivot tracks, draw boundary AND inner / access-
+          road / wet-zone rings (one shared draw machine), entrance + parking
+          pins, crew-route edit/reset, measure, and whole-field undo/redo.
+        - **Overlay geometry is derived, never re-derived.** `fieldFrame.ts` is
+          the ONE shared projection/rotation/bay-tiling frame — the engine's own
+          math, so bays line up with the pins it placed. `bayOverlays.ts` (male
+          bays, numbered planter passes, alignment mesh) and `sprayOverlays.ts`
+          (sprayer passes, outer sprayer limit inset, tire + edge zones, shelter
+          buffer squares) build on it. NOTE sprayer geometry uses `sprayAngle`,
+          which may differ from the planting angle — see the doc comments.
+          Regression tests: `bayOverlays.test.ts` locks the §5.3 band-width
+          invariant (a `bay_gap_in` must go BETWEEN bays, never shrink the male
+          band — the Wordmans/Carrots bug), `overlayIntegration.test.ts` runs
+          every generator over the real seeded fields.
       - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
         `cost.ts` port: per-field cost, profitability, season totals, pricing
         inputs stored PER YEAR (missing years carry forward). Prefs in

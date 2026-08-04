@@ -8,11 +8,22 @@ import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
-import { Pencil, Upload, Check, Undo2, X as XIcon, MapPin } from 'lucide-react'
+import { Check, Undo2, X as XIcon } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { crewRoute } from '@/domain/crewRoute'
 import { fieldWarnings } from '@/domain/fieldWarnings'
+import { haversineMeters } from '@/domain/geo'
+import { maleBayBands, planterPassLines, alignmentLines } from '@/domain/bayOverlays'
+import { sprayerPassLines, outerSprayerLimit, tireAndEdgeZones, shelterBufferSquares } from '@/domain/sprayOverlays'
+import { MapToolbar, type ToolAction } from './MapToolbar'
+import {
+  loadVisibility,
+  saveVisibility,
+  type LayerGroup,
+  type LayerId,
+  type LayerVisibility,
+} from './layers'
 import { FieldEditor } from './FieldEditor'
 import { SATELLITE_STYLE } from './basemap'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
@@ -43,6 +54,33 @@ const WET = '#39B7D6' // wet zones (translucent fill)
 const WET_LINE = '#39B7D6'
 const CREW = '#A855F7' // crew route (desktop purple)
 const CREW_LIVE = '#3FB6A8' // live crew position pins (teal)
+const MALE_BAY = '#2E9BF0' // male-bay bands
+const SPRAY = '#33FF66' // sprayer passes + outer sprayer limit
+const TIRE = '#FF2A2A' // tire zone down each pass centre
+const EDGE = '#22E048' // edge zone at pass edges
+const PLANTER_NUM = '#FFB000' // planter pass lines + numbers
+const ALIGN = '#86E0FF' // alignment guide mesh
+const BUFFER = '#1E90FF' // shelter buffer squares (JD section control)
+
+/** Ring types the shared draw machine can author (spec §6.2). */
+type RingTarget = 'boundary' | 'inner' | 'access' | 'wet'
+/** Single points placed by clicking the map (§6.1, §6.2). */
+type PinTarget = 'pivot' | 'pivot2' | 'entrance' | 'parking'
+
+/** Where each ring type lives in the field dict, and whether it's a list of rings. */
+const RING_SPEC: Record<RingTarget, { key: string; list: boolean; label: string }> = {
+  boundary: { key: 'boundary_polygon', list: false, label: 'boundary' },
+  inner: { key: 'boundary_inner', list: true, label: 'inner boundary' },
+  access: { key: 'access_road_boundary', list: true, label: 'access road' },
+  wet: { key: 'wet_zones', list: true, label: 'wet zone' },
+}
+
+const PIN_SPEC: Record<PinTarget, { label: string }> = {
+  pivot: { label: 'pivot point' },
+  pivot2: { label: '2nd pivot' },
+  entrance: { label: 'entrance' },
+  parking: { label: 'parking' },
+}
 
 /** A crew position broadcast from Field Mode (channel 'crew_live'). */
 interface LiveCrew {
@@ -171,6 +209,30 @@ export default function MapsHome() {
   const [drawing, setDrawing] = useState(false)
   const [drawPts, setDrawPts] = useState<Array<[number, number]>>([])
   const [importError, setImportError] = useState<string | null>(null)
+  /**
+   * Which ring the draw mode is authoring. The boundary and the three exclusion
+   * ring types share one drawing machine (spec §6.2) — only the destination key
+   * and whether it's a list-of-rings differ.
+   */
+  const [drawTarget, setDrawTarget] = useState<RingTarget>('boundary')
+  /** Click-to-place mode for single points: pivot, 2nd pivot, entrance, parking. */
+  const [pinTarget, setPinTarget] = useState<PinTarget | null>(null)
+  /** Click-to-add mode for pivot track radii. */
+  const [addingTrack, setAddingTrack] = useState(false)
+  /** Two-click distance measurement (spec §6.7). */
+  const [measure, setMeasure] = useState<Array<[number, number]>>([])
+  const [measuring, setMeasuring] = useState(false)
+  /** Crew-route hand editing (§6.6). */
+  const [routeEditing, setRouteEditing] = useState(false)
+  /** Which tool layer's actions are showing. */
+  const [tool, setTool] = useState<LayerGroup>('boundary')
+  const [visibility, setVisibility] = useState<LayerVisibility>(loadVisibility)
+  /** Pin labels: shelter number, tray count, or nothing (§6.5). */
+  const [pinNumbers, setPinNumbers] = useState<'off' | 'shelter' | 'trays'>('off')
+  /** Whole-field undo/redo stacks for the draft (§9). */
+  const undoRef = useRef<FieldGeometry[]>([])
+  const redoRef = useRef<FieldGeometry[]>([])
+  const [historyTick, setHistoryTick] = useState(0)
   // Manual-shelter placement (mode = 'manual'): click to drop pins.
   const [placing, setPlacing] = useState(false)
   // Live crews broadcasting from Field Mode.
@@ -225,7 +287,20 @@ export default function MapsHome() {
     setDrawing(false)
     setDrawPts([])
     setPlacing(false)
+    setPinTarget(null)
+    setAddingTrack(false)
+    setMeasuring(false)
+    setMeasure([])
+    setRouteEditing(false)
     setImportError(null)
+  }
+
+  function toggleLayer(id: LayerId) {
+    setVisibility((prev) => {
+      const next = { ...prev, [id]: !prev[id] }
+      saveVisibility(next)
+      return next
+    })
   }
 
   // ── Manual shelter pins (shelter_mode = 'manual') ─────────────────────────
@@ -295,17 +370,152 @@ export default function MapsHome() {
     )
   }
 
-  function startDraw() {
+  // ── Undo / redo over the whole draft (spec §9) ────────────────────────────
+  // Every mutating action pushes the PREVIOUS draft first, so one action = one
+  // undo. Capped like the desktop app so a long session can't grow unbounded.
+  const UNDO_CAP = 40
+  function pushHistory() {
+    setDraft((prev) => {
+      if (prev) {
+        undoRef.current = [...undoRef.current.slice(-(UNDO_CAP - 1)), structuredClone(prev)]
+        redoRef.current = [] // a new edit invalidates the redo branch
+        setHistoryTick((t) => t + 1)
+      }
+      return prev
+    })
+  }
+  function undo() {
+    const prev = undoRef.current.pop()
+    if (!prev) return
+    setDraft((cur) => {
+      if (cur) redoRef.current = [...redoRef.current, structuredClone(cur)]
+      return prev
+    })
+    setHistoryTick((t) => t + 1)
+  }
+  function redo() {
+    const next = redoRef.current.pop()
+    if (!next) return
+    setDraft((cur) => {
+      if (cur) undoRef.current = [...undoRef.current, structuredClone(cur)]
+      return next
+    })
+    setHistoryTick((t) => t + 1)
+  }
+
+  // ── Rings: boundary + the three exclusion types share one draw machine ────
+  function startDraw(target: RingTarget) {
     setImportError(null)
     setDrawPts([])
+    setDrawTarget(target)
+    setPinTarget(null)
+    setAddingTrack(false)
+    setMeasuring(false)
     setDrawing(true)
   }
+
   function finishDraw() {
     if (drawPts.length < 3) return
-    applyBoundary(drawPts, ringAcres(drawPts))
+    pushHistory()
+    if (drawTarget === 'boundary') {
+      applyBoundary(drawPts, ringAcres(drawPts))
+    } else {
+      const { key } = RING_SPEC[drawTarget]
+      setDraft((prev) => {
+        if (!prev) return prev
+        const existing = Array.isArray(prev[key]) ? (prev[key] as unknown[]) : []
+        return { ...prev, [key]: [...existing, drawPts] }
+      })
+    }
     fitToRing(drawPts)
     resetDraw()
   }
+
+  /** Drop the most recently added ring of a type (§6.2 "Delete …"). */
+  function deleteLastRing(target: Exclude<RingTarget, 'boundary'>) {
+    const { key } = RING_SPEC[target]
+    pushHistory()
+    setDraft((prev) => {
+      if (!prev) return prev
+      const existing = Array.isArray(prev[key]) ? (prev[key] as unknown[]) : []
+      return { ...prev, [key]: existing.slice(0, -1) }
+    })
+  }
+
+  const ringCount = (target: Exclude<RingTarget, 'boundary'>): number => {
+    const v = draft?.[RING_SPEC[target].key]
+    return Array.isArray(v) ? v.length : 0
+  }
+
+  // ── Single-point pins + pivot tracks ──────────────────────────────────────
+  function armPin(target: PinTarget) {
+    setPinTarget(target)
+    setDrawing(false)
+    setAddingTrack(false)
+    setMeasuring(false)
+  }
+
+  function setPin(target: PinTarget, lat: number, lon: number) {
+    pushHistory()
+    setDraft((prev) => {
+      if (!prev) return prev
+      switch (target) {
+        case 'pivot':
+          return { ...prev, PP_Latitude: String(lat), PP_Longitude: String(lon) }
+        case 'pivot2':
+          return { ...prev, two_pivots: true, PP2_Latitude: String(lat), PP2_Longitude: String(lon) }
+        case 'entrance':
+          return { ...prev, entrance_pin: [lat, lon] }
+        case 'parking':
+          return { ...prev, parking_pin: [lat, lon] }
+      }
+    })
+    setPinTarget(null)
+  }
+
+  function clearPin(key: 'entrance_pin' | 'parking_pin') {
+    pushHistory()
+    setDraft((prev) => (prev ? { ...prev, [key]: null } : prev))
+  }
+
+  /** Click the map at a distance from the pivot → a new track at that radius. */
+  function addTrackAt(lat: number, lon: number) {
+    const g = draft
+    if (!g) return
+    const pLat = num(g.PP_Latitude)
+    const pLon = num(g.PP_Longitude)
+    if (!Number.isFinite(pLat) || !Number.isFinite(pLon)) return
+    const r = haversineMeters({ lat: pLat, lng: pLon }, { lat, lng: lon })
+    if (!(r > 1)) return
+    pushHistory()
+    setDraft((prev) => {
+      if (!prev) return prev
+      const cur = (Array.isArray(prev.pivot_tracks) ? (prev.pivot_tracks as unknown[]) : []).map(num).filter((x) => x > 0)
+      const next = [...cur, Math.round(r * 100) / 100].sort((a, b) => a - b)
+      return { ...prev, pivot_tracks: next }
+    })
+    setAddingTrack(false)
+  }
+
+  function deleteTrack(idx: number) {
+    pushHistory()
+    setDraft((prev) => {
+      if (!prev) return prev
+      const cur = Array.isArray(prev.pivot_tracks) ? (prev.pivot_tracks as unknown[]) : []
+      return { ...prev, pivot_tracks: cur.filter((_, i) => i !== idx) }
+    })
+  }
+
+  const trackRadii: number[] = useMemo(
+    () => (Array.isArray(draft?.pivot_tracks) ? (draft!.pivot_tracks as unknown[]).map(num).filter((x) => x > 0) : []),
+    [draft],
+  )
+
+  /** Straight-line distance between the two measured points, in metres. */
+  const measureM =
+    measure.length === 2
+      ? haversineMeters({ lat: measure[0][0], lng: measure[0][1] }, { lat: measure[1][0], lng: measure[1][1] })
+      : null
 
   async function onImportFile(file: File) {
     setImportError(null)
@@ -439,6 +649,32 @@ export default function MapsHome() {
       map.addSource('crewroute', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'crewroute-line', type: 'line', source: 'crewroute', paint: { 'line-color': CREW, 'line-width': 3, 'line-opacity': 0.9 } })
 
+      // ── Planter / sprayer overlays (spec §6.3, §6.4) ───────────────────────
+      map.addSource('malebays', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'malebays-fill', type: 'fill', source: 'malebays', paint: { 'fill-color': MALE_BAY, 'fill-opacity': 0.22 } })
+      map.addLayer({ id: 'malebays-line', type: 'line', source: 'malebays', paint: { 'line-color': MALE_BAY, 'line-width': 1, 'line-opacity': 0.7 } })
+      map.addSource('sprayerpasses', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'sprayerpasses-line', type: 'line', source: 'sprayerpasses', paint: { 'line-color': SPRAY, 'line-width': 1, 'line-dasharray': [3, 2], 'line-opacity': 0.8 } })
+      map.addSource('sprayerlimit', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'sprayerlimit-line', type: 'line', source: 'sprayerlimit', paint: { 'line-color': SPRAY, 'line-width': 2 } })
+      map.addSource('tirezone', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'tirezone-fill', type: 'fill', source: 'tirezone', paint: { 'fill-color': TIRE, 'fill-opacity': 0.28 } })
+      map.addSource('edgezone', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'edgezone-fill', type: 'fill', source: 'edgezone', paint: { 'fill-color': EDGE, 'fill-opacity': 0.2 } })
+      map.addSource('planterlines', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'planterlines-line', type: 'line', source: 'planterlines', paint: { 'line-color': PLANTER_NUM, 'line-width': 1, 'line-opacity': 0.7 } })
+      map.addLayer({
+        id: 'planterlines-label',
+        type: 'symbol',
+        source: 'planterlines',
+        layout: { 'symbol-placement': 'line-center', 'text-field': ['to-string', ['get', 'number']], 'text-size': 11 },
+        paint: { 'text-color': PLANTER_NUM, 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
+      })
+      map.addSource('alignment', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'alignment-line', type: 'line', source: 'alignment', paint: { 'line-color': ALIGN, 'line-width': 0.8, 'line-opacity': 0.75 } })
+      map.addSource('buffers', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'buffers-line', type: 'line', source: 'buffers', paint: { 'line-color': BUFFER, 'line-width': 1 } })
+
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'shelters',
@@ -493,28 +729,57 @@ export default function MapsHome() {
     const boundary = boundaryFeature(previewGeom)
     const pivot = pivotFeature(previewGeom)
     ;(map.getSource('boundary') as GeoJSONSource | undefined)?.setData(
-      boundary ? { type: 'FeatureCollection', features: [boundary] } : EMPTY,
+      boundary && visibility.boundary ? { type: 'FeatureCollection', features: [boundary] } : EMPTY,
     )
     ;(map.getSource('pivot') as GeoJSONSource | undefined)?.setData(
-      pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
+      pivot && visibility.pivot ? { type: 'FeatureCollection', features: [pivot] } : EMPTY,
     )
     // While editing, draggable markers stand in for the dots (manual pins AND
     // computed pins — the latter drag into per-combo overrides).
-    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(editing ? EMPTY : sheltersCollection(shelters))
+    ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(
+      editing || !visibility.shelters ? EMPTY : sheltersCollection(shelters),
+    )
 
-    // Overlays: tracks, exclusion zones, corner arms.
+    // Overlays: tracks, exclusion zones, corner arms — each gated by its layer
+    // toggle so `visibility` is the single switch for what's drawn (§6).
     const geom = previewGeom ?? {}
     const corner = cornerArms(geom)
-    ;(map.getSource('tracks') as GeoJSONSource | undefined)?.setData(trackRings(geom))
-    ;(map.getSource('inner') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.boundary_inner))
-    ;(map.getSource('access') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.access_road_boundary))
-    ;(map.getSource('wetzones') as GeoJSONSource | undefined)?.setData(ringPolygons(geom.wet_zones))
-    ;(map.getSource('corner') as GeoJSONSource | undefined)?.setData({
-      type: 'FeatureCollection',
-      features: [...corner.lines.features, ...corner.circles.features],
-    })
+    const gate = <T,>(on: boolean, data: T): T | FeatureCollection => (on ? data : EMPTY)
+    ;(map.getSource('tracks') as GeoJSONSource | undefined)?.setData(gate(visibility.tracks, trackRings(geom)) as FeatureCollection)
+    ;(map.getSource('inner') as GeoJSONSource | undefined)?.setData(gate(visibility.inner, ringPolygons(geom.boundary_inner)) as FeatureCollection)
+    ;(map.getSource('access') as GeoJSONSource | undefined)?.setData(gate(visibility.accessRoad, ringPolygons(geom.access_road_boundary)) as FeatureCollection)
+    ;(map.getSource('wetzones') as GeoJSONSource | undefined)?.setData(gate(visibility.wetZones, ringPolygons(geom.wet_zones)) as FeatureCollection)
+    ;(map.getSource('corner') as GeoJSONSource | undefined)?.setData(
+      visibility.cornerArms
+        ? { type: 'FeatureCollection', features: [...corner.lines.features, ...corner.circles.features] }
+        : EMPTY,
+    )
+
+    // Planter + sprayer overlays (spec §6.3, §6.4) — computed from the SAME
+    // frame the placement engine uses, so bays line up with the pins.
+    const tireEdge = visibility.tireEdge ? tireAndEdgeZones(geom) : null
+    ;(map.getSource('malebays') as GeoJSONSource | undefined)?.setData(
+      visibility.maleBays ? (maleBayBands(geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('planterlines') as GeoJSONSource | undefined)?.setData(
+      visibility.planterNumbers ? (planterPassLines(geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('sprayerpasses') as GeoJSONSource | undefined)?.setData(
+      visibility.sprayerPasses ? (sprayerPassLines(geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('sprayerlimit') as GeoJSONSource | undefined)?.setData(
+      visibility.sprayerLimit ? (outerSprayerLimit(geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('tirezone') as GeoJSONSource | undefined)?.setData((tireEdge?.tire as FeatureCollection) ?? EMPTY)
+    ;(map.getSource('edgezone') as GeoJSONSource | undefined)?.setData((tireEdge?.edge as FeatureCollection) ?? EMPTY)
+    ;(map.getSource('alignment') as GeoJSONSource | undefined)?.setData(
+      visibility.alignment ? (alignmentLines(shelters, geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('buffers') as GeoJSONSource | undefined)?.setData(
+      visibility.buffers ? (shelterBufferSquares(shelters, geom) as FeatureCollection) : EMPTY,
+    )
     ;(map.getSource('crewroute') as GeoJSONSource | undefined)?.setData(
-      crew.route.length >= 2
+      crew.route.length >= 2 && visibility.crewRoute
         ? {
             type: 'FeatureCollection',
             features: [
@@ -530,7 +795,7 @@ export default function MapsHome() {
 
     // Entrance / parking / home pins as lettered HTML markers.
     pinMarkersRef.current.forEach((m) => m.remove())
-    pinMarkersRef.current = overlayPins(geom).map((pin) => {
+    pinMarkersRef.current = (visibility.fieldInfo ? overlayPins(geom) : []).map((pin) => {
       const el = document.createElement('div')
       el.textContent = PIN_LABEL[pin.kind]
       el.style.cssText =
@@ -539,7 +804,7 @@ export default function MapsHome() {
         `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)`
       return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
     })
-  }, [ready, previewGeom, shelters, editing, crew])
+  }, [ready, previewGeom, shelters, editing, crew, visibility])
 
   // While editing, every shelter pin is a draggable marker (drag to move,
   // double-click to delete). Manual mode edits manual_shelter_pins directly;
@@ -651,7 +916,7 @@ export default function MapsHome() {
     })
   }, [ready, drawing, drawPts])
 
-  // While drawing, each map click drops a boundary vertex.
+  // While drawing, each map click drops a ring vertex.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready || !drawing) return
@@ -663,6 +928,66 @@ export default function MapsHome() {
       if (mapRef.current) map.getCanvas().style.cursor = ''
     }
   }, [ready, drawing])
+
+  // Click-to-place: pivot / 2nd pivot / entrance / parking (§6.1, §6.2).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !pinTarget) return
+    const handler = (e: maplibregl.MapMouseEvent) => setPin(pinTarget, e.lngLat.lat, e.lngLat.lng)
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, pinTarget])
+
+  // Click at a distance from the pivot to add a track at that radius (§6.1).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !addingTrack) return
+    const handler = (e: maplibregl.MapMouseEvent) => addTrackAt(e.lngLat.lat, e.lngLat.lng)
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, addingTrack, draft])
+
+  // Two clicks = a distance measurement (§6.7).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !measuring) return
+    const handler = (e: maplibregl.MapMouseEvent) =>
+      setMeasure((prev) => (prev.length >= 2 ? [[e.lngLat.lat, e.lngLat.lng]] : [...prev, [e.lngLat.lat, e.lngLat.lng]]))
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+  }, [ready, measuring])
+
+  // Hand-editing the crew route: each click appends a vertex to the override.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !routeEditing) return
+    const handler = (e: maplibregl.MapMouseEvent) =>
+      setDraft((prev) => {
+        if (!prev) return prev
+        const cur = Array.isArray(prev.crew_route_override) ? (prev.crew_route_override as Array<[number, number]>) : []
+        return { ...prev, crew_route_override: [...cur, [e.lngLat.lat, e.lngLat.lng]] }
+      })
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+  }, [ready, routeEditing])
 
   // Fit the view when the SELECTED FIELD changes (not on every draft keystroke).
   useEffect(() => {
@@ -701,9 +1026,107 @@ export default function MapsHome() {
     }
   }, [ready, editing, isPivotDraft, drawing, placing])
 
+  /**
+   * The active tool layer's actions (spec Part 6). Only meaningful while
+   * editing — the map is read-only otherwise, matching the desktop app where
+   * authoring tools belong to an open field.
+   */
+  const toolActions: ToolAction[] = useMemo(() => {
+    if (!editing || !draft) return []
+    const drawAction = (t: RingTarget, label: string): ToolAction => ({
+      id: `draw-${t}`,
+      label: drawing && drawTarget === t ? `Drawing ${RING_SPEC[t].label}…` : label,
+      active: drawing && drawTarget === t,
+      onClick: () => (drawing && drawTarget === t ? resetDraw() : startDraw(t)),
+    })
+    switch (tool) {
+      case 'pivot':
+        return [
+          { id: 'set-pivot', label: pinTarget === 'pivot' ? 'Click the map…' : 'Set pivot point', active: pinTarget === 'pivot', onClick: () => (pinTarget === 'pivot' ? setPinTarget(null) : armPin('pivot')) },
+          { id: 'set-pivot2', label: pinTarget === 'pivot2' ? 'Click the map…' : 'Set 2nd pivot', active: pinTarget === 'pivot2', onClick: () => (pinTarget === 'pivot2' ? setPinTarget(null) : armPin('pivot2')) },
+          { id: 'add-track', label: addingTrack ? 'Click at the track radius…' : 'Add pivot track', active: addingTrack, onClick: () => setAddingTrack((v) => !v) },
+          ...trackRadii.map((r, i) => ({
+            id: `del-track-${i}`,
+            label: `Delete ${Math.round(r)} m`,
+            onClick: () => deleteTrack(i),
+          })),
+        ]
+      case 'boundary':
+        return [
+          drawAction('boundary', 'Draw boundary'),
+          { id: 'import', label: 'Import file', onClick: () => fileInputRef.current?.click() },
+          drawAction('inner', 'Add inner boundary'),
+          { id: 'del-inner', label: `Delete inner (${ringCount('inner')})`, disabled: ringCount('inner') === 0, onClick: () => deleteLastRing('inner') },
+          drawAction('access', 'Add access road'),
+          { id: 'del-access', label: `Delete access (${ringCount('access')})`, disabled: ringCount('access') === 0, onClick: () => deleteLastRing('access') },
+          drawAction('wet', 'Add wet zone'),
+          { id: 'del-wet', label: `Delete wet zone (${ringCount('wet')})`, disabled: ringCount('wet') === 0, onClick: () => deleteLastRing('wet') },
+          { id: 'set-entrance', label: pinTarget === 'entrance' ? 'Click the map…' : 'Set entrance', active: pinTarget === 'entrance', onClick: () => (pinTarget === 'entrance' ? setPinTarget(null) : armPin('entrance')) },
+          { id: 'set-parking', label: pinTarget === 'parking' ? 'Click the map…' : 'Set parking', active: pinTarget === 'parking', onClick: () => (pinTarget === 'parking' ? setPinTarget(null) : armPin('parking')) },
+          { id: 'clr-entrance', label: 'Clear entrance', disabled: !draft.entrance_pin, onClick: () => clearPin('entrance_pin') },
+          { id: 'clr-parking', label: 'Clear parking', disabled: !draft.parking_pin, onClick: () => clearPin('parking_pin') },
+        ]
+      case 'sprayer':
+        return [
+          { id: 'sprayer-note', label: `Boom ${str(draft.Sprayer_width) || '133'} ft · edge ${str(draft.pass_edge_buffer_ft) || '25'} ft · tire ${str(draft.tire_width_ft) || '14'} ft`, disabled: true, onClick: () => {} },
+        ]
+      case 'planter':
+        return [
+          { id: 'planter-note', label: `${str(draft.total_rows) || '—'} rows @ ${str(draft.row_spacing_in) || '—'} in · ${str(draft.num_female_rows) || '—'}F/${str(draft.num_male_rows) || '—'}M`, disabled: true, onClick: () => {} },
+        ]
+      case 'shelters':
+        return [
+          { id: 'numbers', label: `Numbers: ${pinNumbers === 'off' ? 'off' : pinNumbers === 'shelter' ? 'shelter #' : 'tray count'}`, onClick: () => setPinNumbers((m) => (m === 'off' ? 'shelter' : m === 'shelter' ? 'trays' : 'off')) },
+          { id: 'reflow', label: 'Reflow to grid', disabled: overrideCount === 0, onClick: onReflow },
+          ...(manualEditing
+            ? [{ id: 'add-shelter', label: placing ? 'Click the map…' : 'Add shelter pin', active: placing, onClick: () => setPlacing((v) => !v) }]
+            : []),
+        ]
+      case 'crews':
+        return [
+          { id: 'edit-route', label: routeEditing ? 'Click to add points — done' : 'Edit crew route', active: routeEditing, onClick: () => setRouteEditing((v) => !v) },
+          { id: 'reset-route', label: 'Reset crew route', disabled: !draft.crew_route_override, onClick: () => { pushHistory(); setDraft((p) => (p ? { ...p, crew_route_override: null } : p)) } },
+        ]
+    }
+  }, [editing, draft, tool, drawing, drawTarget, pinTarget, addingTrack, trackRadii, placing, manualEditing, routeEditing, pinNumbers, overrideCount])
+
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Shelter Maps" subtitle="Bee-shelter placement on pollination fields (MapLibre)" />
+      <MapToolbar
+        visibility={visibility}
+        onToggleLayer={toggleLayer}
+        tool={tool}
+        onTool={setTool}
+        actions={[
+          ...toolActions,
+          ...(editing
+            ? ([
+                {
+                  id: 'measure',
+                  label: measuring ? (measureM != null ? `${measureM.toFixed(1)} m (${(measureM * 3.28084).toFixed(0)} ft)` : 'Click two points…') : 'Measure',
+                  active: measuring,
+                  onClick: () => {
+                    setMeasure([])
+                    setMeasuring((v) => !v)
+                  },
+                },
+                // historyTick forces this list to rebuild after each push/pop so
+                // the buttons enable and disable with the stacks.
+                { id: `undo-${historyTick}`, label: 'Undo', disabled: undoRef.current.length === 0, onClick: undo },
+                { id: 'redo', label: 'Redo', disabled: redoRef.current.length === 0, onClick: redo },
+              ] as ToolAction[])
+            : []),
+        ]}
+        status={
+          !editing
+            ? 'Open a field and press Edit to use the authoring tools.'
+            : measureM != null
+              ? `Measured ${measureM.toFixed(1)} m · ${(measureM * 3.28084).toFixed(0)} ft`
+              : null
+        }
+      />
       <div
         className={`grid min-h-0 flex-1 ${
           editing ? 'md:grid-cols-[18rem_1fr_22rem]' : 'md:grid-cols-[18rem_1fr]'
@@ -739,59 +1162,16 @@ export default function MapsHome() {
         <div className="relative min-h-[20rem]">
           <div ref={containerRef} className="absolute inset-0" />
 
-          {/* Boundary tools (while editing) */}
-          {editing && (
+          {/* Drawing HUD — only while a click-to-place mode is armed */}
+          {editing && (drawing || placing || pinTarget || addingTrack || measuring || routeEditing || importError) && (
             <div
               className="absolute left-3 top-3 flex flex-col gap-2 rounded-lg border border-subtle p-2 shadow-md backdrop-blur"
               style={{ background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)' }}
             >
-              {!drawing ? (
+              {drawing && (
                 <>
-                  <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={startDraw}>
-                    <Pencil size={14} /> Draw boundary
-                  </button>
-                  <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={() => fileInputRef.current?.click()}>
-                    <Upload size={14} /> Import file
-                  </button>
-                  {importError && <p className="max-w-[12rem] text-[11px] text-danger">{importError}</p>}
-                  {!manualEditing && overrideCount > 0 && (
-                    <div className="mt-1 border-t border-subtle pt-2">
-                      <div className="mb-1 text-[11px] text-muted">{overrideCount} pin override{overrideCount === 1 ? '' : 's'}</div>
-                      <button className="btn-ghost min-h-0 px-2 py-1.5 text-xs" onClick={onReflow}>
-                        <Undo2 size={14} /> Reflow to grid
-                      </button>
-                    </div>
-                  )}
-                  {manualEditing && (
-                    <div className="mt-1 border-t border-subtle pt-2">
-                      <div className="mb-1 text-[11px] text-muted">{manualPins.length} manual pins</div>
-                      <div className="flex gap-1.5">
-                        <button
-                          className={`${placing ? 'btn-primary' : 'btn-ghost'} min-h-0 px-2 py-1.5 text-xs`}
-                          onClick={() => setPlacing((v) => !v)}
-                        >
-                          <MapPin size={14} /> {placing ? 'Done' : 'Add shelters'}
-                        </button>
-                        <button
-                          className="btn-ghost min-h-0 px-2 py-1.5 text-xs"
-                          onClick={() => setManualPins([])}
-                          disabled={!manualPins.length}
-                        >
-                          Clear
-                        </button>
-                      </div>
-                      {placing && (
-                        <p className="mt-1 max-w-[12rem] text-[11px] text-muted">
-                          Click map to add. Drag a pin to move, double-click to delete.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="max-w-[12rem] text-[11px] text-muted">
-                    Click the map to add points ({drawPts.length} placed). Finish needs 3+.
+                  <div className="max-w-[13rem] text-[11px] text-muted">
+                    Click the map to trace the {RING_SPEC[drawTarget].label} ({drawPts.length} placed). Finish needs 3+.
                   </div>
                   <div className="flex gap-1.5">
                     <button
@@ -810,19 +1190,55 @@ export default function MapsHome() {
                   </div>
                 </>
               )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".kml,.kmz,.zip,.shp"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) onImportFile(f)
-                  e.target.value = ''
-                }}
-              />
+              {pinTarget && (
+                <div className="max-w-[13rem] text-[11px] text-muted">
+                  Click the map to set the {PIN_SPEC[pinTarget].label}.
+                </div>
+              )}
+              {addingTrack && (
+                <div className="max-w-[13rem] text-[11px] text-muted">
+                  Click anywhere on the track — its distance from the pivot becomes the radius.
+                </div>
+              )}
+              {routeEditing && (
+                <div className="max-w-[13rem] text-[11px] text-muted">
+                  Click to add crew-route points, then press Edit crew route again.
+                </div>
+              )}
+              {measuring && (
+                <div className="max-w-[13rem] text-[11px] text-muted">
+                  {measure.length < 2 ? 'Click two points to measure.' : 'Click to start a new measurement.'}
+                </div>
+              )}
+              {placing && (
+                <>
+                  <div className="max-w-[13rem] text-[11px] text-muted">
+                    Click map to add a shelter. Drag a pin to move, double-click to delete.
+                  </div>
+                  <button
+                    className="btn-ghost min-h-0 px-2 py-1.5 text-xs"
+                    onClick={() => setManualPins([])}
+                    disabled={!manualPins.length}
+                  >
+                    Clear {manualPins.length} pins
+                  </button>
+                </>
+              )}
+              {importError && <p className="max-w-[13rem] text-[11px] text-danger">{importError}</p>}
             </div>
           )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".kml,.kmz,.zip,.shp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onImportFile(f)
+              e.target.value = ''
+            }}
+          />
 
           {selectedField && !editing && (
             <div

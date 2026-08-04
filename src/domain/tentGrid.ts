@@ -193,7 +193,7 @@ function pointInPolygonBB(px: number, py: number, polygon: Pt[], bbox: BBox): bo
 }
 
 /** Contiguous runs of `char` in `mask` as [start, endExclusive) pairs. */
-function maskRuns(mask: string, char: string): Array<[number, number]> {
+export function maskRuns(mask: string, char: string): Array<[number, number]> {
   const runs: Array<[number, number]> = []
   let start: number | null = null
   for (let i = 0; i < mask.length; i++) {
@@ -209,7 +209,7 @@ function maskRuns(mask: string, char: string): Array<[number, number]> {
 }
 
 /** Build the M/F-per-row planter mask (see resolve_row_mask in the Python). */
-function resolveRowMask(
+export function resolveRowMask(
   nf: number,
   nm: number,
   layout: string,
@@ -255,7 +255,7 @@ function resolveRowMask(
  * Lateral left-edge of each planter row slot with a `gapM` gap inserted at every
  * male/female boundary. Returns [lefts, passW]. Mirrors bay_slot_lefts.
  */
-function baySlotLefts(mask: string, rsM: number, gapM: number): [number[], number] {
+export function baySlotLefts(mask: string, rsM: number, gapM: number): [number[], number] {
   const n = mask.length
   if (n === 0) return [[], 0.0]
   const lefts = new Array<number>(n).fill(0.0)
@@ -273,7 +273,7 @@ function baySlotLefts(mask: string, rsM: number, gapM: number): [number[], numbe
 const MALE_BAY_OFFSET_FT = 5.0
 
 /** Sorted lateral positions of shelter rows — one per male bay (male_bay_shelter_laterals). */
-function maleBayShelterLaterals(
+export function maleBayShelterLaterals(
   nf: number,
   nm: number,
   layout: string,

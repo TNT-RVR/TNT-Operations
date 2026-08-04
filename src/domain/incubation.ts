@@ -579,3 +579,57 @@ export function milestonesToIcs(events: MilestoneEvent[], stampIso: string): str
   lines.push('END:VCALENDAR')
   return lines.join('\r\n')
 }
+
+/**
+ * Mean temperature per incubator per calendar day.
+ *
+ * `toYmd` maps a reading's ISO timestamp to a local calendar day, so the caller
+ * decides the timezone (and this stays pure/testable).
+ */
+export function dailyMeanTempByIncubator(
+  readings: Array<{ incubatorId: string; at: string; tempC: number }>,
+  toYmd: (iso: string) => string,
+): Map<string, Map<string, number>> {
+  const sums = new Map<string, Map<string, { total: number; n: number }>>()
+  for (const r of readings) {
+    if (r.tempC == null || !Number.isFinite(r.tempC)) continue
+    const day = toYmd(r.at)
+    let byDay = sums.get(r.incubatorId)
+    if (!byDay) sums.set(r.incubatorId, (byDay = new Map()))
+    const cur = byDay.get(day)
+    if (cur) {
+      cur.total += r.tempC
+      cur.n++
+    } else byDay.set(day, { total: r.tempC, n: 1 })
+  }
+
+  const out = new Map<string, Map<string, number>>()
+  for (const [incId, byDay] of sums) {
+    const means = new Map<string, number>()
+    for (const [day, { total, n }] of byDay) means.set(day, total / n)
+    out.set(incId, means)
+  }
+  return out
+}
+
+/**
+ * Days an incubator was NOT held at incubation temperature — it sat below the
+ * incubation band's floor. Development slows on these days, so a run that was
+ * cooled will emerge later than its fixed-offset milestones suggest.
+ *
+ * This REPORTS what the sensors recorded; it does not adjust the schedule. How
+ * much cooling delays development isn't modelled anywhere, so shifting dates
+ * would be inventing a number.
+ */
+export function coolDays(
+  means: Map<string, Map<string, number>>,
+  minIncubationC: number = TEMP_MODES.incubation.min ?? 25,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const [incId, byDay] of means) {
+    const days = new Set<string>()
+    for (const [day, mean] of byDay) if (mean < minIncubationC) days.add(day)
+    if (days.size) out.set(incId, days)
+  }
+  return out
+}

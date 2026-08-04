@@ -24,6 +24,8 @@ import {
   incubationStartFor,
   milestoneEvents,
   milestonesToIcs,
+  dailyMeanTempByIncubator,
+  coolDays,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -355,5 +357,46 @@ describe('incubation milestones', () => {
     expect(ics).toContain('DTSTAMP:20260804T120000Z')
     expect(ics.endsWith('END:VCALENDAR')).toBe(true)
     expect(ics.split('\r\n').length).toBeGreaterThan(5) // CRLF line endings
+  })
+})
+
+describe('cool-day reporting', () => {
+  // Fixed UTC-day mapper keeps these tests timezone-independent.
+  const toYmd = (iso: string) => iso.slice(0, 10)
+
+  const readings = [
+    { incubatorId: 'i1', at: '2026-06-01T06:00:00Z', tempC: 30 },
+    { incubatorId: 'i1', at: '2026-06-01T18:00:00Z', tempC: 32 }, // mean 31 → warm
+    { incubatorId: 'i1', at: '2026-06-02T06:00:00Z', tempC: 14 },
+    { incubatorId: 'i1', at: '2026-06-02T18:00:00Z', tempC: 16 }, // mean 15 → cooled
+    { incubatorId: 'i2', at: '2026-06-01T06:00:00Z', tempC: 8 }, // mean 8 → cooled
+  ]
+
+  it('averages per incubator per day', () => {
+    const means = dailyMeanTempByIncubator(readings, toYmd)
+    expect(means.get('i1')?.get('2026-06-01')).toBe(31)
+    expect(means.get('i1')?.get('2026-06-02')).toBe(15)
+    expect(means.get('i2')?.get('2026-06-01')).toBe(8)
+  })
+
+  it('flags only days below the incubation floor', () => {
+    const cool = coolDays(dailyMeanTempByIncubator(readings, toYmd))
+    expect([...(cool.get('i1') ?? [])]).toEqual(['2026-06-02'])
+    expect([...(cool.get('i2') ?? [])]).toEqual(['2026-06-01'])
+  })
+
+  it('uses the day MEAN, so a brief door-open dip is not a cool day', () => {
+    const dip = [
+      { incubatorId: 'i1', at: '2026-06-03T06:00:00Z', tempC: 30 },
+      { incubatorId: 'i1', at: '2026-06-03T07:00:00Z', tempC: 18 }, // door open
+      { incubatorId: 'i1', at: '2026-06-03T08:00:00Z', tempC: 30 },
+    ]
+    const cool = coolDays(dailyMeanTempByIncubator(dip, toYmd))
+    expect(cool.get('i1')).toBeUndefined()
+  })
+
+  it('ignores unusable readings and reports nothing for no data', () => {
+    const means = dailyMeanTempByIncubator([], toYmd)
+    expect(coolDays(means).size).toBe(0)
   })
 })

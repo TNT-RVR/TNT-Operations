@@ -115,7 +115,14 @@ export const seedInspections: Inspection[] = [
  * exercises the chart (its range picker needs more than a couple of points).
  * Deterministic — a sine wiggle, not Math.random — so the mock stays stable.
  */
-function seedSeries(incubatorId: string, endIso: string, days: number, targetC: number): SensorReading[] {
+function seedSeries(
+  incubatorId: string,
+  endIso: string,
+  days: number,
+  targetC: number,
+  /** Days of cool storage at the end of the run, as happens before release. */
+  coolTailDays = 0,
+): SensorReading[] {
   const stepMs = 15 * 60_000
   const n = Math.round((days * 24 * 60) / 15)
   const end = Date.parse(endIso)
@@ -126,7 +133,10 @@ function seedSeries(incubatorId: string, endIso: string, days: number, targetC: 
     const daily = Math.sin((i / 96) * Math.PI * 2) * 0.8
     const ripple = Math.sin(i / 7) * 0.25
     const excursion = i > n * 0.55 && i < n * 0.62 ? -2.6 : 0
-    const tempC = Math.round((targetC + daily + ripple + excursion) * 10) / 10
+    // The tail sits in the holding band (~14 C), so the calendar can show
+    // the cooled days that slow development before release.
+    const cooling = i >= n - (coolTailDays * 24 * 60) / 15 ? 14 - targetC : 0
+    const tempC = Math.round((targetC + daily + ripple + excursion + cooling) * 10) / 10
     out.push({
       id: `${incubatorId}-r${i}`,
       incubatorId,
@@ -142,7 +152,7 @@ function seedSeries(incubatorId: string, endIso: string, days: number, targetC: 
 export const seedReadings: SensorReading[] = [
   // 35 days so the chart's 1H/6H/24H/7D/30D/ALL ranges each show something
   // different in mock mode (live mode fetches on demand via loadReadings).
-  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30),
+  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30, 4),
   ...seedSeries('i2', '2026-07-22T13:00:00Z', 2, 29.5),
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
 ]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { PageHeader, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
@@ -9,6 +9,8 @@ import {
   incubationStartFor,
   formatDays,
   daysFromNow,
+  dailyMeanTempByIncubator,
+  coolDays,
   type MilestoneEvent,
 } from '@/domain/incubation'
 
@@ -48,7 +50,7 @@ export function monthGrid(year: number, month0: number): string[][] {
 }
 
 export default function CalendarHome() {
-  const { incubators, trays } = useData()
+  const { incubators, trays, readings, loadReadings } = useData()
   const today = todayYmd()
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month0, setMonth0] = useState(() => Number(today.slice(5, 7)) - 1)
@@ -74,6 +76,23 @@ export default function CalendarHome() {
   }, [events])
 
   const weeks = useMemo(() => monthGrid(year, month0), [year, month0])
+
+  // Readings are hydrated only for a recent window, so pull the visible month
+  // for the incubators on a schedule (loadReadings is cached per incubator).
+  const monthStartIso = useMemo(() => new Date(Date.UTC(year, month0, 1)).toISOString(), [year, month0])
+  useEffect(() => {
+    for (const inc of incubators) void loadReadings(inc.id, monthStartIso)
+  }, [incubators, monthStartIso, loadReadings])
+
+  /**
+   * Days each incubator sat below incubation temperature. Shown, not applied:
+   * cooling slows development, but by how much isn't modelled, so the milestone
+   * dates stay put and these days explain why a run may run late.
+   */
+  const cooled = useMemo(() => {
+    const toYmd = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
+    return coolDays(dailyMeanTempByIncubator(readings, toYmd))
+  }, [readings])
 
   /** Incubators actually on a schedule, with where they are in it. */
   const scheduled = useMemo(
@@ -173,6 +192,20 @@ export default function CalendarHome() {
                           <div className={`font-mono text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}>
                             {Number(ymd.slice(8, 10))}
                           </div>
+                          {/* Cool days: a thin bar per incubator that sat below
+                              the incubation band that day. */}
+                          <div className="flex gap-0.5">
+                            {scheduled
+                              .filter(({ inc }) => cooled.get(inc.id)?.has(ymd))
+                              .map(({ inc }) => (
+                                <span
+                                  key={inc.id}
+                                  className="h-1 flex-1 rounded-full opacity-60"
+                                  style={{ background: colorOf.get(inc.id) }}
+                                  title={`${inc.name} — below incubation temperature this day`}
+                                />
+                              ))}
+                          </div>
                           <div className="mt-0.5 space-y-0.5">
                             {dayEvents.map((e) => (
                               <div
@@ -224,6 +257,11 @@ export default function CalendarHome() {
                   </Badge>
                 ))}
               </div>
+              <p className="text-xs text-faint">
+                A bar under a date marks a day that incubator sat below incubation temperature. Development slows on
+                those days, so a cooled run can emerge later than these fixed milestones suggest — the dates are not
+                adjusted, because how much cooling delays emergence isn’t recorded anywhere.
+              </p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                 {scheduled.map(({ inc, start }) => (
                   <span key={inc.id} className="flex items-center gap-1.5">
@@ -232,6 +270,9 @@ export default function CalendarHome() {
                       style={{ background: colorOf.get(inc.id) }}
                     />
                     {inc.name} — started {start}
+                    {(cooled.get(inc.id)?.size ?? 0) > 0 && (
+                      <span className="text-faint">· {cooled.get(inc.id)!.size} cool d</span>
+                    )}
                   </span>
                 ))}
               </div>

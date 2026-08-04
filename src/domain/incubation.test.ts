@@ -25,7 +25,8 @@ import {
   milestoneEvents,
   milestonesToIcs,
   dailyMeanTempByIncubator,
-  coolDays,
+  holdingDays,
+  runWindow,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -360,43 +361,51 @@ describe('incubation milestones', () => {
   })
 })
 
-describe('cool-day reporting', () => {
+describe('holding-day reporting', () => {
   // Fixed UTC-day mapper keeps these tests timezone-independent.
   const toYmd = (iso: string) => iso.slice(0, 10)
 
   const readings = [
     { incubatorId: 'i1', at: '2026-06-01T06:00:00Z', tempC: 30 },
-    { incubatorId: 'i1', at: '2026-06-01T18:00:00Z', tempC: 32 }, // mean 31 → warm
+    { incubatorId: 'i1', at: '2026-06-01T18:00:00Z', tempC: 32 }, // mean 31 → incubating
     { incubatorId: 'i1', at: '2026-06-02T06:00:00Z', tempC: 14 },
-    { incubatorId: 'i1', at: '2026-06-02T18:00:00Z', tempC: 16 }, // mean 15 → cooled
-    { incubatorId: 'i2', at: '2026-06-01T06:00:00Z', tempC: 8 }, // mean 8 → cooled
+    { incubatorId: 'i1', at: '2026-06-02T18:00:00Z', tempC: 16 }, // mean 15 → holding
+    { incubatorId: 'i2', at: '2026-06-01T06:00:00Z', tempC: 4 }, // cool storage, not holding
+    { incubatorId: 'i3', at: '2026-06-01T06:00:00Z', tempC: 20 }, // off / shop ambient
   ]
 
   it('averages per incubator per day', () => {
     const means = dailyMeanTempByIncubator(readings, toYmd)
     expect(means.get('i1')?.get('2026-06-01')).toBe(31)
     expect(means.get('i1')?.get('2026-06-02')).toBe(15)
-    expect(means.get('i2')?.get('2026-06-01')).toBe(8)
   })
 
-  it('flags only days below the incubation floor', () => {
-    const cool = coolDays(dailyMeanTempByIncubator(readings, toYmd))
-    expect([...(cool.get('i1') ?? [])]).toEqual(['2026-06-02'])
-    expect([...(cool.get('i2') ?? [])]).toEqual(['2026-06-01'])
+  it('counts ONLY days in the holding band', () => {
+    const held = holdingDays(dailyMeanTempByIncubator(readings, toYmd))
+    expect([...(held.get('i1') ?? [])]).toEqual(['2026-06-02'])
   })
 
-  it('uses the day MEAN, so a brief door-open dip is not a cool day', () => {
+  it('ignores cool storage and an incubator that is simply off', () => {
+    const held = holdingDays(dailyMeanTempByIncubator(readings, toYmd))
+    // 4 C is below the band; 20 C (shop ambient, switched off) is above it.
+    expect(held.get('i2')).toBeUndefined()
+    expect(held.get('i3')).toBeUndefined()
+  })
+
+  it('uses the day MEAN, so a brief dip into the band is not a holding day', () => {
     const dip = [
       { incubatorId: 'i1', at: '2026-06-03T06:00:00Z', tempC: 30 },
-      { incubatorId: 'i1', at: '2026-06-03T07:00:00Z', tempC: 18 }, // door open
+      { incubatorId: 'i1', at: '2026-06-03T07:00:00Z', tempC: 15 }, // door open
       { incubatorId: 'i1', at: '2026-06-03T08:00:00Z', tempC: 30 },
     ]
-    const cool = coolDays(dailyMeanTempByIncubator(dip, toYmd))
-    expect(cool.get('i1')).toBeUndefined()
+    expect(holdingDays(dailyMeanTempByIncubator(dip, toYmd)).get('i1')).toBeUndefined()
   })
 
-  it('ignores unusable readings and reports nothing for no data', () => {
-    const means = dailyMeanTempByIncubator([], toYmd)
-    expect(coolDays(means).size).toBe(0)
+  it('reports nothing when there are no readings', () => {
+    expect(holdingDays(dailyMeanTempByIncubator([], toYmd)).size).toBe(0)
+  })
+
+  it('runWindow spans the start through the last milestone', () => {
+    expect(runWindow('2026-06-01')).toEqual({ from: '2026-06-01', to: '2026-07-07' })
   })
 })

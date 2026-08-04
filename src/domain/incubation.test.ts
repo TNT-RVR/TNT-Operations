@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   incubationProgress,
   DEFAULT_INCUBATION_DAYS,
+  INCUBATION_MILESTONES,
   calcRawWeightPerTray,
   calcSampleSummary,
   parseDate,
@@ -46,14 +47,35 @@ describe('incubationProgress', () => {
     expect(p.stage).toBe('early')
   })
 
-  it('is ~50% halfway through a 21-day cycle', () => {
-    const p = incubationProgress('2026-07-01T00:00:00Z', '2026-07-11T12:00:00Z')
+  it('tracks the milestone schedule, not an arbitrary 21 days', () => {
+    // DEFAULT_INCUBATION_DAYS must stay pinned to Expected Release, or the card
+    // claims a run is finished while the calendar still has milestones ahead.
+    const expectedRelease = INCUBATION_MILESTONES.find((m) => m.label === 'Expected Release')
+    expect(DEFAULT_INCUBATION_DAYS).toBe(expectedRelease!.day)
+  })
+
+  it('is ~50% halfway through the cycle', () => {
+    const half = DEFAULT_INCUBATION_DAYS / 2
+    const start = Date.parse('2026-07-01T00:00:00Z')
+    const p = incubationProgress('2026-07-01T00:00:00Z', new Date(start + half * 86400000).toISOString())
     expect(p.pct).toBe(50)
     expect(p.stage).toBe('mid')
+    expect(p.overdue).toBe(false)
+  })
+
+  it('reports how far past schedule an overrun run is, rather than "0d left"', () => {
+    // Day 64 of a 23-day schedule: the real case seen on the incubator cards.
+    const p = incubationProgress('2026-06-01T00:00:00Z', '2026-08-04T00:00:00Z')
+    expect(p.overdue).toBe(true)
+    expect(p.daysOverdue).toBe(64 - DEFAULT_INCUBATION_DAYS)
+    expect(p.daysRemaining).toBe(0)
   })
 
   it('flags emergence in the last stretch', () => {
-    const p = incubationProgress('2026-07-01T00:00:00Z', '2026-07-19T00:00:00Z') // 18/21 ≈ 86%
+    // Relative to the schedule, so this doesn't silently break if it changes.
+    const start = Date.parse('2026-07-01T00:00:00Z')
+    const day = DEFAULT_INCUBATION_DAYS * 0.9
+    const p = incubationProgress('2026-07-01T00:00:00Z', new Date(start + day * 86400000).toISOString())
     expect(p.stage).toBe('emergence')
   })
 

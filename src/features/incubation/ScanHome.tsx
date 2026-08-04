@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Camera, X, Undo2, RotateCw } from 'lucide-react'
+import { Camera, Undo2, RotateCw } from 'lucide-react'
 import { PageHeader, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 
 import { parseScan, findTrays } from './trayLookup'
+import { ScannerOverlay, type ScanFeedback } from './ScannerOverlay'
 import { trayWeightKg } from '@/domain/incubation'
 
-const READER_ID = 'tray-qr-reader'
 /** Ignore the same code re-decoding while it sits in frame. */
 const SAME_CODE_COOLDOWN_MS = 2500
 
@@ -31,7 +31,7 @@ interface Entry {
 }
 
 /** Short blip so a scan can be confirmed by ear — you're looking at trays, not the phone. */
-function feedback(kind: 'ok' | 'warn') {
+function blip(kind: 'ok' | 'warn') {
   try {
     navigator.vibrate?.(kind === 'ok' ? 40 : [30, 60, 30])
   } catch {
@@ -67,12 +67,14 @@ export default function ScanHome() {
   const [sampleId, setSampleId] = useState('')
   const [incubatorId, setIncubatorId] = useState(params.get('incubator') ?? '')
   const [scanning, setScanning] = useState(false)
-  const [camError, setCamError] = useState<string | null>(null)
   const [entries, setEntries] = useState<Entry[]>([])
   const [manual, setManual] = useState('')
+  /** Last scan result, flashed over the camera. */
+  const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
+  const seqRef = useRef(0)
+  const flash = (kind: ScanFeedback['kind'], title: string, detail?: string) =>
+    setFeedback({ kind, title, detail, seq: ++seqRef.current })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scannerRef = useRef<any>(null)
   const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
   /** Labels already accepted this session — the guard against double-counting. */
   const seenRef = useRef<Set<string>>(new Set())
@@ -121,7 +123,8 @@ export default function ScanHome() {
       // real correction (it went in the wrong lot), not a double-scan.
       const seenKey = `${sid}|${canonical}`
       if (seenRef.current.has(seenKey)) {
-        feedback('warn')
+        blip('warn')
+        flash('warn', canonical, `Already scanned into ${sName}`)
         setEntries((prev) => [
           { key: `${seenKey}-${now}`, label: canonical, state: 'duplicate', sampleId: sid, sampleName: sName },
           ...prev,
@@ -129,7 +132,8 @@ export default function ScanHome() {
         return
       }
       seenRef.current.add(seenKey)
-      feedback('ok')
+      blip('ok')
+      flash('ok', canonical, `→ ${sName}`)
 
       const key = `${seenKey}-${now}`
       setEntries((prev) => [
@@ -137,15 +141,21 @@ export default function ScanHome() {
         ...prev,
       ])
       // Fire and forget: the camera must never wait on the network.
-      void assignTray({ trayNumber: canonical, sampleId: sid, incubatorId: iid }).then((r) =>
+      void assignTray({ trayNumber: canonical, sampleId: sid, incubatorId: iid }).then((r) => {
         setEntries((prev) =>
           prev.map((e) =>
             e.key === key
               ? { ...e, state: r.ok ? 'ok' : 'error', error: r.error, created: r.created }
               : e,
           ),
-        ),
-      )
+        )
+        // A save that failed must not be left looking like a successful scan.
+        if (!r.ok) {
+          blip('warn')
+          flash('error', canonical, r.error ?? "Didn't save — check the connection")
+          seenRef.current.delete(seenKey)
+        }
+      })
     },
     [assignTray],
   )
@@ -171,21 +181,10 @@ export default function ScanHome() {
     }
   }, [])
 
-  const stopCamera = useCallback(async () => {
-    const inst = scannerRef.current
-    scannerRef.current = null
+  const stopCamera = useCallback(() => {
     setScanning(false)
     releaseWakeLock()
-    if (inst) {
-      try {
-        await inst.stop()
-      } catch {
-        /* already stopped */
-      }
-    }
   }, [releaseWakeLock])
-
-  useEffect(() => () => void stopCamera(), [stopCamera])
 
   // The browser drops a wake lock whenever the page is hidden (a call, a
   // notification, pocketing the phone), so take it again on return.
@@ -198,26 +197,9 @@ export default function ScanHome() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [scanning, acquireWakeLock])
 
-  async function startCamera() {
-    setCamError(null)
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setCamError('Camera needs a secure (https) connection — type labels below instead.')
-      return
-    }
+  function startCamera() {
     setScanning(true)
     void acquireWakeLock()
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode')
-      const inst = new Html5Qrcode(READER_ID)
-      scannerRef.current = inst
-      // Camera stays running across scans — restarting it for each of 600 trays
-      // would cost minutes and break the rhythm.
-      await inst.start({ facingMode: 'environment' }, { fps: 10, qrbox: 250 }, record, () => {})
-    } catch (e) {
-      setScanning(false)
-      scannerRef.current = null
-      setCamError(e instanceof Error ? e.message : 'Could not start the camera.')
-    }
   }
 
   function undoLast() {
@@ -320,65 +302,15 @@ export default function ScanHome() {
                   Reset
                 </button>
               )}
-              {!scanning ? (
-                <button className="btn-primary" onClick={startCamera} disabled={!ready}>
+                              <button className="btn-primary" onClick={startCamera} disabled={!ready}>
                   <Camera size={18} className="mr-1 inline" /> Start scanning
                 </button>
-              ) : (
-                <button className="btn-ghost" onClick={() => void stopCamera()}>
-                  <X size={18} className="mr-1 inline" /> Stop
-                </button>
-              )}
             </div>
           </div>
 
           {!ready && <p className="text-xs text-muted">Choose a sample and incubator to start.</p>}
 
-          {/* Sample switcher, kept right on the camera. Samples change often
-              mid-run, and scrolling back up to the setup row would stall it.
-              Also shown once a run has started, so manual entry gets it too. */}
-          {(scanning || entries.length > 0) && ready && (
-            <div className="mb-2 space-y-2 rounded-sm border border-default p-2">
-              <label className="flex items-center gap-2">
-                <span className="label shrink-0">Now filling</span>
-                <select
-                  className="min-w-0 flex-1 rounded-sm border border-default bg-inset px-2 py-1.5 text-base text-primary"
-                  value={sampleId}
-                  onChange={(e) => setSampleId(e.target.value)}
-                >
-                  {samples.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {recentSamples.length > 1 && (
-                <div className="flex flex-wrap gap-1">
-                  {recentSamples.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => setSampleId(r.id)}
-                      className={`rounded-sm px-2 py-1 font-mono text-xs transition ${
-                        r.id === sampleId
-                          ? 'bg-brand text-on-brand'
-                          : 'text-secondary hover:bg-[color:var(--hover-wash)]'
-                      }`}
-                    >
-                      {r.name} · {r.count}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* html5-qrcode injects the video here; keep it mounted while scanning */}
-          <div id={READER_ID} className={scanning ? 'overflow-hidden rounded-lg' : 'hidden'} />
-
-          {camError && (
-            <p className="mt-2 rounded-sm border border-default px-2 py-1.5 text-sm text-secondary">{camError}</p>
-          )}
 
           {/* Manual entry — for a damaged label, or when the camera is unavailable */}
           <div className="mt-3 flex gap-2">
@@ -421,6 +353,49 @@ export default function ScanHome() {
             </button>
           </div>
         )}
+
+        <ScannerOverlay
+          open={scanning}
+          title={`${okCount} scanned · ${sample?.name ?? ''}`}
+          feedback={feedback}
+          onScan={record}
+          onClose={stopCamera}
+          footer={
+            ready ? (
+              <div className="space-y-2">
+                {recentSamples.length > 1 && (
+                  <div className="flex flex-wrap gap-1">
+                    {recentSamples.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => setSampleId(r.id)}
+                        className={`rounded-sm px-2 py-1 font-mono text-xs transition ${
+                          r.id === sampleId ? 'bg-brand text-on-brand' : 'text-secondary'
+                        }`}
+                      >
+                        {r.name} · {r.count}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              <label className="flex items-center gap-2">
+                <span className="label shrink-0">Now filling</span>
+                <select
+                  className="min-w-0 flex-1 rounded-sm border border-default bg-inset px-2 py-2 text-base text-primary"
+                  value={sampleId}
+                  onChange={(e) => setSampleId(e.target.value)}
+                >
+                  {samples.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              </div>
+            ) : null
+          }
+        />
 
         {/* Run log, newest first */}
         {entries.length > 0 && (

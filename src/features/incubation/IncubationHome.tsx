@@ -58,7 +58,7 @@ export default function IncubationHome() {
                   <div className="mb-1 flex justify-between text-xs text-muted">
                     <span>{day != null ? `Day ${day}` : p.stage}</span>
                     <span>
-                      {p.pct}% · {p.daysRemaining}d left
+                      {p.overdue ? `${p.daysOverdue}d past schedule` : `${p.pct}% · ${p.daysRemaining}d left`}
                     </span>
                   </div>
                   <Gauge pct={p.pct} tone={p.stage === 'emergence' ? 'amber' : 'brand'} />

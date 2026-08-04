@@ -1,8 +1,96 @@
 import { useState } from 'react'
-import { Moon, Sun, Pencil, Trash2, Check, X } from 'lucide-react'
-import { PageHeader, Badge, Card, Switch, IconButton } from '@/components/ui'
+import { Moon, Sun, Pencil, Trash2, Check, X, UserPlus } from 'lucide-react'
+import { PageHeader, Badge, Card, Switch, IconButton, Modal } from '@/components/ui'
 import { useSession, ASSIGNABLE_ROLES, type Role } from '@/auth/session'
 import { useTheme } from '@/styles/theme'
+
+/** Invite-by-email dialog. The invitee arrives with the role chosen here. */
+function InviteDialog({ onClose }: { onClose: () => void }) {
+  const s = useSession()
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState<Role>('operator')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sent, setSent] = useState(false)
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    const res = await s.inviteUser({ email: email.trim(), name: name.trim(), role })
+    setBusy(false)
+    if (res.ok) setSent(true)
+    else setError(res.error ?? 'Invite failed')
+  }
+
+  return (
+    <Modal title="Invite a user" onClose={onClose}>
+      {sent ? (
+        <div className="space-y-4">
+          <p
+            className="rounded-md px-3 py-2 text-sm"
+            style={{ background: 'var(--ok-bg)', border: '1px solid var(--ok-bd)', color: 'var(--ok-fg)' }}
+          >
+            Invite sent to <strong>{email}</strong>. They'll get an email with a link to set a password, and arrive
+            with the <strong>{role}</strong> role — no approval needed.
+          </p>
+          <button className="btn-primary w-full" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <label className="block">
+            <span className="label">Email</span>
+            <input
+              className="input"
+              type="email"
+              required
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+            />
+          </label>
+          <label className="block">
+            <span className="label">Name (optional)</span>
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Their name" />
+          </label>
+          <label className="block">
+            <span className="label">Role</span>
+            <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+              {ASSIGNABLE_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-muted">
+            They're emailed a link to set their own password. You never handle it.
+          </p>
+          {error && (
+            <p
+              className="rounded-md px-3 py-2 text-sm"
+              style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger-bd)', color: 'var(--danger-fg)' }}
+            >
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button type="button" className="btn-ghost flex-1" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary flex-1" disabled={busy || !email.trim()}>
+              {busy ? 'Sending…' : 'Send invite'}
+            </button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  )
+}
 
 function roleTone(role: Role): 'brand' | 'blue' | 'amber' {
   if (role === 'admin' || role === 'developer') return 'brand'
@@ -22,6 +110,7 @@ export default function UsersHome() {
   const [editName, setEditName] = useState('')
   // Two-step delete confirmation.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [inviting, setInviting] = useState(false)
 
   function startEdit(id: string, name: string) {
     setEditingId(id)
@@ -39,7 +128,14 @@ export default function UsersHome() {
         title="Users & Settings"
         subtitle="Roles and access (admin only)"
         actions={
-          pendingCount > 0 ? <Badge tone="amber">{pendingCount} awaiting approval</Badge> : undefined
+          <div className="flex items-center gap-2">
+            {pendingCount > 0 && <Badge tone="amber">{pendingCount} awaiting approval</Badge>}
+            {canEdit && (
+              <button className="btn-primary min-h-0 px-3 py-1.5 text-sm" onClick={() => setInviting(true)}>
+                <UserPlus size={15} /> Invite user
+              </button>
+            )}
+          </div>
         }
       />
       <div className="space-y-6 p-4 md:p-6">
@@ -171,6 +267,7 @@ export default function UsersHome() {
             : 'Mock mode uses seeded users. In the Supabase backend, new sign-ups appear here for approval.'}
         </p>
       </div>
+      {inviting && <InviteDialog onClose={() => setInviting(false)} />}
     </div>
   )
 }

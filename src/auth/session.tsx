@@ -71,6 +71,12 @@ export interface SessionValue {
   /** Admins remove a user's profile (revokes access; they re-appear as pending
    *  if they sign in again). Cannot remove yourself. */
   deleteUser: (userId: string) => void
+  /**
+   * Admins email an invite. The invitee arrives with the role chosen here, so
+   * they skip the pending queue (see migration 0011). Server-side only — it
+   * needs the service key — so this posts to the invite-user function.
+   */
+  inviteUser: (input: { email: string; name: string; role: Role }) => Promise<{ ok: boolean; error?: string }>
   authMode: AuthMode
 }
 
@@ -108,6 +114,14 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
       deleteUser: (uid) => {
         if (uid === user.id) return
         setUsers((prev) => prev.filter((u) => u.id !== uid))
+      },
+      // Mock: no email to send — drop the invitee straight into the roster.
+      inviteUser: async ({ email, name, role }) => {
+        if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+          return { ok: false, error: 'That email already has an account.' }
+        }
+        setUsers((prev) => [...prev, { id: `u_${Date.now()}`, name: name || email, email, role }])
+        return { ok: true }
       },
       authMode: 'mock',
     }),
@@ -227,6 +241,30 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, name } : u)))
           })
+      },
+      inviteUser: async ({ email, name, role }) => {
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/invite-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ email, name, role }),
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Invite failed (${res.status})` }
+          // The profile row appears when they accept; show them as pending-invite
+          // in the meantime so the admin can see it went out.
+          setUsers((prev) =>
+            prev.some((u) => u.email.toLowerCase() === email.toLowerCase())
+              ? prev
+              : [...prev, { id: `invited_${email}`, name: name || email, email, role }],
+          )
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Invite failed' }
+        }
       },
       deleteUser: (userId) => {
         if (userId === user.id) return // never remove yourself

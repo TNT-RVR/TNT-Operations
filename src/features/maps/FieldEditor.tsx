@@ -233,6 +233,8 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, warnings = [],
           <div className="grid grid-cols-2 gap-3">
             <NumField label="Track exclusion" fieldKey="track_exclusion_ft" draft={draft} onChange={onChange} suffix="ft" />
             <NumField label="Pass edge buffer" fieldKey="pass_edge_buffer_ft" draft={draft} onChange={onChange} suffix="ft" />
+            <NumField label="Tire width" fieldKey="tire_width_ft" draft={draft} onChange={onChange} suffix="ft" />
+            <NumField label="Shelter buffer" fieldKey="shelter_buffer_m" draft={draft} onChange={onChange} suffix="m" />
           </div>
           <ToggleRow
             label="Keep shelters out of the outside round (green-compliant)"

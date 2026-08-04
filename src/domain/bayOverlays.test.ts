@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { Position } from 'geojson'
+import type { Feature, Polygon, Position } from 'geojson'
+import { area as turfArea, booleanPointInPolygon } from '@turf/turf'
 import { maleBayBands, planterPassLines, alignmentLines } from './bayOverlays'
 import { fieldFrame, latAlongToLonLat, enuToLatAlong, type FieldFrame } from './fieldFrame'
 import { fromLonLat } from './geo'
@@ -115,6 +116,169 @@ describe('maleBayBands', () => {
     ).toHaveLength(0)
     // all-female mask → no male runs
     expect(maleBayBands({ ...FIELD, num_male_rows: '0' }).features).toHaveLength(0)
+  })
+
+  // ── spec §6.4 "Toggle Bays Through Inner" (`bays_through_inner`, default off) ──
+  describe('inner-boundary clipping', () => {
+    const f = fieldFrame(FIELD)!
+    // Pass 0's FIRST male band: rows 4–5 of "FFFFMMFFFFFFFFMMFFFF".
+    const BAND_LO = 4 * RS_M
+    const BAND_HI = 6 * RS_M
+    const BAND_MID = (BAND_LO + BAND_HI) / 2
+
+    /** An inner ring over the frame rectangle [latA,latB] × [alongA,alongB], stored [lat,lon]. */
+    const holeRing = (
+      latA: number,
+      latB: number,
+      alongA: number,
+      alongB: number,
+    ): Array<[number, number]> =>
+      (
+        [
+          [latA, alongA],
+          [latB, alongA],
+          [latB, alongB],
+          [latA, alongB],
+        ] as Array<[number, number]>
+      ).map(([lateral, along]) => {
+        const [lng, lat] = latAlongToLonLat(f, lateral, along)
+        return [lat, lng] as [number, number]
+      })
+
+    /** A hole straddling the middle of the field: every band through it loses its centre. */
+    const CROSSING = holeRing(-30, 30, -40, 40)
+    /** A hole that covers the whole along-extent of pass 0's first band: swallows it. */
+    const SWALLOWING = holeRing(BAND_LO - 0.2, BAND_HI + 0.2, -450, 450)
+
+    const totalArea = (fc: { features: Feature<Polygon>[] }) =>
+      fc.features.reduce((a, x) => a + turfArea(x), 0)
+    const passesOf = (fc: { features: Feature<Polygon>[] }, pass: number) =>
+      fc.features.filter((x) => (x.properties as { pass: number }).pass === pass)
+
+    const BASE = maleBayBands(FIELD)
+
+    // THE regression guard: a field with no inner rings must be untouched.
+    it('does no clipping — and changes nothing — without inner rings', () => {
+      expect(maleBayBands({ ...FIELD, boundary_inner: [] })).toEqual(BASE)
+      expect(maleBayBands({ ...FIELD, access_road_boundary: [] })).toEqual(BASE)
+      expect(
+        maleBayBands({ ...FIELD, boundary_inner: [], access_road_boundary: [] }),
+      ).toEqual(BASE)
+      // byte-identical, not merely deep-equal
+      expect(JSON.stringify(maleBayBands({ ...FIELD, boundary_inner: [] }))).toBe(
+        JSON.stringify(BASE),
+      )
+    })
+
+    it('cuts the covered part out of a band that crosses an inner ring', () => {
+      const clipped = maleBayBands({ ...FIELD, boundary_inner: [CROSSING] })
+      const hit = latAlongToLonLat(f, BAND_MID, 0) // dead centre of the hole, on a band
+
+      expect(BASE.features.some((x) => booleanPointInPolygon(hit, x))).toBe(true)
+      expect(clipped.features.some((x) => booleanPointInPolygon(hit, x))).toBe(false)
+
+      // Bands split in two, so there are MORE features covering LESS ground.
+      expect(clipped.features.length).toBeGreaterThan(BASE.features.length)
+      expect(totalArea(clipped)).toBeLessThan(totalArea(BASE))
+      expect(totalArea(clipped)).toBeGreaterThan(0)
+      for (const feat of clipped.features) {
+        expect(allFinite(feat.geometry.coordinates[0])).toBe(true)
+      }
+    })
+
+    it('clips against the access road as well as interior boundaries', () => {
+      const viaAccess = maleBayBands({ ...FIELD, access_road_boundary: [CROSSING] })
+      const viaInner = maleBayBands({ ...FIELD, boundary_inner: [CROSSING] })
+      expect(totalArea(viaAccess)).toBeCloseTo(totalArea(viaInner), 6)
+      expect(totalArea(viaAccess)).toBeLessThan(totalArea(BASE))
+      // Both lists at once still clips (union of the two).
+      const both = maleBayBands({
+        ...FIELD,
+        boundary_inner: [CROSSING],
+        access_road_boundary: [SWALLOWING],
+      })
+      expect(totalArea(both)).toBeLessThan(totalArea(viaInner))
+    })
+
+    it('a band swallowed by a hole disappears entirely', () => {
+      expect(passesOf(BASE, 0)).toHaveLength(2) // two male runs per pass
+      const clipped = maleBayBands({ ...FIELD, boundary_inner: [SWALLOWING] })
+      const left = passesOf(clipped, 0)
+      expect(left).toHaveLength(1)
+      // The survivor is the OTHER run (rows 14–15), not the swallowed one.
+      const lateral = left[0].geometry.coordinates[0]
+        .slice(0, 4)
+        .map((c) => toLateral(f, c))
+      expect(Math.min(...lateral)).toBeGreaterThan(BAND_HI)
+    })
+
+    it('keeps kind + pass on every piece a split band becomes', () => {
+      const clipped = maleBayBands({ ...FIELD, boundary_inner: [CROSSING] })
+      for (const feat of clipped.features) {
+        expect(feat.properties).toMatchObject({ kind: 'male_bay' })
+        expect(Number.isInteger((feat.properties as { pass: number }).pass)).toBe(true)
+      }
+      // Pass 0's two bands both straddle the hole ⇒ 4 pieces, all labelled pass 0.
+      const p0 = passesOf(clipped, 0)
+      expect(p0.length).toBeGreaterThan(passesOf(BASE, 0).length)
+      for (const feat of p0) {
+        expect(feat.properties).toEqual({ kind: 'male_bay', pass: 0 })
+      }
+      // Every pass that existed before still exists after (nothing loses its label).
+      const before = new Set(BASE.features.map((x) => (x.properties as { pass: number }).pass))
+      const after = new Set(clipped.features.map((x) => (x.properties as { pass: number }).pass))
+      expect([...before].every((p) => after.has(p))).toBe(true)
+    })
+
+    it('bays_through_inner runs the bands straight through', () => {
+      for (const on of [true, 'true', 'True', 'yes', 1]) {
+        expect(
+          maleBayBands({ ...FIELD, boundary_inner: [CROSSING], bays_through_inner: on }),
+        ).toEqual(BASE)
+      }
+      // …and an explicit false (or a blank) still clips.
+      for (const off of [false, 'false', '', undefined]) {
+        const clipped = maleBayBands({
+          ...FIELD,
+          boundary_inner: [CROSSING],
+          bays_through_inner: off,
+        })
+        expect(totalArea(clipped)).toBeLessThan(totalArea(BASE))
+      }
+    })
+
+    it('ignores malformed inner rings instead of throwing', () => {
+      const junk = {
+        ...FIELD,
+        boundary_inner: [
+          [
+            [49.83, -111.6],
+            [49.84, -111.6],
+          ], // only 2 points
+          [
+            ['a', 'b'],
+            [49.83, -111.6],
+            [49.84, -111.59],
+            [49.84, -111.6],
+          ], // non-numeric corner
+          [], // empty
+          'not a ring',
+          null,
+        ],
+        access_road_boundary: [[[49.83, -111.6]], undefined],
+      }
+      expect(() => maleBayBands(junk)).not.toThrow()
+      expect(maleBayBands(junk)).toEqual(BASE)
+
+      // A good ring alongside the junk still clips.
+      const mixed = maleBayBands({ ...junk, access_road_boundary: [null, CROSSING] })
+      expect(totalArea(mixed)).toBeLessThan(totalArea(BASE))
+    })
+
+    it('is deterministic once clipped', () => {
+      const field = { ...FIELD, boundary_inner: [CROSSING] }
+      expect(JSON.stringify(maleBayBands(field))).toBe(JSON.stringify(maleBayBands(field)))
+    })
   })
 })
 

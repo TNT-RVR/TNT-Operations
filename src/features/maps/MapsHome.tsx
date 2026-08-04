@@ -16,6 +16,7 @@ import { fieldWarnings } from '@/domain/fieldWarnings'
 import { haversineMeters } from '@/domain/geo'
 import { maleBayBands, planterPassLines, alignmentLines } from '@/domain/bayOverlays'
 import { sprayerPassLines, outerSprayerLimit, tireAndEdgeZones, shelterBufferSquares } from '@/domain/sprayOverlays'
+import { totalGals, mathTrays, totalTrays, trayDistribution } from '@/domain/cost'
 import { MapToolbar, type ToolAction } from './MapToolbar'
 import {
   loadVisibility,
@@ -28,6 +29,7 @@ import { FieldEditor } from './FieldEditor'
 import { SATELLITE_STYLE } from './basemap'
 import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
+import { pathsFromFile, actualSheltersFromFile } from './importPaths'
 import {
   shelterCsv,
   sheltersKml,
@@ -61,6 +63,11 @@ const EDGE = '#22E048' // edge zone at pass edges
 const PLANTER_NUM = '#FFB000' // planter pass lines + numbers
 const ALIGN = '#86E0FF' // alignment guide mesh
 const BUFFER = '#1E90FF' // shelter buffer squares (JD section control)
+const PLANTER_PATH = '#1E90FF' // imported JD planter polylines
+const SPRAY_PATH = '#FF8C00' // uploaded sprayer GPS tracks
+const ACTUAL = '#19E36B' // crew-scanned actual placements
+const ACTUAL_OUTLINE = '#04361B'
+const TEST_PIN = '#1E90FF' // test shelters, counted separately
 
 /** Ring types the shared draw machine can author (spec §6.2). */
 type RingTarget = 'boundary' | 'inner' | 'access' | 'wet'
@@ -114,6 +121,9 @@ const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 const num = (v: unknown): number => Number(v)
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v))
+/** The old app stored booleans as real bools, "true"/"Yes" strings, or 1. */
+const truthyVal = (v: unknown): boolean =>
+  v === true || v === 1 || ['true', 'yes'].includes(String(v ?? '').trim().toLowerCase())
 
 function boundaryFeature(geom?: FieldGeometry): Feature<Polygon> | null {
   if (!geom) return null
@@ -140,12 +150,23 @@ function pivotFeature(geom?: FieldGeometry): Feature<Point> | null {
   return { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [lon, lat] } }
 }
 
-function sheltersCollection(pins: { lng: number; lat: number }[]): FeatureCollection<Point> {
+/**
+ * Shelter pins as GeoJSON. `label` drives the optional on-map number (§6.5):
+ * the shelter's index, its tray count, or nothing.
+ */
+function sheltersCollection(
+  pins: { lng: number; lat: number }[],
+  mode: 'off' | 'shelter' | 'trays' = 'off',
+  trayCounts: number[] = [],
+): FeatureCollection<Point> {
   return {
     type: 'FeatureCollection',
     features: pins.map((p, i) => ({
       type: 'Feature',
-      properties: { n: i + 1 },
+      properties: {
+        n: i + 1,
+        label: mode === 'shelter' ? String(i + 1) : mode === 'trays' ? String(trayCounts[i] ?? '') : '',
+      },
       geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
     })),
   }
@@ -204,6 +225,9 @@ export default function MapsHome() {
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const shelterMarkersRef = useRef<maplibregl.Marker[]>([])
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const pathInputRef = useRef<HTMLInputElement | null>(null)
+  const planterInputRef = useRef<HTMLInputElement | null>(null)
+  const csvInputRef = useRef<HTMLInputElement | null>(null)
   const [ready, setReady] = useState(false)
   // Boundary drawing: an in-progress ring of [lat, lon] vertices.
   const [drawing, setDrawing] = useState(false)
@@ -224,11 +248,22 @@ export default function MapsHome() {
   const [measuring, setMeasuring] = useState(false)
   /** Crew-route hand editing (§6.6). */
   const [routeEditing, setRouteEditing] = useState(false)
+  /**
+   * Vertex-editing an existing ring (§6.2 "Draw / Edit Boundary" — drag handles).
+   * `null` = off; otherwise the ring being edited. `index` picks which ring of a
+   * list type (inner / access / wet); the boundary is a single ring so index 0.
+   */
+  const [vertexEdit, setVertexEdit] = useState<{ target: RingTarget; index: number } | null>(null)
+  const vertexMarkersRef = useRef<maplibregl.Marker[]>([])
   /** Which tool layer's actions are showing. */
   const [tool, setTool] = useState<LayerGroup>('boundary')
   const [visibility, setVisibility] = useState<LayerVisibility>(loadVisibility)
   /** Pin labels: shelter number, tray count, or nothing (§6.5). */
   const [pinNumbers, setPinNumbers] = useState<'off' | 'shelter' | 'trays'>('off')
+  /** Planned grid vs the crew's scanned placements (§6.5 "Show Planned / Actual"). */
+  const [shelterView, setShelterView] = useState<'planned' | 'actual'>('planned')
+  /** Placing blue TEST shelter pins rather than ordinary ones (§6.5). */
+  const [placingTest, setPlacingTest] = useState(false)
   /** Whole-field undo/redo stacks for the draft (§9). */
   const undoRef = useRef<FieldGeometry[]>([])
   const redoRef = useRef<FieldGeometry[]>([])
@@ -238,6 +273,17 @@ export default function MapsHome() {
   // Live crews broadcasting from Field Mode.
   const [liveCrews, setLiveCrews] = useState<Record<string, LiveCrew>>({})
   const crewMarkersRef = useRef<maplibregl.Marker[]>([])
+
+  /** Field-list filter — name, client, region, and the field's company/year/LLD. */
+  const [fieldQuery, setFieldQuery] = useState('')
+  const visibleFields = useMemo(() => {
+    const q = fieldQuery.trim().toLowerCase()
+    if (!q) return fields
+    return fields.filter((f) =>
+      [f.name, f.client, f.region, str(f.geometry?.company), str(f.geometry?.year), str(f.geometry?.lld)]
+        .some((v) => String(v ?? '').toLowerCase().includes(q)),
+    )
+  }, [fields, fieldQuery])
 
   const selectedField: Field | null = useMemo(
     () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
@@ -292,6 +338,8 @@ export default function MapsHome() {
     setMeasuring(false)
     setMeasure([])
     setRouteEditing(false)
+    setPlacingTest(false)
+    setVertexEdit(null)
     setImportError(null)
   }
 
@@ -431,6 +479,51 @@ export default function MapsHome() {
     resetDraw()
   }
 
+  /** Read a ring out of the draft: the boundary, or ring `index` of a list type. */
+  function readRing(target: RingTarget, index: number): Array<[number, number]> | null {
+    const g = draft
+    if (!g) return null
+    const raw = g[RING_SPEC[target].key]
+    if (!Array.isArray(raw)) return null
+    const ring = RING_SPEC[target].list ? (raw[index] as unknown) : raw
+    if (!Array.isArray(ring) || ring.length < 3) return null
+    return (ring as Array<[unknown, unknown]>).map((p) => [num(p[0]), num(p[1])] as [number, number])
+  }
+
+  /** Write a ring back, keeping acreage in step when it's the outer boundary. */
+  function writeRing(target: RingTarget, index: number, ring: Array<[number, number]>) {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const { key, list } = RING_SPEC[target]
+      if (!list) {
+        return { ...prev, [key]: ring, acres: String(Math.round(ringAcres(ring) * 100) / 100) }
+      }
+      const cur = Array.isArray(prev[key]) ? [...(prev[key] as unknown[])] : []
+      cur[index] = ring
+      return { ...prev, [key]: cur }
+    })
+  }
+
+  /** Drag one vertex of a ring to a new position. */
+  function moveVertex(target: RingTarget, index: number, vertex: number, lat: number, lon: number) {
+    const ring = readRing(target, index)
+    if (!ring || vertex < 0 || vertex >= ring.length) return
+    const next = ring.map((p, i) => (i === vertex ? ([lat, lon] as [number, number]) : p))
+    writeRing(target, index, next)
+  }
+
+  /** Remove a vertex (double-click). Refuses below 3 — a ring needs three. */
+  function deleteVertex(target: RingTarget, index: number, vertex: number) {
+    const ring = readRing(target, index)
+    if (!ring || ring.length <= 3) return
+    pushHistory()
+    writeRing(
+      target,
+      index,
+      ring.filter((_, i) => i !== vertex),
+    )
+  }
+
   /** Drop the most recently added ring of a type (§6.2 "Delete …"). */
   function deleteLastRing(target: Exclude<RingTarget, 'boundary'>) {
     const { key } = RING_SPEC[target]
@@ -497,6 +590,29 @@ export default function MapsHome() {
     setAddingTrack(false)
   }
 
+  /**
+   * Nudge the bays+flags (§6.4 "Shift") or the sprayer passes (§6.3 "Shift").
+   * Bay shift is stored in ENU metres and moves bays and shelters together —
+   * it's the same field the crew's GPS calibration writes.
+   */
+  function nudgeBays(dEast: number, dNorth: number) {
+    pushHistory()
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            bay_shift_e_m: (num(prev.bay_shift_e_m) || 0) + dEast,
+            bay_shift_n_m: (num(prev.bay_shift_n_m) || 0) + dNorth,
+          }
+        : prev,
+    )
+  }
+
+  function nudgeSprayer(delta: number) {
+    pushHistory()
+    setDraft((prev) => (prev ? { ...prev, sprayer_shift: (num(prev.sprayer_shift) || 0) + delta } : prev))
+  }
+
   function deleteTrack(idx: number) {
     pushHistory()
     setDraft((prev) => {
@@ -511,11 +627,70 @@ export default function MapsHome() {
     [draft],
   )
 
+  /**
+   * Trays per shelter for the pin labels — the Part 7.2 bee math, reusing the
+   * cost module's port so the map and the estimator can never disagree.
+   */
+  const trayCounts: number[] = useMemo(() => {
+    const g = previewGeom
+    if (!g || shelters.length === 0) return []
+    const gals = totalGals(num(g.gals_per_acre ?? 3) || 0, num(g.acres) || 0)
+    const trays = totalTrays(mathTrays(gals, num(g.gals_per_tray ?? 2) || 0), shelters.length)
+    return trayDistribution(trays, shelters.length)
+  }, [previewGeom, shelters.length])
+
   /** Straight-line distance between the two measured points, in metres. */
   const measureM =
     measure.length === 2
       ? haversineMeters({ lat: measure[0][0], lng: measure[0][1] }, { lat: measure[1][0], lng: measure[1][1] })
       : null
+
+  /** How many polylines / pins are stored under a field key. */
+  const pathCount = (key: string): number => {
+    const v = draft?.[key]
+    return Array.isArray(v) ? v.length : 0
+  }
+
+  function clearPaths(key: string) {
+    pushHistory()
+    setDraft((prev) => (prev ? { ...prev, [key]: [] } : prev))
+  }
+
+  /** Import GPS polylines from a machine export (§6.3, §6.4). */
+  async function onImportPaths(file: File, key: 'planter_passes' | 'sprayer_passes') {
+    setImportError(null)
+    try {
+      const paths = await pathsFromFile(file)
+      pushHistory()
+      setDraft((prev) => {
+        if (!prev) return prev
+        const next: FieldGeometry = { ...prev, [key]: paths }
+        // Imported planter passes are the authority when present (Part 4).
+        if (key === 'planter_passes') next.use_imported_passes = true
+        return next
+      })
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Import failed')
+    }
+  }
+
+  /** Import the crew's scanned placements from CSV (§6.5). */
+  async function onImportActual(file: File) {
+    setImportError(null)
+    try {
+      const { pins, skipped } = await actualSheltersFromFile(file)
+      if (pins.length === 0) {
+        setImportError(`No usable rows in ${file.name}${skipped ? ` (${skipped} skipped)` : ''}.`)
+        return
+      }
+      pushHistory()
+      setDraft((prev) => (prev ? { ...prev, actual_shelter_pins: pins.map((p) => [p.lat, p.lng]) } : prev))
+      if (skipped > 0) setImportError(`Imported ${pins.length} pins; skipped ${skipped} unreadable row(s).`)
+      setShelterView('actual')
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Import failed')
+    }
+  }
 
   async function onImportFile(file: File) {
     setImportError(null)
@@ -675,6 +850,44 @@ export default function MapsHome() {
       map.addSource('buffers', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'buffers-line', type: 'line', source: 'buffers', paint: { 'line-color': BUFFER, 'line-width': 1 } })
 
+      // Imported machine paths + the crew's scanned placements (§6.3–6.5).
+      map.addSource('planterpaths', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'planterpaths-line', type: 'line', source: 'planterpaths', paint: { 'line-color': PLANTER_PATH, 'line-width': 1.5 } })
+      map.addSource('sprayerpaths', { type: 'geojson', data: EMPTY })
+      map.addLayer({ id: 'sprayerpaths-line', type: 'line', source: 'sprayerpaths', paint: { 'line-color': SPRAY_PATH, 'line-width': 1.5 } })
+      map.addSource('testshelters', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'testshelters-dot',
+        type: 'circle',
+        source: 'testshelters',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 5, 16, 7],
+          'circle-color': TEST_PIN,
+          'circle-stroke-color': '#0A3D7A',
+          'circle-stroke-width': 1.5,
+        },
+      })
+      map.addSource('actualshelters', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'actualshelters-dot',
+        type: 'circle',
+        source: 'actualshelters',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.5, 14, 5, 16, 7],
+          'circle-color': ACTUAL,
+          'circle-stroke-color': ACTUAL_OUTLINE,
+          'circle-stroke-width': 1.5,
+        },
+      })
+      // Pin labels — shelter number or tray count (§6.5).
+      map.addLayer({
+        id: 'shelters-label',
+        type: 'symbol',
+        source: 'shelters',
+        layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-offset': [0, -1.1] },
+        paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
+      })
+
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'shelters',
@@ -716,6 +929,8 @@ export default function MapsHome() {
       shelterMarkersRef.current = []
       crewMarkersRef.current.forEach((m) => m.remove())
       crewMarkersRef.current = []
+      vertexMarkersRef.current.forEach((m) => m.remove())
+      vertexMarkersRef.current = []
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -737,7 +952,9 @@ export default function MapsHome() {
     // While editing, draggable markers stand in for the dots (manual pins AND
     // computed pins — the latter drag into per-combo overrides).
     ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(
-      editing || !visibility.shelters ? EMPTY : sheltersCollection(shelters),
+      editing || !visibility.shelters || shelterView === 'actual'
+        ? EMPTY
+        : sheltersCollection(shelters, pinNumbers, trayCounts),
     )
 
     // Overlays: tracks, exclusion zones, corner arms — each gated by its layer
@@ -777,6 +994,55 @@ export default function MapsHome() {
     )
     ;(map.getSource('buffers') as GeoJSONSource | undefined)?.setData(
       visibility.buffers ? (shelterBufferSquares(shelters, geom) as FeatureCollection) : EMPTY,
+    )
+
+    // Imported machine paths ([lat,lon] stored → [lon,lat] for GeoJSON).
+    const pathsFC = (key: string): FeatureCollection => {
+      const raw = Array.isArray(geom[key]) ? (geom[key] as unknown[]) : []
+      return {
+        type: 'FeatureCollection',
+        features: raw
+          .filter((p): p is Array<[number, number]> => Array.isArray(p) && p.length >= 2)
+          .map((line) => ({
+            type: 'Feature' as const,
+            properties: {},
+            geometry: { type: 'LineString' as const, coordinates: line.map(([la, lo]) => [num(lo), num(la)]) },
+          })),
+      }
+    }
+    ;(map.getSource('planterpaths') as GeoJSONSource | undefined)?.setData(
+      visibility.planterPaths ? pathsFC('planter_passes') : EMPTY,
+    )
+    ;(map.getSource('sprayerpaths') as GeoJSONSource | undefined)?.setData(
+      visibility.sprayerPaths ? pathsFC('sprayer_passes') : EMPTY,
+    )
+    ;(map.getSource('testshelters') as GeoJSONSource | undefined)?.setData(
+      visibility.shelters
+        ? {
+            type: 'FeatureCollection',
+            features: (Array.isArray(geom.test_shelter_pins) ? (geom.test_shelter_pins as unknown[]) : [])
+              .filter((p): p is [number, number] => Array.isArray(p) && p.length >= 2)
+              .map((p) => ({
+                type: 'Feature' as const,
+                properties: { test: true },
+                geometry: { type: 'Point' as const, coordinates: [num(p[1]), num(p[0])] },
+              })),
+          }
+        : EMPTY,
+    )
+    ;(map.getSource('actualshelters') as GeoJSONSource | undefined)?.setData(
+      visibility.actualShelters || shelterView === 'actual'
+        ? {
+            type: 'FeatureCollection',
+            features: (Array.isArray(geom.actual_shelter_pins) ? (geom.actual_shelter_pins as unknown[]) : [])
+              .filter((p): p is [number, number] => Array.isArray(p) && p.length >= 2)
+              .map((p, i) => ({
+                type: 'Feature' as const,
+                properties: { n: i + 1 },
+                geometry: { type: 'Point' as const, coordinates: [num(p[1]), num(p[0])] },
+              })),
+          }
+        : EMPTY,
     )
     ;(map.getSource('crewroute') as GeoJSONSource | undefined)?.setData(
       crew.route.length >= 2 && visibility.crewRoute
@@ -838,6 +1104,27 @@ export default function MapsHome() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, editing, manualEditing, shelters])
+
+  // Placing TEST shelters — blue, counted separately from the working grid (§6.5).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !placingTest) return
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      pushHistory()
+      setDraft((prev) => {
+        if (!prev) return prev
+        const cur = Array.isArray(prev.test_shelter_pins) ? (prev.test_shelter_pins as unknown[]) : []
+        return { ...prev, test_shelter_pins: [...cur, [e.lngLat.lat, e.lngLat.lng]] }
+      })
+    }
+    map.on('click', handler)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      map.off('click', handler)
+      if (mapRef.current) map.getCanvas().style.cursor = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, placingTest])
 
   // While placing, each map click drops a manual shelter pin.
   useEffect(() => {
@@ -957,6 +1244,39 @@ export default function MapsHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, addingTrack, draft])
 
+  // Vertex handles for the ring being edited (§6.2). Drag to move a corner,
+  // double-click to remove it. Rebuilt whenever the ring changes so the handles
+  // and the drawn polygon can never drift apart.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    vertexMarkersRef.current.forEach((m) => m.remove())
+    vertexMarkersRef.current = []
+    if (!editing || !vertexEdit) return
+    const ring = readRing(vertexEdit.target, vertexEdit.index)
+    if (!ring) return
+    vertexMarkersRef.current = ring.map(([lat, lon], i) => {
+      const el = document.createElement('div')
+      el.title = 'Drag to move · double-click to remove'
+      el.style.cssText =
+        `width:11px;height:11px;border-radius:2px;background:${FIELD};` +
+        `border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
+      el.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation()
+        deleteVertex(vertexEdit.target, vertexEdit.index, i)
+      })
+      const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat([lon, lat]).addTo(map)
+      // Snapshot once at drag START so a whole drag is a single undo step (§9).
+      marker.on('dragstart', () => pushHistory())
+      marker.on('dragend', () => {
+        const ll = marker.getLngLat()
+        moveVertex(vertexEdit.target, vertexEdit.index, i, ll.lat, ll.lng)
+      })
+      return marker
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, editing, vertexEdit, draft])
+
   // Two clicks = a distance measurement (§6.7).
   useEffect(() => {
     const map = mapRef.current
@@ -1033,6 +1353,18 @@ export default function MapsHome() {
    */
   const toolActions: ToolAction[] = useMemo(() => {
     if (!editing || !draft) return []
+    /** Vertex-edit the MOST RECENT ring of a list type (§6.2 "Edit …"). */
+    const editRingAction = (t: Exclude<RingTarget, 'boundary'>): ToolAction => {
+      const n = ringCount(t)
+      const on = vertexEdit?.target === t
+      return {
+        id: `edit-${t}`,
+        label: on ? 'Done editing vertices' : `Edit ${RING_SPEC[t].label} vertices`,
+        active: on,
+        disabled: n === 0,
+        onClick: () => setVertexEdit(on ? null : { target: t, index: n - 1 }),
+      }
+    }
     const drawAction = (t: RingTarget, label: string): ToolAction => ({
       id: `draw-${t}`,
       label: drawing && drawTarget === t ? `Drawing ${RING_SPEC[t].label}…` : label,
@@ -1054,12 +1386,22 @@ export default function MapsHome() {
       case 'boundary':
         return [
           drawAction('boundary', 'Draw boundary'),
+          {
+            id: 'edit-boundary',
+            label: vertexEdit?.target === 'boundary' ? 'Done editing vertices' : 'Edit boundary vertices',
+            active: vertexEdit?.target === 'boundary',
+            disabled: !readRing('boundary', 0),
+            onClick: () => setVertexEdit((v) => (v?.target === 'boundary' ? null : { target: 'boundary', index: 0 })),
+          },
           { id: 'import', label: 'Import file', onClick: () => fileInputRef.current?.click() },
           drawAction('inner', 'Add inner boundary'),
+          editRingAction('inner'),
           { id: 'del-inner', label: `Delete inner (${ringCount('inner')})`, disabled: ringCount('inner') === 0, onClick: () => deleteLastRing('inner') },
           drawAction('access', 'Add access road'),
+          editRingAction('access'),
           { id: 'del-access', label: `Delete access (${ringCount('access')})`, disabled: ringCount('access') === 0, onClick: () => deleteLastRing('access') },
           drawAction('wet', 'Add wet zone'),
+          editRingAction('wet'),
           { id: 'del-wet', label: `Delete wet zone (${ringCount('wet')})`, disabled: ringCount('wet') === 0, onClick: () => deleteLastRing('wet') },
           { id: 'set-entrance', label: pinTarget === 'entrance' ? 'Click the map…' : 'Set entrance', active: pinTarget === 'entrance', onClick: () => (pinTarget === 'entrance' ? setPinTarget(null) : armPin('entrance')) },
           { id: 'set-parking', label: pinTarget === 'parking' ? 'Click the map…' : 'Set parking', active: pinTarget === 'parking', onClick: () => (pinTarget === 'parking' ? setPinTarget(null) : armPin('parking')) },
@@ -1068,19 +1410,48 @@ export default function MapsHome() {
         ]
       case 'sprayer':
         return [
+          { id: 'import-sprayer', label: 'Import sprayer data', onClick: () => pathInputRef.current?.click() },
+          { id: 'clear-sprayer', label: `Clear paths (${pathCount('sprayer_passes')})`, disabled: pathCount('sprayer_passes') === 0, onClick: () => clearPaths('sprayer_passes') },
+          { id: 'shift-sprayer-l', label: '◀ Shift 1 m', onClick: () => nudgeSprayer(-1) },
+          { id: 'shift-sprayer-r', label: 'Shift 1 m ▶', onClick: () => nudgeSprayer(1) },
+          {
+            id: 'through-inner',
+            label: `Passes ${draft.sprayer_routes_around_inner === false ? 'run through' : 'break at'} inner`,
+            onClick: () => {
+              pushHistory()
+              setDraft((p) => (p ? { ...p, sprayer_routes_around_inner: p.sprayer_routes_around_inner === false } : p))
+            },
+          },
           { id: 'sprayer-note', label: `Boom ${str(draft.Sprayer_width) || '133'} ft · edge ${str(draft.pass_edge_buffer_ft) || '25'} ft · tire ${str(draft.tire_width_ft) || '14'} ft`, disabled: true, onClick: () => {} },
         ]
       case 'planter':
         return [
+          { id: 'import-planter', label: 'Import planter data', onClick: () => planterInputRef.current?.click() },
+          { id: 'clear-planter', label: `Clear paths (${pathCount('planter_passes')})`, disabled: pathCount('planter_passes') === 0, onClick: () => clearPaths('planter_passes') },
+          { id: 'shift-w', label: '◀ Shift bays 1 m', onClick: () => nudgeBays(-1, 0) },
+          { id: 'shift-e', label: 'Shift bays 1 m ▶', onClick: () => nudgeBays(1, 0) },
+          { id: 'shift-reset', label: 'Reset bay shift', disabled: !num(draft.bay_shift_e_m) && !num(draft.bay_shift_n_m), onClick: () => { pushHistory(); setDraft((p) => (p ? { ...p, bay_shift_e_m: 0, bay_shift_n_m: 0 } : p)) } },
+          {
+            id: 'bays-through-inner',
+            label: `Bays ${truthyVal(draft.bays_through_inner) ? 'run through' : 'clip at'} inner`,
+            onClick: () => {
+              pushHistory()
+              setDraft((p) => (p ? { ...p, bays_through_inner: !truthyVal(p.bays_through_inner) } : p))
+            },
+          },
           { id: 'planter-note', label: `${str(draft.total_rows) || '—'} rows @ ${str(draft.row_spacing_in) || '—'} in · ${str(draft.num_female_rows) || '—'}F/${str(draft.num_male_rows) || '—'}M`, disabled: true, onClick: () => {} },
         ]
       case 'shelters':
         return [
+          { id: 'view', label: `Showing: ${shelterView}`, onClick: () => setShelterView((v) => (v === 'planned' ? 'actual' : 'planned')) },
           { id: 'numbers', label: `Numbers: ${pinNumbers === 'off' ? 'off' : pinNumbers === 'shelter' ? 'shelter #' : 'tray count'}`, onClick: () => setPinNumbers((m) => (m === 'off' ? 'shelter' : m === 'shelter' ? 'trays' : 'off')) },
           { id: 'reflow', label: 'Reflow to grid', disabled: overrideCount === 0, onClick: onReflow },
           ...(manualEditing
-            ? [{ id: 'add-shelter', label: placing ? 'Click the map…' : 'Add shelter pin', active: placing, onClick: () => setPlacing((v) => !v) }]
+            ? [{ id: 'add-shelter', label: placing ? 'Click the map…' : 'Add shelter pin', active: placing, onClick: () => { setPlacingTest(false); setPlacing((v) => !v) } }]
             : []),
+          { id: 'add-test', label: placingTest ? 'Click the map…' : 'Add test shelter', active: placingTest, onClick: () => { setPlacing(false); setPlacingTest((v) => !v) } },
+          { id: 'import-actual', label: 'Import actual pins (CSV)', onClick: () => csvInputRef.current?.click() },
+          { id: 'clear-actual', label: `Clear actual (${pathCount('actual_shelter_pins')})`, disabled: pathCount('actual_shelter_pins') === 0, onClick: () => clearPaths('actual_shelter_pins') },
         ]
       case 'crews':
         return [
@@ -1088,7 +1459,24 @@ export default function MapsHome() {
           { id: 'reset-route', label: 'Reset crew route', disabled: !draft.crew_route_override, onClick: () => { pushHistory(); setDraft((p) => (p ? { ...p, crew_route_override: null } : p)) } },
         ]
     }
-  }, [editing, draft, tool, drawing, drawTarget, pinTarget, addingTrack, trackRadii, placing, manualEditing, routeEditing, pinNumbers, overrideCount])
+  }, [
+    editing,
+    draft,
+    tool,
+    drawing,
+    drawTarget,
+    pinTarget,
+    addingTrack,
+    trackRadii,
+    placing,
+    placingTest,
+    manualEditing,
+    routeEditing,
+    pinNumbers,
+    shelterView,
+    vertexEdit,
+    overrideCount,
+  ])
 
 
   return (
@@ -1135,7 +1523,15 @@ export default function MapsHome() {
         {/* Field list */}
         <aside className="overflow-y-auto border-r border-subtle bg-surface p-3">
           <h2 className="mb-2 px-1 text-sm font-semibold text-secondary">Fields</h2>
-          {fields.map((f) => {
+          {/* Search by name / company / year / LLD (§6.7 "Find by LLD", §9). */}
+          <input
+            className="input mb-2 min-h-0 px-2 py-1.5 text-sm"
+            value={fieldQuery}
+            onChange={(e) => setFieldQuery(e.target.value)}
+            placeholder="Find by name, company, year, LLD…"
+          />
+          {visibleFields.length === 0 && <p className="px-1 py-2 text-xs text-muted">No fields match.</p>}
+          {visibleFields.map((f) => {
             const active = selectedField?.id === f.id
             return (
               <button
@@ -1236,6 +1632,39 @@ export default function MapsHome() {
             onChange={(e) => {
               const f = e.target.files?.[0]
               if (f) onImportFile(f)
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={planterInputRef}
+            type="file"
+            accept=".geojson,.json,.kml,.kmz,.zip,.shp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onImportPaths(f, 'planter_passes')
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={pathInputRef}
+            type="file"
+            accept=".geojson,.json,.kml,.kmz,.zip,.shp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onImportPaths(f, 'sprayer_passes')
+              e.target.value = ''
+            }}
+          />
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,.txt"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onImportActual(f)
               e.target.value = ''
             }}
           />

@@ -1,4 +1,17 @@
-import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'geojson'
+import type {
+  Feature,
+  FeatureCollection,
+  LineString,
+  MultiPolygon,
+  Polygon,
+  Position,
+} from 'geojson'
+import {
+  difference as turfDifference,
+  featureCollection as turfFeatureCollection,
+  polygon as turfPolygon,
+  union as turfUnion,
+} from '@turf/turf'
 import { fromLonLat } from './geo'
 import {
   fieldFrame,
@@ -38,6 +51,148 @@ const emptyFC = <T extends Polygon | LineString>(): FeatureCollection<T> => ({
 const pymod = (a: number, n: number): number => ((a % n) + n) % n
 
 const finitePair = (p: Position): boolean => Number.isFinite(p[0]) && Number.isFinite(p[1])
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0. Inner-boundary exclusions (spec Part 4 `boundary_inner` /
+//    `access_road_boundary`, toggled by §6.3 and §6.4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Read a field-dict boolean that may be a real boolean, a Python-ish string
+ * (`"True"` / `"false"`), a number, or missing.
+ *
+ * ABSENT or BLANK means "unset", so the SPEC default applies — that matters here
+ * because the two inner-boundary toggles default opposite ways:
+ * `bays_through_inner` is FALSE (clip the bands) while
+ * `sprayer_routes_around_inner` is TRUE (break the lines).
+ *
+ * Shared with `sprayOverlays.ts`.
+ */
+export function fieldBool(v: unknown, dflt: boolean): boolean {
+  if (v === undefined || v === null) return dflt
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'number') return Number.isFinite(v) ? v !== 0 : dflt
+  const s = String(v).trim().toLowerCase()
+  if (s === '') return dflt
+  if (s === 'true' || s === 'yes' || s === 'y' || s === 'on' || s === '1') return true
+  if (s === 'false' || s === 'no' || s === 'n' || s === 'off' || s === '0') return false
+  return dflt
+}
+
+/**
+ * One stored ring (`[[lat,lon], …]`, the Part 4 convention) → a CLOSED `[lon,lat]`
+ * turf ring, or null when the ring is unusable.
+ *
+ * Malformed rings are DROPPED, never repaired and never thrown on: these run on
+ * every render while the user is mid-draw, so a half-finished 2-point ring or a
+ * stray non-numeric coordinate must simply not clip anything.
+ */
+function toLonLatRing(raw: unknown): Position[] | null {
+  if (!Array.isArray(raw) || raw.length < 3) return null
+  const ring: Position[] = []
+  for (const p of raw as Array<[unknown, unknown]>) {
+    if (!Array.isArray(p) || p.length < 2) return null
+    const lat = Number(p[0])
+    const lon = Number(p[1])
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+    const last = ring[ring.length - 1]
+    if (last && last[0] === lon && last[1] === lat) continue // drop repeats
+    ring.push([lon, lat])
+  }
+  // Drop any closing duplicate(s); turf wants exactly one, added below.
+  while (
+    ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1]
+  ) {
+    ring.pop()
+  }
+  if (ring.length < 3) return null
+  ring.push(ring[0])
+  return ring
+}
+
+/**
+ * The UNION of every inner-exclusion ring on a field — interior boundaries plus
+ * the pivot access road — as ONE turf polygon in `[lon,lat]`, or null when there
+ * is nothing to clip against.
+ *
+ * Build this ONCE per generator call and reuse it for every band/line: unioning
+ * per feature would be O(bands × rings) boolean ops on every map render.
+ *
+ * Returning null is the "no work" signal — callers must then emit their geometry
+ * completely untouched, so a field with no inner rings is byte-for-byte what it
+ * was before clipping existed. That equivalence is the regression the tests lock.
+ *
+ * Shared with `sprayOverlays.ts`.
+ */
+export function innerExclusionUnion(field: FieldDict): Feature<Polygon | MultiPolygon> | null {
+  try {
+    const inner = field['boundary_inner']
+    const access = field['access_road_boundary']
+    const raw: unknown[] = [
+      ...(Array.isArray(inner) ? (inner as unknown[]) : []),
+      ...(Array.isArray(access) ? (access as unknown[]) : []),
+    ]
+    if (raw.length === 0) return null
+
+    const polys: Feature<Polygon>[] = []
+    for (const r of raw) {
+      const ring = toLonLatRing(r)
+      if (!ring) continue
+      try {
+        polys.push(turfPolygon([ring]))
+      } catch {
+        /* turf rejected the ring (degenerate) — ignore it */
+      }
+    }
+    if (polys.length === 0) return null
+    if (polys.length === 1) return polys[0]
+
+    const merged = turfUnion(turfFeatureCollection<Polygon | MultiPolygon>(polys))
+    if (merged && merged.geometry) return merged
+    // Union can fail on self-touching input; a plain MultiPolygon of the parts is
+    // still a correct clip mask (the boolean ops below handle overlap).
+    return {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: polys.map((p) => p.geometry.coordinates),
+      },
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Subtract the exclusion mask from one polygon feature.
+ *
+ * A band that straddles a hole comes back as SEVERAL pieces (turf hands us a
+ * MultiPolygon), so this returns an array; every piece carries a copy of the
+ * input's properties. A band swallowed whole returns `[]`.
+ */
+function clipPolygonFeature(
+  feat: Feature<Polygon>,
+  holes: Feature<Polygon | MultiPolygon>,
+): Feature<Polygon>[] {
+  let diff: Feature<Polygon | MultiPolygon> | null
+  try {
+    diff = turfDifference(turfFeatureCollection<Polygon | MultiPolygon>([feat, holes]))
+  } catch {
+    return [feat] // never lose geometry to a boolean-op hiccup
+  }
+  if (!diff || !diff.geometry) return [] // fully covered
+  const piece = (coordinates: Position[][]): Feature<Polygon> => ({
+    type: 'Feature',
+    properties: { ...feat.properties },
+    geometry: { type: 'Polygon', coordinates },
+  })
+  if (diff.geometry.type === 'Polygon') return [piece(diff.geometry.coordinates)]
+  if (diff.geometry.type === 'MultiPolygon') return diff.geometry.coordinates.map(piece)
+  return []
+}
 
 /**
  * The frame plus its bay tiling, or null when no bay geometry can be drawn
@@ -87,7 +242,14 @@ function snakeTables(f: FieldFrame) {
  * subtracted from the band and a wide enough gap collapsed it to nothing.
  *
  * Bands entirely off the side of the field are dropped; bands are not clipped to
- * the boundary (the map layer draws them under the boundary line).
+ * the OUTER boundary (the map layer draws them under the boundary line).
+ *
+ * They ARE clipped to the INNER ones (spec §6.4 "Toggle Bays Through Inner"):
+ * unless `bays_through_inner` is set, every band has the union of
+ * `boundary_inner` + `access_road_boundary` subtracted from it, so a band that
+ * crosses a slough or the pivot road comes back as the pieces either side and a
+ * band swallowed by one disappears. A field with no inner rings does no boolean
+ * work at all and emits exactly what it always did.
  */
 export function maleBayBands(field: FieldDict): FeatureCollection<Polygon> {
   const f = bayFrame(field)
@@ -127,7 +289,20 @@ export function maleBayBands(field: FieldDict): FeatureCollection<Polygon> {
       })
     }
   }
-  return { type: 'FeatureCollection', features: feats }
+
+  // Spec §6.4 — bays run straight through the inner boundaries only on request.
+  if (fieldBool(field['bays_through_inner'], false)) {
+    return { type: 'FeatureCollection', features: feats }
+  }
+  const holes = innerExclusionUnion(field)
+  if (!holes) return { type: 'FeatureCollection', features: feats }
+  try {
+    const clipped: Feature<Polygon>[] = []
+    for (const band of feats) clipped.push(...clipPolygonFeature(band, holes))
+    return { type: 'FeatureCollection', features: clipped }
+  } catch {
+    return { type: 'FeatureCollection', features: feats }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import type { Position } from 'geojson'
+import type { Feature, LineString, Position } from 'geojson'
 import { latlonListToEnu } from './geo'
-import { fieldFrame, pointInEnuRing } from './fieldFrame'
+import { enuToLonLat, fieldFrame, pointInEnuRing } from './fieldFrame'
 import {
   sprayerPassLines,
   outerSprayerLimit,
@@ -136,6 +136,186 @@ describe('sprayerPassLines', () => {
     expect(sprayerPassLines({ Radius: '400' }).features).toHaveLength(0)
     expect(sprayerPassLines({ ...FIELD, Sprayer_width: '0' }).features).toHaveLength(0)
     expect(sprayerPassLines({}).features).toHaveLength(0)
+  })
+
+  // ── spec §6.3 "Toggle Pass Through Inner" (`sprayer_routes_around_inner`, on) ──
+  describe('inner-boundary clipping', () => {
+    const frame = fieldFrame(FIELD)!
+    // Spray angle 0 ⇒ spray lateral = ENU east, spray along = ENU north.
+    const PASS0_E = 0.5 * SPRAYER_W_M // 20.2692 m — the centre line of pass 0
+    const HOLE_N = 50 // the crossing hole reaches ±50 m north
+
+    /** An inner ring over the ENU box [eA,eB] × [nA,nB], stored [lat,lon]. */
+    const holeRing = (
+      eA: number,
+      eB: number,
+      nA: number,
+      nB: number,
+    ): Array<[number, number]> =>
+      (
+        [
+          [eA, nA],
+          [eB, nA],
+          [eB, nB],
+          [eA, nB],
+        ] as Array<[number, number]>
+      ).map(([e, n]) => {
+        const [lng, lat] = enuToLonLat(frame, e, n)
+        return [lat, lng] as [number, number]
+      })
+
+    /** Straddles pass 0's centre line halfway down: the line must break around it. */
+    const CROSSING = holeRing(PASS0_E - 10, PASS0_E + 10, -HOLE_N, HOLE_N)
+    /** Same lateral window, but the full along-extent: pass 0 vanishes. */
+    const SWALLOWING = holeRing(PASS0_E - 10, PASS0_E + 10, -450, 450)
+
+    const withIndex = (fc: { features: Feature<LineString>[] }, index: number) =>
+      fc.features.filter((x) => Number(x.properties?.index) === index)
+    const totalLength = (fc: { features: Feature<LineString>[] }) =>
+      fc.features.reduce((sum, x) => {
+        const c = x.geometry.coordinates
+        let d = 0
+        for (let i = 1; i < c.length; i++) d += dist(toEnu(c[i - 1]), toEnu(c[i]))
+        return sum + d
+      }, 0)
+
+    const BASE = sprayerPassLines(FIELD)
+
+    // THE regression guard: a field with no inner rings must be untouched.
+    it('does no clipping — and changes nothing — without inner rings', () => {
+      expect(sprayerPassLines({ ...FIELD, boundary_inner: [] })).toEqual(BASE)
+      expect(sprayerPassLines({ ...FIELD, access_road_boundary: [] })).toEqual(BASE)
+      expect(
+        sprayerPassLines({ ...FIELD, boundary_inner: [], access_road_boundary: [] }),
+      ).toEqual(BASE)
+      // byte-identical, not merely deep-equal
+      expect(JSON.stringify(sprayerPassLines({ ...FIELD, boundary_inner: [] }))).toBe(
+        JSON.stringify(BASE),
+      )
+    })
+
+    it('breaks a pass line where it crosses an inner ring', () => {
+      const clipped = sprayerPassLines({ ...FIELD, boundary_inner: [CROSSING] })
+      expect(withIndex(BASE, 0)).toHaveLength(1)
+
+      const p0 = withIndex(clipped, 0)
+      expect(p0).toHaveLength(2) // one segment either side of the hole
+
+      // Nothing survives INSIDE the hole: every endpoint clears it along-pass.
+      for (const seg of p0) {
+        expect(finite(seg.geometry.coordinates)).toBe(true)
+        for (const c of seg.geometry.coordinates) {
+          const [, n] = toEnu(c)
+          expect(Math.abs(n)).toBeGreaterThan(HOLE_N - 0.5)
+        }
+      }
+      // One segment north of the hole, one south.
+      const sides = p0.map((s) => Math.sign(toEnu(s.geometry.coordinates[0])[1]))
+      expect(new Set(sides).size).toBe(2)
+
+      // More features, less total line — and the missing length is the hole.
+      expect(clipped.features.length).toBe(BASE.features.length + 1)
+      expect(totalLength(clipped)).toBeLessThan(totalLength(BASE))
+      expect(totalLength(BASE) - totalLength(clipped)).toBeCloseTo(2 * HOLE_N, 0)
+
+      // Every other pass is untouched.
+      expect(withIndex(clipped, 1)).toEqual(withIndex(BASE, 1))
+      expect(withIndex(clipped, -1)).toEqual(withIndex(BASE, -1))
+    })
+
+    it('breaks around the access road as well as interior boundaries', () => {
+      const viaAccess = sprayerPassLines({ ...FIELD, access_road_boundary: [CROSSING] })
+      const viaInner = sprayerPassLines({ ...FIELD, boundary_inner: [CROSSING] })
+      expect(viaAccess).toEqual(viaInner)
+      // Both lists at once unions the rings.
+      const both = sprayerPassLines({
+        ...FIELD,
+        boundary_inner: [CROSSING],
+        access_road_boundary: [holeRing(-PASS0_E - 10, -PASS0_E + 10, -HOLE_N, HOLE_N)],
+      })
+      expect(withIndex(both, 0)).toHaveLength(2)
+      expect(withIndex(both, -1)).toHaveLength(2)
+    })
+
+    it('a pass line wholly inside a hole disappears entirely', () => {
+      const clipped = sprayerPassLines({ ...FIELD, boundary_inner: [SWALLOWING] })
+      expect(withIndex(clipped, 0)).toHaveLength(0)
+      expect(clipped.features.length).toBe(BASE.features.length - 1)
+      // Its neighbours are untouched.
+      expect(withIndex(clipped, 1)).toEqual(withIndex(BASE, 1))
+      expect(withIndex(clipped, -1)).toEqual(withIndex(BASE, -1))
+    })
+
+    it('keeps kind + index on every segment a broken line becomes', () => {
+      const clipped = sprayerPassLines({ ...FIELD, boundary_inner: [CROSSING] })
+      for (const feat of clipped.features) {
+        expect(feat.properties?.kind).toBe('sprayer_pass')
+        expect(Number.isInteger(feat.properties?.index)).toBe(true)
+      }
+      for (const seg of withIndex(clipped, 0)) {
+        expect(seg.properties).toEqual({ kind: 'sprayer_pass', index: 0 })
+      }
+      // No index is lost by the break.
+      const before = new Set(BASE.features.map((x) => Number(x.properties?.index)))
+      const after = new Set(clipped.features.map((x) => Number(x.properties?.index)))
+      expect([...before].every((i) => after.has(i))).toBe(true)
+    })
+
+    it('sprayer_routes_around_inner=false runs the lines straight through', () => {
+      for (const off of [false, 'false', 'False', 'no', 0]) {
+        expect(
+          sprayerPassLines({
+            ...FIELD,
+            boundary_inner: [CROSSING],
+            sprayer_routes_around_inner: off,
+          }),
+        ).toEqual(BASE)
+      }
+      // Absent, blank or explicitly true ⇒ the default (break) applies.
+      for (const on of [undefined, '', true, 'true']) {
+        const clipped = sprayerPassLines({
+          ...FIELD,
+          boundary_inner: [CROSSING],
+          sprayer_routes_around_inner: on,
+        })
+        expect(withIndex(clipped, 0)).toHaveLength(2)
+      }
+    })
+
+    it('ignores malformed inner rings instead of throwing', () => {
+      const junk = {
+        ...FIELD,
+        boundary_inner: [
+          [
+            [PIVOT_LAT, PIVOT_LON],
+            [PIVOT_LAT + 0.001, PIVOT_LON],
+          ], // only 2 points
+          [
+            ['x', 'y'],
+            [PIVOT_LAT, PIVOT_LON],
+            [PIVOT_LAT + 0.001, PIVOT_LON + 0.001],
+            [PIVOT_LAT + 0.001, PIVOT_LON],
+          ], // non-numeric corner
+          [],
+          'not a ring',
+          null,
+        ],
+        access_road_boundary: [[[PIVOT_LAT, PIVOT_LON]], undefined],
+      }
+      expect(() => sprayerPassLines(junk)).not.toThrow()
+      expect(sprayerPassLines(junk)).toEqual(BASE)
+
+      // A good ring alongside the junk still breaks the line.
+      const mixed = sprayerPassLines({ ...junk, access_road_boundary: [null, CROSSING] })
+      expect(withIndex(mixed, 0)).toHaveLength(2)
+    })
+
+    it('is deterministic once clipped', () => {
+      const field = { ...FIELD, boundary_inner: [CROSSING] }
+      expect(JSON.stringify(sprayerPassLines(field))).toBe(
+        JSON.stringify(sprayerPassLines(field)),
+      )
+    })
   })
 })
 

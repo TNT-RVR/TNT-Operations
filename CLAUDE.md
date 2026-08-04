@@ -133,6 +133,20 @@ _Last reviewed 2026-08-03._
           invariant (a `bay_gap_in` must go BETWEEN bays, never shrink the male
           band — the Wordmans/Carrots bug), `overlayIntegration.test.ts` runs
           every generator over the real seeded fields.
+        - **Inner-boundary clipping** — bays are clipped at inner/access rings
+          unless `bays_through_inner`; sprayer pass lines break at them unless
+          `sprayer_routes_around_inner` is off (turf `difference`/`lineSplit`,
+          union built once per call). With no inner rings the output is
+          byte-identical to the unclipped path — a locked no-regression test.
+        - **Imports** (`importPaths.ts`) — planter/sprayer GPS polylines from
+          GeoJSON/KML/KMZ/zipped-shapefile, and actual (scanned) shelter pins
+          from CSV. The CSV reader is deliberately forgiving: header or
+          headerless, any column order, BOM/CRLF/quotes, `49.83°N`-style
+          coordinates; out-of-range rows are counted as skipped, never guessed.
+        - Also: ring vertex drag/delete, bay + sprayer shift nudges, test
+          shelter pins, planned-vs-actual view, pin number modes (shelter # /
+          tray count from the Part 7.2 bee math), and field search by
+          name/company/year/LLD.
       - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
         `cost.ts` port: per-field cost, profitability, season totals, pricing
         inputs stored PER YEAR (missing years carry forward). Prefs in

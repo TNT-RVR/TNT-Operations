@@ -1,4 +1,13 @@
-import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'geojson'
+import type {
+  Feature,
+  FeatureCollection,
+  LineString,
+  MultiPolygon,
+  Polygon,
+  Position,
+} from 'geojson'
+import { booleanPointInPolygon, lineSplit as turfLineSplit } from '@turf/turf'
+import { fieldBool, innerExclusionUnion } from './bayOverlays'
 import { latlonListToEnu } from './geo'
 import {
   enuToLatAlong,
@@ -177,6 +186,78 @@ const allFinite = (coords: Position[]): boolean =>
   coords.every((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]))
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Inner-boundary clipping for LINES (spec §6.3 "Toggle Pass Through Inner")
+//
+// The exclusion mask itself (`boundary_inner` + `access_road_boundary`, unioned
+// once per call) lives in `bayOverlays.ts` — both overlay families clip against
+// exactly the same rings, and building it twice would be a real cost on a field
+// with many interior boundaries.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A point ON the path, used to decide whether a split piece is the covered one.
+ *
+ * The midpoint of the path's MIDDLE SEGMENT, not the average of the endpoints:
+ * for the straight two-point pass lines they are the same, but on a split piece
+ * of a bent line the endpoint average can leave the line entirely.
+ */
+function midOfPath(coords: Position[]): Position | null {
+  const i = Math.max(0, Math.floor((coords.length - 1) / 2))
+  const a = coords[i]
+  const b = coords[i + 1] ?? coords[i]
+  const m: Position = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  return Number.isFinite(m[0]) && Number.isFinite(m[1]) ? m : null
+}
+
+/** True for a piece with no length (turf can emit these at a tangent touch). */
+const degenerate = (coords: Position[]): boolean =>
+  coords.every((c) => c[0] === coords[0][0] && c[1] === coords[0][1])
+
+/**
+ * Break one line where it crosses the exclusion mask, dropping the covered part.
+ *
+ * `lineSplit` only CUTS — it has no notion of inside — so each resulting piece is
+ * kept or dropped by testing a point on it against the mask. A line that misses
+ * the mask entirely splits into nothing (turf returns an empty collection), which
+ * is why the untouched line is the fallback; a line wholly inside a hole survives
+ * that fallback and is then dropped by the inside test.
+ *
+ * Every surviving piece carries a copy of the input's properties.
+ */
+function clipLineFeature(
+  feat: Feature<LineString>,
+  holes: Feature<Polygon | MultiPolygon>,
+): Feature<LineString>[] {
+  let parts: Feature<LineString>[]
+  try {
+    const split = turfLineSplit(feat, holes)
+    parts = split?.features?.length ? split.features : [feat]
+  } catch {
+    return [feat] // never lose geometry to a boolean-op hiccup
+  }
+
+  const out: Feature<LineString>[] = []
+  for (const part of parts) {
+    const coords = part?.geometry?.coordinates
+    if (!Array.isArray(coords) || coords.length < 2) continue
+    if (!allFinite(coords) || degenerate(coords)) continue
+    const mid = midOfPath(coords)
+    if (!mid) continue
+    try {
+      if (booleanPointInPolygon(mid, holes)) continue // this piece is covered
+    } catch {
+      /* keep the piece rather than silently lose it */
+    }
+    out.push({
+      type: 'Feature',
+      properties: { ...feat.properties },
+      geometry: { type: 'LineString', coordinates: coords },
+    })
+  }
+  return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 1. Sprayer pass centre lines
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -187,6 +268,12 @@ const allFinite = (coords: Position[]): boolean =>
  *
  * Properties: `{ kind: 'sprayer_pass', index }` where `index` is the signed pass
  * number (pass `k` spans lateral `[k·W, (k+1)·W]`).
+ *
+ * Spec §6.3 "Toggle Pass Through Inner": unless `sprayer_routes_around_inner` is
+ * turned OFF (it defaults ON), each line is BROKEN where it crosses an inner
+ * boundary or the access road — one pass can therefore emit several segments,
+ * all carrying the same `index`, and a pass swallowed by a hole emits none. A
+ * field with no inner rings does no boolean work and emits what it always did.
  */
 export function sprayerPassLines(field: FieldDict): FeatureCollection<LineString> {
   try {
@@ -213,7 +300,19 @@ export function sprayerPassLines(field: FieldDict): FeatureCollection<LineString
         geometry: { type: 'LineString', coordinates: coords },
       })
     }
-    return { type: 'FeatureCollection', features }
+
+    if (!fieldBool(field['sprayer_routes_around_inner'], true)) {
+      return { type: 'FeatureCollection', features }
+    }
+    const holes = innerExclusionUnion(field)
+    if (!holes) return { type: 'FeatureCollection', features }
+    try {
+      const clipped: Feature<LineString>[] = []
+      for (const line of features) clipped.push(...clipLineFeature(line, holes))
+      return { type: 'FeatureCollection', features: clipped }
+    } catch {
+      return { type: 'FeatureCollection', features }
+    }
   } catch {
     return emptyFC<LineString>()
   }

@@ -89,17 +89,6 @@ export function ScannerOverlay({
       try {
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
         if (cancelled) return
-        const inst = new Html5Qrcode(readerId, {
-          // Use the browser's NATIVE barcode detector where it exists (Chrome on
-          // Android). It's the same engine the phone's own camera app uses, and
-          // it's far faster than decoding frames in JavaScript.
-          useBarCodeDetectorIfSupported: true,
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-          // Only QR — not trying a dozen barcode formats per frame.
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          verbose: false,
-        })
-        scannerRef.current = inst
 
         const scanConfig = {
           fps: 20,
@@ -117,40 +106,95 @@ export function ScannerOverlay({
           /* per-frame misses are normal; the idle timer covers a real stall */
         }
 
-        // Preferred stream: enough resolution for a small label, and autofocus.
-        // `advanced` entries are BEST-EFFORT — a device that can't do continuous
-        // focus ignores them. Asking for focusMode at the top level makes it a
-        // REQUIRED constraint, and phones without it throw OverconstrainedError,
-        // which is what stopped the camera opening at all.
-        const preferred = {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          advanced: [{ focusMode: 'continuous' }],
-        } as unknown as MediaTrackConstraints
+        // A FRESH instance per attempt. html5-qrcode marks its state machine
+        // "under transition" when start() begins and never unwinds that on
+        // failure, so a second start() on the same object always throws
+        // "already under transition" — the retry can't work, whatever the
+        // original fault was. Reusing the instance is what kept the camera shut.
+        const newInstance = () =>
+          new Html5Qrcode(readerId, {
+            // Use the browser's NATIVE barcode detector where it exists (Chrome
+            // on Android). Same engine as the phone's own camera app, and far
+            // faster than decoding frames in JavaScript. The library checks
+            // support itself and falls back to ZXing.
+            useBarCodeDetectorIfSupported: true,
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+            // Only QR — not a dozen barcode formats per frame.
+            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+            verbose: false,
+          })
 
-        try {
-          await inst.start(preferred, scanConfig, onDecode, onFrameMiss)
-        } catch (preferredErr) {
-          if (cancelled) return
-          // Never let a preference cost us the camera: fall back to the plainest
-          // request that any device can satisfy.
-          console.warn('[scanner] preferred constraints refused, retrying plain:', preferredErr)
-          // A failed start can leave the instance mid-transition, and starting
-          // again in that state throws. Settle it first; it may already be
-          // stopped, which is fine.
+        /**
+         * Ladder from best picture to most compatible. Every rung is a real
+         * device difference, so we descend rather than give up:
+         *   1. high resolution + continuous autofocus, for small labels
+         *   2. bare facingMode, which nearly every phone honours
+         *   3. an explicit back-camera deviceId, for phones where facingMode
+         *      resolves to nothing
+         */
+        const buildAttempts = async (): Promise<Array<{ name: string; constraints: MediaTrackConstraints }>> => {
+          const list: Array<{ name: string; constraints: MediaTrackConstraints }> = [
+            {
+              name: 'high-res + autofocus',
+              constraints: {
+                facingMode: 'environment',
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                // `advanced` is best-effort: a device that can't do continuous
+                // focus ignores it instead of refusing the whole request.
+                advanced: [{ focusMode: 'continuous' }],
+              } as unknown as MediaTrackConstraints,
+            },
+            { name: 'plain environment', constraints: { facingMode: 'environment' } },
+          ]
           try {
-            await inst.stop()
-          } catch {
-            /* already stopped */
+            const cams = await Html5Qrcode.getCameras()
+            const back = cams.find((c) => /back|rear|environment/i.test(c.label)) ?? cams[cams.length - 1]
+            if (back?.id) {
+              list.push({ name: `deviceId ${back.label || back.id}`, constraints: { deviceId: { exact: back.id } } })
+            }
+          } catch (e) {
+            // Enumerating needs its own permission grant on some browsers;
+            // losing this rung is survivable.
+            console.warn('[scanner] could not enumerate cameras:', e)
           }
-          if (cancelled) return
-          await inst.start({ facingMode: 'environment' }, scanConfig, onDecode, onFrameMiss)
+          return list
         }
+
+        let started: InstanceType<typeof Html5Qrcode> | null = null
+        let lastErr: unknown = null
+        for (const attempt of await buildAttempts()) {
+          if (cancelled) return
+          const inst = newInstance()
+          try {
+            await inst.start(attempt.constraints, scanConfig, onDecode, onFrameMiss)
+            started = inst
+            console.info(`[scanner] camera started via: ${attempt.name}`)
+            break
+          } catch (err) {
+            lastErr = err
+            console.warn(`[scanner] attempt "${attempt.name}" failed:`, err)
+            // Release anything this attempt half-opened before the next rung.
+            try {
+              await inst.stop()
+            } catch {
+              /* never started; nothing to stop */
+            }
+          }
+        }
+
+        if (cancelled) {
+          if (started) void started.stop().catch(() => {})
+          return
+        }
+        // Every rung failed — report the last real error rather than a shrug.
+        if (!started) throw lastErr ?? new Error('No camera could be started.')
+        scannerRef.current = started
+
         // Shop lighting is a common reason a label won't read, so offer the
         // torch when the camera has one.
         try {
-          const caps = inst.getRunningTrackCapabilities() as MediaTrackCapabilities & { torch?: boolean }
+          const caps = started.getRunningTrackCapabilities() as MediaTrackCapabilities & { torch?: boolean }
           setHasTorch(!!caps?.torch)
         } catch {
           setHasTorch(false)

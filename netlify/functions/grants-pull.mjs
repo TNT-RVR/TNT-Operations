@@ -14,9 +14,10 @@
  *
  * Uses global fetch + the PostgREST API — no dependencies.
  *
- * MANUAL RUN: scheduled functions can NOT be invoked by URL (Netlify returns
- * 403 by design). Use the "Run now" button on the Netlify UI's Functions page,
- * or `netlify functions:invoke grants-pull` locally under `netlify dev`.
+ * MANUAL RUN: Netlify refuses direct HTTP invocation of scheduled functions
+ * (403 by design). Trigger it through the token-gated dispatcher instead —
+ * GET /.netlify/functions/run?fn=grants-pull&token=$FN_RUN_TOKEN (see run.mjs)
+ * — or with the "Run now" button on the Netlify UI's Functions page.
  */
 
 export const config = { schedule: '0 14 * * 1' } // Mondays 14:00 UTC

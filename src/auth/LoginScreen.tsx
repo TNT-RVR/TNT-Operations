@@ -46,6 +46,29 @@ export function LoginScreen() {
     setBusy(false)
   }
 
+  /**
+   * Email a password-reset link. The link returns here with `type=recovery`,
+   * which the app turns into the set-password screen (see authLink.ts).
+   * Redirects to the site root because that's what Supabase's URL allow list
+   * is configured for.
+   */
+  async function onForgotPassword() {
+    if (!supabase) return
+    if (!email.trim()) {
+      setError('Enter your email address first, then click "Forgot password".')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    })
+    setBusy(false)
+    if (error) setError(error.message)
+    else setNotice(`If an account exists for ${email.trim()}, a reset link is on its way.`)
+  }
+
   const isSignup = mode === 'signup'
 
   return (
@@ -131,6 +154,17 @@ export function LoginScreen() {
             {busy ? 'Working…' : isSignup ? 'Create account' : 'Sign in'}
           </button>
         </form>
+
+        {!isSignup && (
+          <button
+            type="button"
+            className="mt-3 w-full text-center text-xs text-muted hover:text-secondary hover:underline"
+            onClick={onForgotPassword}
+            disabled={busy}
+          >
+            Forgot password?
+          </button>
+        )}
 
         <button
           className="mt-4 w-full text-center text-sm text-brand hover:underline"

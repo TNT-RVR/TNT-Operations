@@ -68,7 +68,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
             </select>
           </label>
           <p className="text-xs text-muted">
-            They're emailed a link to set their own password. You never handle it.
+            They get an email, click the link, and are asked to choose their own password. You never handle it.
           </p>
           {error && (
             <p

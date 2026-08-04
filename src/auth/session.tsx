@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
 import { LoginScreen } from './LoginScreen'
 import { PendingApproval } from './PendingApproval'
+import { SetPassword } from './SetPassword'
+import { arrivedNeedingPassword, initialAuthType } from './authLink'
 import { BeeMark } from '@/components/BeeMark'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
@@ -157,6 +159,8 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<User | null>(null)
   const [users, setUsers] = useState<User[]>([])
+  // Set once, from the emailed link that opened the app (see authLink.ts).
+  const [needsPassword, setNeedsPassword] = useState<boolean>(() => arrivedNeedingPassword())
 
   useEffect(() => {
     let cancelled = false
@@ -296,6 +300,11 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     )
   }
   if (!value) return <LoginScreen />
+  // Arrived from an invite / reset email: signed in, but no usable password yet.
+  // Gate the app until they choose one, or they could never sign back in.
+  if (needsPassword) {
+    return <SetPassword invited={initialAuthType() === 'invite'} onDone={() => setNeedsPassword(false)} />
+  }
   // Signed in but not yet approved → awaiting-approval gate (no app, no data).
   if (value.user.role === 'pending') {
     return <PendingApproval name={value.user.name || value.user.email} onSignOut={value.signOut} />

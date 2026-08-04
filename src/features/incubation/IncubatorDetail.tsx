@@ -233,7 +233,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             <div className="mb-1 flex justify-between text-xs text-muted">
               <span>{p.stage}</span>
               <span>
-                {p.pct}% · {p.daysRemaining}d left
+                {p.overdue ? `${p.daysOverdue}d past schedule` : `${p.pct}% · ${p.daysRemaining}d left`}
               </span>
             </div>
             <Gauge pct={p.pct} tone={p.stage === 'emergence' ? 'amber' : 'brand'} />

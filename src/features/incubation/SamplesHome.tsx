@@ -45,7 +45,7 @@ const flattenNotes = (notes: string | null | undefined) =>
   (notes ?? '').split(/\s*[\r\n]+\s*/).join(' ').trim() || '—'
 
 export default function SamplesHome() {
-  const { samples, trays, batches, incubators, importSamples, loadTrays } = useData()
+  const { samples, trays, batches, incubators, importSamples, loadTrays, traysLoading } = useData()
   // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
   useEffect(() => {
     void loadTrays()
@@ -201,7 +201,8 @@ export default function SamplesHome() {
         {/* Totals */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Samples" value={samples.length} />
-          <StatTile label="Trays" value={num(trays.length)} hint="all statuses" />
+          {/* Trays load on demand now, so show a dash rather than a momentary 0. */}
+          <StatTile label="Trays" value={traysLoading ? '—' : num(trays.length)} hint="all statuses" />
           <StatTile label="Batches" value={batches.length} hint={`${activeBatches.length} active`} />
           {/* Reconciliation, not a vanity count: which lots filled fewer trays
               than the x-ray predicted. (A "graded samples" tile keyed on

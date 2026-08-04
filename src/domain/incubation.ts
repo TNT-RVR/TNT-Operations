@@ -24,11 +24,23 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** Default incubation length for leafcutter bees at ~30°C, in days. */
-export const DEFAULT_INCUBATION_DAYS = 21
+/**
+ * How long a run is working toward — Expected Release, day 23 of the milestone
+ * schedule (see INCUBATION_MILESTONES).
+ *
+ * This was 21, which matched nothing: every run past day 21 read "100% · 0d
+ * left" while the calendar still had Expected Release and Latest Release ahead
+ * of it. A drift test pins this to the milestone.
+ */
+export const DEFAULT_INCUBATION_DAYS = 23
 
 export type Stage = 'idle' | 'early' | 'mid' | 'emergence' | 'complete'
 
 export interface IncubationProgress {
+  /** Past the expected-release day — the run is running long, not finished. */
+  overdue: boolean
+  /** Whole days past the expected release (0 when not overdue). */
+  daysOverdue: number
   daysElapsed: number
   daysRemaining: number
   pct: number
@@ -48,7 +60,8 @@ export function incubationProgress(
   now: string,
   days: number = DEFAULT_INCUBATION_DAYS,
 ): IncubationProgress {
-  if (!startedAt) return { daysElapsed: 0, daysRemaining: days, pct: 0, stage: 'idle' }
+  if (!startedAt)
+    return { daysElapsed: 0, daysRemaining: days, pct: 0, stage: 'idle', overdue: false, daysOverdue: 0 }
 
   const elapsedMs = Date.parse(now) - Date.parse(startedAt)
   const daysElapsed = Math.max(0, elapsedMs / DAY_MS)
@@ -61,11 +74,14 @@ export function incubationProgress(
   else if (pct >= 40) stage = 'mid'
   else stage = 'early'
 
+  const daysOverdue = Math.max(0, daysElapsed - days)
   return {
     daysElapsed: Math.round(daysElapsed * 10) / 10,
     daysRemaining: Math.round(daysRemaining * 10) / 10,
     pct: Math.round(pct),
     stage,
+    overdue: daysOverdue > 0,
+    daysOverdue: Math.round(daysOverdue),
   }
 }
 

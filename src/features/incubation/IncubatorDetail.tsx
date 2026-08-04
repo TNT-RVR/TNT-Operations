@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QrCode } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
-import { useData } from '@/data/context'
+import { useData, type TrayObservation } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
 import {
@@ -11,9 +11,16 @@ import {
   incubatorDisplay,
   formatTemp,
   TEMP_MODES,
+  DEV_STAGES,
+  STACK_POSITIONS,
+  DEPTH_POSITIONS,
+  expectedStageForDay,
+  stageDelta,
   type TempMode,
 } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
+import { TrayScanButton } from './TrayScanButton'
+import { findTrays } from './trayLookup'
 
 const TZ = 'America/Edmonton'
 const fmtWhen = (iso: string) =>
@@ -44,7 +51,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, readings, latestReading, addInspection, saveIncubator } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -85,6 +92,39 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const [beesEmerging, setBeesEmerging] = useState(false)
   const [parasitesEmerging, setParasitesEmerging] = useState(false)
   const [notes, setNotes] = useState('')
+  /** Trays examined during this inspection, added before saving. */
+  const [observations, setObservations] = useState<TrayObservation[]>([])
+  const [obsTray, setObsTray] = useState('')
+  const [obsStack, setObsStack] = useState<string>(STACK_POSITIONS[0])
+  const [obsDepth, setObsDepth] = useState<string>(DEPTH_POSITIONS[0])
+  const [obsCells, setObsCells] = useState('')
+  const [obsStage, setObsStage] = useState<string>('')
+
+  /** Scanning resolves against the tray list, so load it when this opens. */
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
+
+  /** What the schedule says this incubator should be showing today. */
+  const expectedStage = expectedStageForDay(day)
+
+  function addObservation() {
+    if (!obsTray.trim() || !obsStage) return
+    setObservations((prev) => [
+      ...prev,
+      {
+        trayId: null,
+        trayNumber: obsTray.trim(),
+        stackPosition: obsStack,
+        depthPosition: obsDepth,
+        cellsOpened: obsCells.trim() === '' ? null : Number(obsCells),
+        devStage: obsStage,
+        notes: '',
+      },
+    ])
+    setObsTray('')
+    setObsCells('')
+  }
 
   // Compare the hand thermometer against the Govee sensor reading at log time.
   const goveeTempC = latest?.tempC ?? null
@@ -109,12 +149,13 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
       blackLightsOk,
       beesEmerging,
       parasitesEmerging,
-    })
+    }, observations)
     setThermTemp('')
     setNotes('')
     setPeriod('manual')
     setBeesEmerging(false)
     setParasitesEmerging(false)
+    setObservations([])
   }
 
   return (
@@ -282,6 +323,94 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               ))}
             </div>
 
+            {/* Trays examined: pull a few from set positions, open cells, record
+                the stage seen. Compared against the schedule as you go. */}
+            <div className="mt-3 rounded-sm border border-default p-2">
+              <div className="mb-2 flex flex-wrap items-baseline gap-2">
+                <span className="label">Trays examined</span>
+                {expectedStage && (
+                  <span className="text-xs text-faint">
+                    day {day} should be “{expectedStage}”
+                  </span>
+                )}
+              </div>
+
+              {observations.length > 0 && (
+                <ul className="mb-2 divide-y divide-subtle rounded-sm border border-subtle">
+                  {observations.map((o, i) => {
+                    const delta = o.devStage ? stageDelta(o.devStage, day) : null
+                    return (
+                      <li key={`${o.trayNumber}-${i}`} className="flex flex-wrap items-center gap-2 px-2 py-1 text-sm">
+                        <span className="font-mono text-primary">{o.trayNumber}</span>
+                        <span className="text-xs text-muted">
+                          {o.stackPosition} / {o.depthPosition}
+                          {o.cellsOpened != null ? ` · ${o.cellsOpened} cells` : ''}
+                        </span>
+                        <span className="text-xs text-secondary">{o.devStage}</span>
+                        {delta != null && delta !== 0 && (
+                          <Badge tone={delta < 0 ? 'amber' : 'green'}>
+                            {delta < 0 ? `${-delta} behind` : `${delta} ahead`}
+                          </Badge>
+                        )}
+                        <button
+                          className="btn-ghost ml-auto px-1 py-0 text-xs"
+                          onClick={() => setObservations((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="block">
+                  <span className="label">Tray</span>
+                  <input className="input w-28" value={obsTray} onChange={(e) => setObsTray(e.target.value)} placeholder="Tray0417" />
+                </label>
+                <TrayScanButton
+                  onScan={(label) => {
+                    // Use the stored label when it's known, so a prefix
+                    // mismatch (Trays0417 vs Tray0417) still records correctly.
+                    setObsTray(findTrays(trays, label)[0]?.trayNumber ?? label)
+                  }}
+                />
+                <label className="block">
+                  <span className="label">Stack</span>
+                  <select className="input w-24" value={obsStack} onChange={(e) => setObsStack(e.target.value)}>
+                    {STACK_POSITIONS.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="label">Depth</span>
+                  <select className="input w-24" value={obsDepth} onChange={(e) => setObsDepth(e.target.value)}>
+                    {DEPTH_POSITIONS.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="label">Cells</span>
+                  <input className="input w-16" type="number" value={obsCells} onChange={(e) => setObsCells(e.target.value)} />
+                </label>
+                <label className="block min-w-48 flex-1">
+                  <span className="label">Stage seen</span>
+                  <select className="input w-full" value={obsStage} onChange={(e) => setObsStage(e.target.value)}>
+                    <option value="">Choose a stage…</option>
+                    {DEV_STAGES.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+                <button className="btn-ghost" onClick={addObservation} disabled={!obsTray.trim() || !obsStage}>
+                  Add tray
+                </button>
+              </div>
+            </div>
+
             <div className="mt-3 flex items-end gap-3">
               <label className="block flex-1">
                 <span className="label">Notes</span>
@@ -325,6 +454,20 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                     {inspectionChips(i)}
                   </div>
                   {i.notes && <div className="mt-1 text-sm text-primary">{i.notes}</div>}
+                  {/* Trays examined during this inspection. */}
+                  {trayInspections
+                    .filter((t) => t.inspectionId === i.id)
+                    .map((t) => (
+                      <div key={t.id} className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
+                        <span className="font-mono text-secondary">{t.trayNumber}</span>
+                        <span>
+                          {t.stackPosition} / {t.depthPosition}
+                          {t.cellsOpened != null ? ` · ${t.cellsOpened} cells` : ''}
+                        </span>
+                        <span className="text-secondary">{t.devStage}</span>
+                        {t.notes && <span>“{t.notes}”</span>}
+                      </div>
+                    ))}
                   <div className="mt-0.5 text-xs text-faint">
                     {fmtWhen(i.at)}
                     {i.inspector ? ` · ${i.inspector}` : ''}

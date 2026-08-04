@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
+import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, TrayInspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -326,5 +326,18 @@ export const seedGrants: Grant[] = [
     assignedTo: null,
     source: 'manual',
     createdAt: '2026-06-30T15:00:00Z',
+  },
+]
+
+export const seedTrayInspections: TrayInspection[] = [
+  {
+    id: 'ti1', inspectionId: 'in1', trayId: 't1', trayNumber: 'Tray0001', incubatorId: 'i1',
+    at: '2026-07-20T16:00:00Z', stackPosition: 'Top', depthPosition: 'Front',
+    cellsOpened: 5, devStage: 'Day 17–18 — Male emergence', notes: '',
+  },
+  {
+    id: 'ti2', inspectionId: 'in1', trayId: 't3', trayNumber: 'Tray0003', incubatorId: 'i1',
+    at: '2026-07-20T16:00:00Z', stackPosition: 'Bottom', depthPosition: 'Back',
+    cellsOpened: 6, devStage: 'Day 14–15 — Male fully dark / Female darkening', notes: 'Cooler corner.',
   },
 ]

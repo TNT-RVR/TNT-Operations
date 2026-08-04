@@ -21,6 +21,7 @@ import type {
   AppNotification,
   NotificationSeverity,
   IncubatorAlert,
+  TrayInspection,
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
@@ -211,6 +212,36 @@ export function toAlert(row: AlertRow): IncubatorAlert {
     acknowledged: !!row.acknowledged,
     acknowledgedAt: row.acknowledged_at,
     notified: !!row.notified,
+  }
+}
+
+export interface TrayInspectionRow {
+  id: string
+  inspection_id: string | null
+  tray_id: string | null
+  tray_number: string | null
+  incubator_id: string | null
+  timestamp: string | null
+  stack_position: string | null
+  depth_position: string | null
+  cells_opened: number | string | null
+  dev_stage: string | null
+  notes: string | null
+}
+
+export function toTrayInspection(row: TrayInspectionRow): TrayInspection {
+  return {
+    id: row.id,
+    inspectionId: row.inspection_id,
+    trayId: row.tray_id,
+    trayNumber: row.tray_number,
+    incubatorId: row.incubator_id,
+    at: row.timestamp,
+    stackPosition: row.stack_position,
+    depthPosition: row.depth_position,
+    cellsOpened: numOrNull(row.cells_opened),
+    devStage: row.dev_stage,
+    notes: row.notes ?? '',
   }
 }
 

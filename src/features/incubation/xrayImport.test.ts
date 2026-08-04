@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, parseNumber, normalizeHeader, parseXraySheet } from './xrayImport'
+import { parseCsv, parseNumber, normalizeHeader, parseXraySheet, mapSheetRows } from './xrayImport'
 
 describe('normalizeHeader', () => {
   it('lowercases, trims, drops ? and collapses whitespace', () => {
@@ -55,7 +55,7 @@ describe('parseCsv', () => {
 describe('parseXraySheet', () => {
   const csv = [
     'Sample Name,Total KGs,Live Bees per KG,Parasites,Chalkbrood,Total Gal Bees,Total KG for 2gal,Expected Trays,Incubator Space,Notes',
-    '26-102,506.7,9866,1.2,0.4,520,2.57,250,Rack A,Strong lot',
+    '26-102,506.7,9866,1.2,0.4,520,2.57,250,0.11,Strong lot',
     '#4 Sanfoin,177.8,9039,,,180,2.32,71,,',
   ].join('\n')
 
@@ -71,7 +71,7 @@ describe('parseXraySheet', () => {
       totalVolumeGal: 520,
       kgPer2Gal: 2.57,
       totalTrays: 250,
-      incubatorSpace: 'Rack A',
+      incubatorSpace: 0.11,
       notes: 'Strong lot',
     })
   })
@@ -102,5 +102,28 @@ describe('parseXraySheet', () => {
   it('returns nothing for an empty or header-only sheet', () => {
     expect(parseXraySheet('').samples).toEqual([])
     expect(parseXraySheet('Sample Name,Total KGs').samples).toEqual([])
+  })
+})
+
+describe('mapSheetRows (shared by the CSV and .xlsx paths)', () => {
+  it('accepts already-typed cells, as the xlsx reader returns them', () => {
+    // read-excel-file hands back real numbers/nulls rather than strings.
+    const { samples } = mapSheetRows([
+      ['Sample Name', 'Total KGs', 'Total KG for 2gal', 'Expected Trays', 'Notes'],
+      ['26-102', 506.7, 2.57, 250, null],
+      ['#4 Sanfoin', null, 2.32, 71, 'ok'],
+    ])
+    expect(samples[0]).toMatchObject({ name: '26-102', totalWeightKg: 506.7, kgPer2Gal: 2.57, totalTrays: 250 })
+    expect(samples[1].totalWeightKg).toBeNull()
+    expect(samples[1].notes).toBe('ok')
+  })
+
+  it('ignores a trailing blank header column', () => {
+    const { samples, ignoredHeaders } = mapSheetRows([
+      ['Sample Name', ''],
+      ['A', 'junk'],
+    ])
+    expect(ignoredHeaders).toEqual([])
+    expect(samples[0].name).toBe('A')
   })
 })

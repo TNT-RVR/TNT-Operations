@@ -9,8 +9,7 @@ import type { Sample } from '@/data/types'
  * an existing sample BY NAME and update it (keeping tray links); an unknown
  * name creates a sample.
  *
- * CSV only for now — the desktop app also reads .xlsx via openpyxl. Save the
- * sheet as CSV, or ask for xlsx support.
+ * Reads .csv and .xlsx, matching the desktop app (which uses openpyxl).
  */
 
 export type SamplePatch = Partial<Omit<Sample, 'id'>> & { name: string }
@@ -33,7 +32,12 @@ const HEADER_MAP: Record<string, keyof Sample> = {
   notes: 'notes',
 }
 
-const TEXT_FIELDS = new Set<keyof Sample>(['name', 'incubatorSpace', 'notes'])
+/**
+ * The desktop app also treats `incubator_space` as text, but the column is
+ * numeric in Postgres and every live value is a fraction (0.00, 0.01, 0.11…),
+ * so it's parsed as a number here.
+ */
+const TEXT_FIELDS = new Set<keyof Sample>(['name', 'notes'])
 
 /** Lowercase, drop '?', collapse whitespace — matches the desktop's _norm. */
 export function normalizeHeader(h: string): string {
@@ -108,10 +112,17 @@ export interface XrayImportResult {
 
 /** Parse an x-ray sheet's CSV text into sample patches. */
 export function parseXraySheet(csvText: string): XrayImportResult {
-  const rows = parseCsv(csvText)
+  return mapSheetRows(parseCsv(csvText))
+}
+
+/**
+ * Map already-split sheet rows (header row first) onto sample patches. Shared
+ * by the CSV and .xlsx paths so both honour the same headers and coercions.
+ */
+export function mapSheetRows(rows: unknown[][]): XrayImportResult {
   if (rows.length < 2) return { samples: [], ignoredHeaders: [], skipped: 0 }
 
-  const headers = rows[0].map(normalizeHeader)
+  const headers = rows[0].map((h) => normalizeHeader(h == null ? '' : String(h)))
   const ignoredHeaders = headers.filter((h) => h !== '' && !HEADER_MAP[h])
 
   const samples: SamplePatch[] = []
@@ -140,4 +151,19 @@ export function parseXraySheet(csvText: string): XrayImportResult {
   }
 
   return { samples, ignoredHeaders, skipped }
+}
+
+/**
+ * Read an x-ray sheet from a picked file — .xlsx (first worksheet, like the
+ * desktop app's `wb.active`) or .csv. The xlsx parser is imported lazily so its
+ * weight only lands on the bundle when someone actually imports one.
+ */
+export async function readXrayFile(file: File): Promise<XrayImportResult> {
+  const isXlsx = /\.xlsx?$/i.test(file.name) || file.type.includes('sheet') || file.type.includes('excel')
+  if (!isXlsx) return parseXraySheet(await file.text())
+
+  const { default: readXlsxFile } = await import('read-excel-file/browser')
+  // Cells come back typed (numbers, Dates); mapSheetRows coerces from there.
+  const rows = (await readXlsxFile(file)) as unknown as unknown[][]
+  return mapSheetRows(rows)
 }

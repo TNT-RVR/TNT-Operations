@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import { parseXraySheet } from './xrayImport'
+import { readXrayFile } from './xrayImport'
 import {
   formatDays,
   daysFromNow,
@@ -56,9 +56,9 @@ export default function SamplesHome() {
     setImporting(true)
     setImportMsg(null)
     try {
-      const { samples: rows, ignoredHeaders, skipped } = parseXraySheet(await file.text())
+      const { samples: rows, ignoredHeaders, skipped } = await readXrayFile(file)
       if (rows.length === 0) {
-        setImportMsg({ ok: false, text: 'No sample rows found — is this the x-ray sheet, saved as CSV?' })
+        setImportMsg({ ok: false, text: 'No sample rows found — is this the x-ray sheet?' })
         return
       }
       const r = await importSamples(rows)
@@ -239,10 +239,10 @@ export default function SamplesHome() {
               <span className="font-mono text-xs text-faint">{visibleSamples.length} shown</span>
               {canEdit && (
                 <label className="btn-ghost cursor-pointer px-2 py-1 text-xs">
-                  {importing ? 'Importing…' : 'Import x-ray CSV'}
+                  {importing ? 'Importing…' : 'Import x-ray sheet'}
                   <input
                     type="file"
-                    accept=".csv,text/csv"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     className="hidden"
                     disabled={importing}
                     onChange={(e) => {
@@ -371,9 +371,11 @@ export default function SamplesHome() {
 
       {openSample && (
         <SampleDetail
-          sample={openSample}
+          // Re-read from state so an edit shows immediately.
+          sample={samples.find((x) => x.id === openSample.id) ?? openSample}
           trays={traysBySample.get(openSample.id) ?? []}
           incubatorName={incubatorName}
+          canEdit={canEdit}
           onClose={() => setOpenSample(null)}
         />
       )}
@@ -405,17 +407,67 @@ function BatchCard({ batch }: { batch: IncubationBatch }) {
   )
 }
 
+/** Fields worth correcting by hand, without reimporting a whole sheet. */
+const EDITABLE: Array<{ key: keyof Sample; label: string; step?: string }> = [
+  { key: 'totalWeightKg', label: 'Total Kg', step: '0.1' },
+  { key: 'liveBeesPerKg', label: 'Live Bees/Kg', step: '1' },
+  { key: 'parasites', label: 'Parasites', step: '0.1' },
+  { key: 'chalkbrood', label: 'Chalkbrood', step: '0.1' },
+  { key: 'totalVolumeGal', label: 'Total Gal', step: '0.1' },
+  { key: 'kgPer2Gal', label: 'Kg for 2gal', step: '0.01' },
+  { key: 'totalTrays', label: 'Expected trays', step: '1' },
+  { key: 'incubatorSpace', label: 'Inc. Space', step: '0.01' },
+]
+
 function SampleDetail({
   sample: s,
   trays,
   incubatorName,
+  canEdit,
   onClose,
 }: {
   sample: Sample
   trays: Tray[]
   incubatorName: Map<string, string>
+  canEdit: boolean
   onClose: () => void
 }) {
+  const { saveSample } = useData()
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  function startEdit() {
+    const f: Record<string, string> = {}
+    for (const { key } of EDITABLE) {
+      const v = s[key] as number | null
+      f[key] = v == null ? '' : String(v)
+    }
+    f.notes = s.notes ?? ''
+    setForm(f)
+    setErr(null)
+    setEditing(true)
+  }
+
+  async function save() {
+    setSaving(true)
+    setErr(null)
+    const patch: Partial<Sample> = {}
+    for (const { key } of EDITABLE) {
+      const raw = (form[key] ?? '').trim()
+      // Clearing a field means "unknown", not zero.
+      ;(patch as Record<string, unknown>)[key] = raw === '' ? null : Number(raw)
+    }
+    patch.notes = form.notes ?? ''
+    const r = await saveSample(s.id, patch)
+    setSaving(false)
+    if (!r.ok) {
+      setErr(r.error ?? 'Could not save.')
+      return
+    }
+    setEditing(false)
+  }
   const rows: Array<[string, string]> = [
     ['Source', s.source || '—'],
     ['Lot number', s.lotNumber || '—'],
@@ -429,9 +481,57 @@ function SampleDetail({
     ['Trays in system', trays.length ? num(trays.length) : '—'],
   ]
 
+  if (editing) {
+    return (
+      <Modal title={`Edit ${s.name}`} onClose={() => setEditing(false)} wide>
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {EDITABLE.map(({ key, label, step }) => (
+              <label key={key} className="block">
+                <span className="label">{label}</span>
+                <input
+                  className="input w-full"
+                  type="number"
+                  step={step}
+                  value={form[key] ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="block">
+            <span className="label">Notes</span>
+            <input
+              className="input w-full"
+              value={form.notes ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+          </label>
+          <p className="text-xs text-faint">
+            A blank field means “not recorded”, not zero. Kg for 2gal is the per-tray weight the scanner attaches.
+          </p>
+          {err && <p className="text-sm text-danger">{err}</p>}
+          <div className="flex gap-2">
+            <button className="btn-primary" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="btn-ghost" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
+
   return (
     <Modal title={s.name} onClose={onClose} wide>
       <div className="space-y-4">
+        {canEdit && (
+          <button className="btn-ghost px-3 py-1.5 text-sm" onClick={startEdit}>
+            Edit figures
+          </button>
+        )}
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
           {rows.map(([k, v]) => (
             <div key={k} className="flex justify-between gap-2 border-b border-subtle py-1">

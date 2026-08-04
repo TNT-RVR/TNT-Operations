@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QrCode } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
@@ -19,6 +19,8 @@ import {
   type TempMode,
 } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
+import { TrayScanButton } from './TrayScanButton'
+import { findTrays } from './trayLookup'
 
 const TZ = 'America/Edmonton'
 const fmtWhen = (iso: string) =>
@@ -49,7 +51,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, trayInspections, readings, latestReading, addInspection, saveIncubator } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -97,6 +99,11 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const [obsDepth, setObsDepth] = useState<string>(DEPTH_POSITIONS[0])
   const [obsCells, setObsCells] = useState('')
   const [obsStage, setObsStage] = useState<string>('')
+
+  /** Scanning resolves against the tray list, so load it when this opens. */
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
 
   /** What the schedule says this incubator should be showing today. */
   const expectedStage = expectedStageForDay(day)
@@ -362,6 +369,13 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   <span className="label">Tray</span>
                   <input className="input w-28" value={obsTray} onChange={(e) => setObsTray(e.target.value)} placeholder="Tray0417" />
                 </label>
+                <TrayScanButton
+                  onScan={(label) => {
+                    // Use the stored label when it's known, so a prefix
+                    // mismatch (Trays0417 vs Tray0417) still records correctly.
+                    setObsTray(findTrays(trays, label)[0]?.trayNumber ?? label)
+                  }}
+                />
                 <label className="block">
                   <span className="label">Stack</span>
                   <select className="input w-24" value={obsStack} onChange={(e) => setObsStack(e.target.value)}>

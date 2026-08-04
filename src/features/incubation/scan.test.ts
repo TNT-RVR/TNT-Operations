@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseScan, findTrays } from './ScanHome'
+import { parseScan, findTrays } from './trayLookup'
 import type { Tray } from '@/data/types'
 
 const tray = (id: string, trayNumber: string, sampleId: string | null = 's1'): Tray => ({

@@ -36,7 +36,11 @@ const csvCell = (v: string | number | null) => {
 }
 
 export default function TraysHome() {
-  const { trays, incubators, samples } = useData()
+  const { trays, incubators, samples, loadTrays, traysLoading } = useData()
+  // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
 
   const incubatorName = useMemo(() => new Map(incubators.map((i) => [i.id, i.name])), [incubators])
   const sampleName = useMemo(() => new Map(samples.map((s) => [s.id, s.name])), [samples])
@@ -261,7 +265,7 @@ export default function TraysHome() {
 
         {/* Table */}
         {filtered.length === 0 ? (
-          <EmptyState>No trays match these filters.</EmptyState>
+          <EmptyState>{traysLoading ? 'Loading trays…' : 'No trays match these filters.'}</EmptyState>
         ) : (
           <>
             {/* Phones: stacked cards. A 640px table in a 375px viewport means

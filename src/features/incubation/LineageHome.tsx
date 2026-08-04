@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { PageHeader, SearchBar, matchesQuery, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
@@ -16,8 +16,12 @@ const fmtWhen = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 export default function LineageHome() {
-  const { trays, samples, batches, incubators, fields, placedShelters, shelterTrayLinks, nestingBlocks, linkTrayToShelter } =
+  const { trays, samples, batches, incubators, fields, placedShelters, shelterTrayLinks, nestingBlocks, linkTrayToShelter, loadTrays } =
     useData()
+  // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
   const [q, setQ] = useState('')

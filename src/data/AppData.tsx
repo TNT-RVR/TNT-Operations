@@ -59,6 +59,9 @@ function MockProvider({ children }: { children: ReactNode }) {
       readings,
       samples,
       trays,
+      traysLoading: false,
+      // Mock holds every seeded tray already — nothing to fetch.
+      loadTrays: async () => {},
       batches: seedBatches,
       alerts: seedAlerts,
       addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),

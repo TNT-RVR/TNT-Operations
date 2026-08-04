@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
@@ -45,7 +45,11 @@ const flattenNotes = (notes: string | null | undefined) =>
   (notes ?? '').split(/\s*[\r\n]+\s*/).join(' ').trim() || '—'
 
 export default function SamplesHome() {
-  const { samples, trays, batches, incubators, importSamples } = useData()
+  const { samples, trays, batches, incubators, importSamples, loadTrays } = useData()
+  // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
   const session = useSession()
   const canEdit = session.can('incubation', 'edit')
   const [openSample, setOpenSample] = useState<Sample | null>(null)

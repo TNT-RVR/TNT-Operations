@@ -80,6 +80,28 @@ export interface GrantPromptInput {
   notesMd?: string | null
 }
 
+/**
+ * Longest URL we'll hand the browser. Browsers and servers both cap URL length
+ * (~8k is the common practical ceiling), and a silently truncated prompt is
+ * worse than no prompt — so past this we open a blank chat and rely on the
+ * clipboard copy instead.
+ */
+export const CLAUDE_URL_MAX = 6000
+
+/**
+ * Deep link that OPENS Claude with the prompt already in the composer, rather
+ * than a blank conversation. Falls back to a blank chat when the prompt is too
+ * long to survive a URL (the caller always copies it to the clipboard too).
+ */
+export function claudeChatUrl(prompt: string): string {
+  const full = `https://claude.ai/new?q=${encodeURIComponent(prompt)}`
+  return full.length <= CLAUDE_URL_MAX ? full : 'https://claude.ai/new'
+}
+
+/** True when the prompt had to be dropped from the URL (clipboard is the path). */
+export const claudeUrlWasTruncated = (prompt: string): boolean =>
+  `https://claude.ai/new?q=${encodeURIComponent(prompt)}`.length > CLAUDE_URL_MAX
+
 /** A ready-to-paste prompt for drafting the application with Claude. */
 export function claudeGrantPrompt(g: GrantPromptInput): string {
   return [

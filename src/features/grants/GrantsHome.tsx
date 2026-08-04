@@ -10,7 +10,9 @@ import {
   GRANT_STATUSES,
   GRANT_STATUS_LABEL,
   GRANT_STATUS_TONE,
+  claudeChatUrl,
   claudeGrantPrompt,
+  claudeUrlWasTruncated,
   closesLabel,
   closingSoon,
   isArchivedGrant,
@@ -125,9 +127,15 @@ function GrantDetail({ grant, onClose }: { grant: Grant; onClose: () => void }) 
   const { updateGrant, deleteGrant } = useData()
   const s = useSession()
   const canEdit = s.can('grants', 'edit')
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'opened' | 'copied' | null>(null)
   const set = (patch: Partial<Grant>) => updateGrant(grant.id, patch)
 
+  /**
+   * Open Claude with the grant's details already in the composer, so the
+   * conversation starts on this grant instead of blank. The prompt also goes to
+   * the clipboard as a safety net — if it's too long for a URL, or the deep
+   * link ever stops accepting `?q=`, it's one paste away.
+   */
   const draftWithClaude = async () => {
     const prompt = claudeGrantPrompt({
       title: grant.title,
@@ -138,14 +146,16 @@ function GrantDetail({ grant, onClose }: { grant: Grant; onClose: () => void }) 
       closesOn: grant.closesOn,
       notesMd: grant.notesMd,
     })
+    const truncated = claudeUrlWasTruncated(prompt)
     try {
       await navigator.clipboard.writeText(prompt)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 4000)
+      setCopied(truncated ? 'copied' : 'opened')
+      setTimeout(() => setCopied(null), 5000)
     } catch {
-      /* clipboard blocked — the Claude tab still opens */
+      setCopied(truncated ? null : 'opened')
+      setTimeout(() => setCopied(null), 5000)
     }
-    window.open('https://claude.ai/new', '_blank', 'noopener')
+    window.open(claudeChatUrl(prompt), '_blank', 'noopener')
   }
 
   return (
@@ -299,7 +309,12 @@ function GrantDetail({ grant, onClose }: { grant: Grant; onClose: () => void }) 
             <span />
           )}
           <button onClick={draftWithClaude} className="btn-primary min-h-0 px-3 py-2 text-sm">
-            <Sparkles size={16} /> {copied ? 'Prompt copied — paste into Claude' : 'Draft with Claude'}
+            <Sparkles size={16} />{' '}
+            {copied === 'opened'
+              ? 'Opened in Claude'
+              : copied === 'copied'
+                ? 'Prompt copied — paste into Claude'
+                : 'Draft with Claude'}
           </button>
         </div>
       </div>

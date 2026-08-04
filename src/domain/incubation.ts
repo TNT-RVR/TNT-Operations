@@ -613,23 +613,38 @@ export function dailyMeanTempByIncubator(
 }
 
 /**
- * Days an incubator was NOT held at incubation temperature — it sat below the
- * incubation band's floor. Development slows on these days, so a run that was
- * cooled will emerge later than its fixed-offset milestones suggest.
+ * Days an incubator sat at HOLDING temperature — the deliberate pre-release
+ * hold, which slows development.
  *
- * This REPORTS what the sensors recorded; it does not adjust the schedule. How
- * much cooling delays development isn't modelled anywhere, so shifting dates
- * would be inventing a number.
+ * Only the holding band counts. Incubation days obviously don't; neither does
+ * an incubator that is simply switched off (shop ambient is ~19-21 C, above the
+ * band) nor cool storage (below it). That keeps the marks to intentional
+ * holding rather than any time the box happened to be cold.
+ *
+ * NOTE: mode history is not recorded anywhere — only the CURRENT temp_mode is
+ * stored — so this is derived from what the sensors measured, which is the only
+ * record of what a run actually experienced.
+ *
+ * This REPORTS; it does not adjust the schedule. How much holding delays
+ * emergence isn't recorded, so shifting milestone dates would invent a number.
  */
-export function coolDays(
+export function holdingDays(
   means: Map<string, Map<string, number>>,
-  minIncubationC: number = TEMP_MODES.incubation.min ?? 25,
+  band: { min: number | null; max: number | null } = TEMP_MODES.holding,
 ): Map<string, Set<string>> {
+  const lo = band.min ?? -Infinity
+  const hi = band.max ?? Infinity
   const out = new Map<string, Set<string>>()
   for (const [incId, byDay] of means) {
     const days = new Set<string>()
-    for (const [day, mean] of byDay) if (mean < minIncubationC) days.add(day)
+    for (const [day, mean] of byDay) if (mean >= lo && mean <= hi) days.add(day)
     if (days.size) out.set(incId, days)
   }
   return out
+}
+
+/** Inclusive date window a run occupies: its start through the last milestone. */
+export function runWindow(startYmd: string): { from: string; to: string } {
+  const lastDay = INCUBATION_MILESTONES[INCUBATION_MILESTONES.length - 1].day
+  return { from: startYmd, to: addDays(startYmd, lastDay - 1) }
 }

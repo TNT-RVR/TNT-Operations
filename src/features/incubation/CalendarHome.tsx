@@ -4,13 +4,15 @@ import { PageHeader, Badge, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import {
   INCUBATION_MILESTONES,
+  TEMP_MODES,
   milestoneEvents,
   milestonesToIcs,
   incubationStartFor,
   formatDays,
   daysFromNow,
   dailyMeanTempByIncubator,
-  coolDays,
+  holdingDays,
+  runWindow,
   type MilestoneEvent,
 } from '@/domain/incubation'
 
@@ -77,23 +79,6 @@ export default function CalendarHome() {
 
   const weeks = useMemo(() => monthGrid(year, month0), [year, month0])
 
-  // Readings are hydrated only for a recent window, so pull the visible month
-  // for the incubators on a schedule (loadReadings is cached per incubator).
-  const monthStartIso = useMemo(() => new Date(Date.UTC(year, month0, 1)).toISOString(), [year, month0])
-  useEffect(() => {
-    for (const inc of incubators) void loadReadings(inc.id, monthStartIso)
-  }, [incubators, monthStartIso, loadReadings])
-
-  /**
-   * Days each incubator sat below incubation temperature. Shown, not applied:
-   * cooling slows development, but by how much isn't modelled, so the milestone
-   * dates stay put and these days explain why a run may run late.
-   */
-  const cooled = useMemo(() => {
-    const toYmd = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
-    return coolDays(dailyMeanTempByIncubator(readings, toYmd))
-  }, [readings])
-
   /** Incubators actually on a schedule, with where they are in it. */
   const scheduled = useMemo(
     () =>
@@ -102,6 +87,37 @@ export default function CalendarHome() {
         .filter((r): r is { inc: (typeof incubators)[number]; start: string } => r.start !== null),
     [incubators, trays],
   )
+
+  // (scheduled is declared above so the holding-day window can use it)
+  // Readings are hydrated only for a recent window, so pull the visible month
+  // for the incubators on a schedule (loadReadings is cached per incubator).
+  const monthStartIso = useMemo(() => new Date(Date.UTC(year, month0, 1)).toISOString(), [year, month0])
+  useEffect(() => {
+    for (const inc of incubators) void loadReadings(inc.id, monthStartIso)
+  }, [incubators, monthStartIso, loadReadings])
+
+  /**
+   * Days each incubator sat at HOLDING temperature, limited to its own run
+   * window. Shown, not applied: holding slows development, but by how much
+   * isn't recorded, so the milestone dates stay put and these days explain why
+   * a run may run late.
+   */
+  const held = useMemo(() => {
+    const toYmd = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
+    const all = holdingDays(dailyMeanTempByIncubator(readings, toYmd))
+    // Only mark days that fall inside the run — an idle box between seasons
+    // isn't "holding", it's just sitting there.
+    const windows = new Map(scheduled.map(({ inc, start }) => [inc.id, runWindow(start)]))
+    const out = new Map<string, Set<string>>()
+    for (const [incId, days] of all) {
+      const w = windows.get(incId)
+      if (!w) continue
+      const inRun = new Set([...days].filter((d) => d >= w.from && d <= w.to))
+      if (inRun.size) out.set(incId, inRun)
+    }
+    return out
+  }, [readings, scheduled])
+
 
   const upcoming = useMemo(() => {
     const now = new Date()
@@ -196,13 +212,13 @@ export default function CalendarHome() {
                               the incubation band that day. */}
                           <div className="flex gap-0.5">
                             {scheduled
-                              .filter(({ inc }) => cooled.get(inc.id)?.has(ymd))
+                              .filter(({ inc }) => held.get(inc.id)?.has(ymd))
                               .map(({ inc }) => (
                                 <span
                                   key={inc.id}
                                   className="h-1 flex-1 rounded-full opacity-60"
                                   style={{ background: colorOf.get(inc.id) }}
-                                  title={`${inc.name} — below incubation temperature this day`}
+                                  title={`${inc.name} — at holding temperature this day`}
                                 />
                               ))}
                           </div>
@@ -258,9 +274,10 @@ export default function CalendarHome() {
                 ))}
               </div>
               <p className="text-xs text-faint">
-                A bar under a date marks a day that incubator sat below incubation temperature. Development slows on
-                those days, so a cooled run can emerge later than these fixed milestones suggest — the dates are not
-                adjusted, because how much cooling delays emergence isn’t recorded anywhere.
+                A bar under a date marks a day that incubator sat at holding temperature ({TEMP_MODES.holding.min}–
+                {TEMP_MODES.holding.max}°C) during its run. Development slows while held, so a held run can emerge
+                later than these fixed milestones suggest — the dates are not adjusted, because how much holding
+                delays emergence isn’t recorded anywhere.
               </p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
                 {scheduled.map(({ inc, start }) => (
@@ -270,8 +287,8 @@ export default function CalendarHome() {
                       style={{ background: colorOf.get(inc.id) }}
                     />
                     {inc.name} — started {start}
-                    {(cooled.get(inc.id)?.size ?? 0) > 0 && (
-                      <span className="text-faint">· {cooled.get(inc.id)!.size} cool d</span>
+                    {(held.get(inc.id)?.size ?? 0) > 0 && (
+                      <span className="text-faint">· {held.get(inc.id)!.size} holding d</span>
                     )}
                   </span>
                 ))}

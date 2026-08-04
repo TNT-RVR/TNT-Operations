@@ -1,8 +1,10 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { PageHeader, EmptyState, Modal, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import type { Tray } from '@/data/types'
 import { trayYear, trayWeightKg, perLbToPerKg } from '@/domain/incubation'
+import { TrayScanButton } from './TrayScanButton'
+import { findTrays } from './trayLookup'
 
 const PAGE_SIZE = 50
 const num = (v: number | null | undefined) =>
@@ -78,6 +80,20 @@ export default function TraysHome() {
   const [sortKey, setSortKey] = useState<SortKey>('trayNumber')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [openTrayNumber, setOpenTrayNumber] = useState<string | null>(null)
+  /** A scanned label with no tray on record — worth saying so explicitly. */
+  const [notFound, setNotFound] = useState<string | null>(null)
+
+
+  // Default to the current year once the data is in, matching the desktop app:
+  // the current season is what you almost always want. Falls back to All Years
+  // when this year has no data, and only fires once so it never fights a choice.
+  const didDefaultYear = useRef(false)
+  useEffect(() => {
+    if (didDefaultYear.current || years.length === 0) return
+    didDefaultYear.current = true
+    const cur = String(new Date().getFullYear())
+    if (years.some((y) => String(y) === cur)) setYear(cur)
+  }, [years])
 
   // Reset to the first page whenever a filter or sort changes.
   useEffect(() => setPage(1), [search, incId, sampleId, status, year, sortKey, sortDir])
@@ -183,10 +199,25 @@ export default function TraysHome() {
             <input
               className="input w-40"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setNotFound(null)
+              }}
               placeholder="e.g. 1487"
             />
           </label>
+          {/* Scan a tray to look it up — opens its history straight away, so
+              standing at the stack with a tray in hand is one action. */}
+          <TrayScanButton
+            label="Scan to look up"
+            onScan={(scanned) => {
+              const match = findTrays(trays, scanned)[0]
+              const label = match?.trayNumber ?? scanned
+              setSearch(label)
+              setNotFound(match ? null : label)
+              if (match) setOpenTrayNumber(label)
+            }}
+          />
           <label className="block">
             <span className="label">Incubator</span>
             <select className={selectCls} value={incId} onChange={(e) => setIncId(e.target.value)}>
@@ -247,6 +278,12 @@ export default function TraysHome() {
             </button>
           )}
         </div>
+
+        {notFound && (
+          <p className="rounded-sm border border-default px-3 py-2 text-sm text-danger">
+            No tray on record for “{notFound}” — it may not have been assigned to a sample yet.
+          </p>
+        )}
 
         {/* Count + export + pager */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-secondary">

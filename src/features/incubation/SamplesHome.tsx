@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
@@ -130,6 +130,18 @@ export default function SamplesHome() {
     }
     return [...ys].sort((a, b) => b - a)
   }, [trays])
+
+
+  // Default to the current year once the data is in, matching the desktop app:
+  // the current season is what you almost always want. Falls back to All Years
+  // when this year has no data, and only fires once so it never fights a choice.
+  const didDefaultYear = useRef(false)
+  useEffect(() => {
+    if (didDefaultYear.current || sampleYears.length === 0) return
+    didDefaultYear.current = true
+    const cur = String(new Date().getFullYear())
+    if (sampleYears.some((y) => String(y) === cur)) setYear(cur)
+  }, [sampleYears])
 
   const visibleSamples = useMemo(() => {
     const q = search.trim().toLowerCase()

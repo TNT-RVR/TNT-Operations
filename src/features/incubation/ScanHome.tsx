@@ -89,7 +89,11 @@ function feedback(kind: 'ok' | 'warn') {
 }
 
 export default function ScanHome() {
-  const { trays, samples, incubators, assignTray } = useData()
+  const { trays, samples, incubators, assignTray, loadTrays } = useData()
+  // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
   const [params] = useSearchParams()

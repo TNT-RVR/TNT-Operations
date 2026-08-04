@@ -52,7 +52,11 @@ export function monthGrid(year: number, month0: number): string[][] {
 }
 
 export default function CalendarHome() {
-  const { incubators, trays, readings, loadReadings } = useData()
+  const { incubators, trays, readings, loadReadings, loadTrays } = useData()
+  // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
   const today = todayYmd()
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month0, setMonth0] = useState(() => Number(today.slice(5, 7)) - 1)

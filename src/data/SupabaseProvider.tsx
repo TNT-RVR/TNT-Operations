@@ -73,6 +73,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [samples, setSamples] = useState<Sample[]>([])
   const [trays, setTrays] = useState<Tray[]>([])
+  const [traysLoading, setTraysLoading] = useState(false)
   const [batches, setBatches] = useState<IncubationBatch[]>([])
   const [alerts, setAlerts] = useState<IncubatorAlert[]>([])
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
@@ -86,6 +87,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   /** Oldest timestamp already fetched per incubator, so ranges load once. */
   const loadedSinceRef = useRef<Map<string, string>>(new Map())
+  /** Guards the one-shot tray fetch against every screen calling it at once. */
+  const traysPromiseRef = useRef<Promise<void> | null>(null)
   const readingsRef = useRef<SensorReading[]>([])
   readingsRef.current = readings
   const notifRef = useRef<AppNotification[]>([])
@@ -198,24 +201,6 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         setNotificationPrefs(byType)
       }
 
-      const PAGE = 1000
-      const allTrays: Tray[] = []
-      for (let from = 0; ; from += PAGE) {
-        const page = await sb
-          .from('trays')
-          .select('*')
-          .order('tray_number', { ascending: true })
-          .range(from, from + PAGE - 1)
-        if (cancelled) return
-        if (page.error) {
-          console.error('[data] load trays:', page.error.message)
-          break
-        }
-        const rows = (page.data as TrayRow[]) ?? []
-        allTrays.push(...rows.map(toTray))
-        if (rows.length < PAGE) break
-      }
-      setTrays(allTrays)
 
       // Readings: PostgREST caps a query at 1000 rows, and there are ~16k, so a
       // single global "recent" query only covers whichever incubators logged most
@@ -228,7 +213,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             .select('*')
             .eq('incubator_id', inc.id)
             .order('at', { ascending: false })
-            .limit(200),
+            .limit(20),
         ),
       )
       if (cancelled) return
@@ -280,6 +265,36 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       readings,
       samples,
       trays,
+      traysLoading,
+      loadTrays: () => {
+        if (traysPromiseRef.current) return traysPromiseRef.current
+        if (!supabase) return Promise.resolve()
+        setTraysLoading(true)
+        const run = (async () => {
+          // ~4.6k rows past PostgREST's 1000-row cap, so page through them.
+          const PAGE = 1000
+          const all: Tray[] = []
+          for (let from = 0; ; from += PAGE) {
+            const page = await supabase!
+              .from('trays')
+              .select('*')
+              .order('tray_number', { ascending: true })
+              .range(from, from + PAGE - 1)
+            if (page.error) {
+              console.error('[data] loadTrays:', page.error.message)
+              traysPromiseRef.current = null // let it retry
+              break
+            }
+            const rows = (page.data as TrayRow[]) ?? []
+            all.push(...rows.map(toTray))
+            if (rows.length < PAGE) break
+          }
+          setTrays(all)
+          setTraysLoading(false)
+        })()
+        traysPromiseRef.current = run
+        return run
+      },
       batches,
       alerts,
       addInspection: (input: Omit<Inspection, 'id'>) => {
@@ -655,6 +670,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       notificationPrefs,
       samples,
       trays,
+      traysLoading,
       batches,
       alerts,
       costPrefsByYear,

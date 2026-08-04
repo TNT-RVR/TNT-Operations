@@ -38,8 +38,15 @@ export interface DataContextValue {
   readings: SensorReading[]
   /** Raw bee samples (lots) with x-ray grading. */
   samples: Sample[]
-  /** Incubation trays (largely historical/released in the current data). */
+  /**
+   * Incubation trays. NOT loaded on mount — there are thousands and most
+   * screens never touch them. Call `loadTrays()` from a screen that needs them.
+   */
   trays: Tray[]
+  /** True while the tray list is being fetched. */
+  traysLoading: boolean
+  /** Fetch every tray once. Idempotent — safe to call from every screen. */
+  loadTrays: () => Promise<void>
   /** Incubation batches (runs) with timeline milestones. */
   batches: IncubationBatch[]
   /**

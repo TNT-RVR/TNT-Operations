@@ -544,13 +544,23 @@ export function incubationStartFor(
   return best
 }
 
-/** Every milestone date for the incubators that have a start date. */
+/**
+ * Every milestone date for the incubators that are actually mid-run.
+ *
+ * An incubator that is OFF is skipped even when a start date can be worked
+ * out, because `incubationStartFor` falls back to the in-dates of active
+ * trays — so one tray left assigned to an idle incubator would otherwise
+ * fabricate a whole Day 1 → Day 37 schedule for a run that isn't happening.
+ * Holding and cool storage still count: a run continues through cooling.
+ */
 export function milestoneEvents(
-  incubators: Array<{ id: string; name: string; incubationStart?: string | null }>,
+  incubators: Array<{ id: string; name: string; incubationStart?: string | null; tempMode?: string | null }>,
   trays: Array<{ incubatorId: string | null; status: string; inDate: string | null }>,
 ): MilestoneEvent[] {
   const out: MilestoneEvent[] = []
   for (const inc of incubators) {
+    // `tempMode` absent = the caller doesn't model modes; assume running.
+    if (inc.tempMode === 'off') continue
     const start = incubationStartFor(inc, trays)
     if (!start) continue
     for (const m of INCUBATION_MILESTONES) {

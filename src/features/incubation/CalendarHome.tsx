@@ -87,6 +87,10 @@ export default function CalendarHome() {
   const scheduled = useMemo(
     () =>
       incubators
+        // Off = not mid-run. Same rule as milestoneEvents: incubationStartFor
+        // falls back to active trays' in-dates, so one stray tray left assigned
+        // to an idle incubator would otherwise draw a whole run window.
+        .filter((i) => i.tempMode !== 'off')
         .map((i) => ({ inc: i, start: incubationStartFor(i, trays) }))
         .filter((r): r is { inc: (typeof incubators)[number]; start: string } => r.start !== null),
     [incubators, trays],

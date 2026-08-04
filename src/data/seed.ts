@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, TrayInspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
+import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, TrayInspection, Sample, SensorReading, Tray, AppNotification, Grant, Block, BlockPlacement } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -340,4 +340,65 @@ export const seedTrayInspections: TrayInspection[] = [
     at: '2026-07-20T16:00:00Z', stackPosition: 'Bottom', depthPosition: 'Back',
     cellsOpened: 6, devStage: 'Day 14–15 — Male fully dark / Female darkening', notes: 'Cooler corner.',
   },
+]
+
+// ── Nesting blocks (place → retrieve → strip) ────────────────────────────────
+// Six blocks across two fields, deliberately spread over the three stages so
+// the screen shows a season mid-collection rather than a tidy finished one.
+
+export const seedBlocks: Block[] = [
+  { id: 'blk1', label: 'BLK0101', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk2', label: 'BLK0102', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk3', label: 'BLK0103', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk4', label: 'BLK0104', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk5', label: 'BLK0105', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk6', label: 'BLK0106', notes: '', createdAt: '2025-05-01T12:00:00Z' },
+]
+
+const placement = (over: Partial<BlockPlacement> & { id: string; blockId: string }): BlockPlacement => ({
+  season: 2026,
+  fieldId: 'f1',
+  shelterId: null,
+  lat: BOW_LAT,
+  lng: BOW_LON,
+  placedAt: '2026-06-02T14:00:00Z',
+  placedBy: 'demo',
+  retrievedAt: null,
+  grossWeightLbs: null,
+  retrievedBy: '',
+  strippedAt: null,
+  strippedWeightLbs: null,
+  strippedBy: '',
+  notes: '',
+  ...over,
+})
+
+export const seedBlockPlacements: BlockPlacement[] = [
+  // Fully through the cycle: 8.1 lbs and 7.4 lbs of bee material.
+  placement({
+    id: 'bp1', blockId: 'blk1',
+    retrievedAt: '2026-07-28T15:00:00Z', grossWeightLbs: 12.6, retrievedBy: 'demo',
+    strippedAt: '2026-08-01T15:00:00Z', strippedWeightLbs: 4.5, strippedBy: 'demo',
+  }),
+  placement({
+    id: 'bp2', blockId: 'blk2', lat: BOW_LAT + 0.001,
+    retrievedAt: '2026-07-28T15:20:00Z', grossWeightLbs: 11.9, retrievedBy: 'demo',
+    strippedAt: '2026-08-01T15:20:00Z', strippedWeightLbs: 4.5, strippedBy: 'demo',
+  }),
+  // Retrieved and weighed, not yet stripped — so no return figure yet.
+  placement({
+    id: 'bp3', blockId: 'blk3', lat: BOW_LAT - 0.001,
+    retrievedAt: '2026-07-28T15:40:00Z', grossWeightLbs: 13.2, retrievedBy: 'demo',
+  }),
+  // A weaker second field, still out in the field.
+  placement({ id: 'bp4', blockId: 'blk4', fieldId: 'f2', lat: 49.83, lng: -111.6 }),
+  placement({ id: 'bp5', blockId: 'blk5', fieldId: 'f2', lat: 49.831, lng: -111.601 }),
+  // Last season's run of a block that is out again this year — proves the
+  // history survives reuse.
+  placement({
+    id: 'bp6', blockId: 'blk6', season: 2025, placedAt: '2025-06-03T14:00:00Z',
+    retrievedAt: '2025-07-29T15:00:00Z', grossWeightLbs: 10.4, retrievedBy: 'demo',
+    strippedAt: '2025-08-02T15:00:00Z', strippedWeightLbs: 4.4, strippedBy: 'demo',
+  }),
+  placement({ id: 'bp7', blockId: 'blk6' }),
 ]

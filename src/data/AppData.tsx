@@ -1,6 +1,8 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  Block,
+  BlockPlacement,
   Field,
   Incubator,
   Sample,
@@ -28,6 +30,8 @@ import {
   seedBatches,
   seedAlerts,
   seedGrants,
+  seedBlocks,
+  seedBlockPlacements,
 } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
@@ -49,6 +53,8 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
+  const [blocks, setBlocks] = useState<Block[]>(seedBlocks)
+  const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>(seedBlockPlacements)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -166,6 +172,85 @@ function MockProvider({ children }: { children: ReactNode }) {
       nestingBlocks,
       addNestingBlock: (input) =>
         setNestingBlocks((prev) => [{ ...input, id: nextId('nb'), createdAt: nowIso() }, ...prev]),
+
+      // ── Nesting blocks (place → retrieve → strip) ────────────────────────
+      blocks,
+      blockPlacements,
+      blocksLoading: false,
+      // Mock data is already in memory; nothing to fetch.
+      loadBlocks: () => Promise.resolve(),
+      placeBlock: ({ label, fieldId, lat, lng, season }) => {
+        const clean = label.trim()
+        if (!clean) return Promise.resolve({ ok: false, created: false, error: 'That code was empty.' })
+        const yr = season ?? new Date().getFullYear()
+
+        // Register an unknown label rather than refusing the scan (see context).
+        let block = blocks.find((b) => b.label.trim().toLowerCase() === clean.toLowerCase())
+        const isNewBlock = !block
+        if (!block) {
+          block = { id: nextId('blk'), label: clean, notes: '', createdAt: nowIso() }
+          const created = block
+          setBlocks((prev) => [...prev, created].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        const existing = blockPlacements.find((p) => p.blockId === block!.id && p.season === yr)
+        if (existing) {
+          // Re-scanning a block already out this season corrects where it is.
+          setBlockPlacements((prev) =>
+            prev.map((p) => (p.id === existing.id ? { ...p, fieldId, lat, lng } : p)),
+          )
+          return Promise.resolve({ ok: true, created: isNewBlock })
+        }
+        setBlockPlacements((prev) => [
+          {
+            id: nextId('bp'),
+            blockId: block!.id,
+            season: yr,
+            fieldId,
+            shelterId: null,
+            lat,
+            lng,
+            placedAt: nowIso(),
+            placedBy: '',
+            retrievedAt: null,
+            grossWeightLbs: null,
+            retrievedBy: '',
+            strippedAt: null,
+            strippedWeightLbs: null,
+            strippedBy: '',
+            notes: '',
+          },
+          ...prev,
+        ])
+        return Promise.resolve({ ok: true, created: true })
+      },
+      weighBlock: ({ label, stage, weightLbs, season }) => {
+        if (!Number.isFinite(weightLbs) || weightLbs < 0)
+          return Promise.resolve({ ok: false, error: 'Enter a valid weight.' })
+        const clean = label.trim()
+        const yr = season ?? new Date().getFullYear()
+        const block = blocks.find((b) => b.label.trim().toLowerCase() === clean.toLowerCase())
+        if (!block) return Promise.resolve({ ok: false, error: `No block on record for “${clean}”.` })
+        const placement = blockPlacements.find((p) => p.blockId === block.id && p.season === yr)
+        if (!placement) return Promise.resolve({ ok: false, error: `${block.label} wasn’t placed in ${yr}.` })
+
+        const now = nowIso()
+        setBlockPlacements((prev) =>
+          prev.map((p) =>
+            p.id === placement.id
+              ? stage === 'retrieve'
+                ? { ...p, retrievedAt: now, grossWeightLbs: weightLbs }
+                : { ...p, strippedAt: now, strippedWeightLbs: weightLbs }
+              : p,
+          ),
+        )
+        return Promise.resolve({ ok: true })
+      },
+      saveBlockPlacement: (id, patch) => {
+        setBlockPlacements((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+        return Promise.resolve({ ok: true })
+      },
+
       grants,
       addGrant: (input) => {
         const id = nextId('g')
@@ -217,6 +302,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,
+      blocks,
+      blockPlacements,
       grants,
       grantTasks,
     ],

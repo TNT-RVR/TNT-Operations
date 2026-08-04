@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react'
+import { forwardRef } from 'react'
 import { Search, X, Lock } from 'lucide-react'
 import { BeeMark } from './BeeMark'
 
@@ -106,10 +107,12 @@ export function IconButton({ label, children, onClick, className = '' }: { label
 }
 
 // ── Form controls ────────────────────────────────────────────────────────────
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  const { className = '', ...rest } = props
-  return <input className={`input ${className}`} {...rest} />
-}
+/** Forwards its ref so callers can focus the field (e.g. right after a scan). */
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className = '', ...rest }, ref) {
+    return <input ref={ref} className={`input ${className}`} {...rest} />
+  },
+)
 
 export function Select({ className = '', children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (

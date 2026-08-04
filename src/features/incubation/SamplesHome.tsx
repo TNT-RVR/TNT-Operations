@@ -2,26 +2,21 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
+import { useSession } from '@/auth/session'
+import { parseXraySheet } from './xrayImport'
 import {
-  calcSampleSummary,
   formatDays,
   daysFromNow,
   BATCH_EVENT_FIELDS,
   trayYear,
   lbsToKg,
   perLbToPerKg,
+  trayWeightKg,
 } from '@/domain/incubation'
 import type { Sample, Tray, IncubationBatch } from '@/data/types'
 
 const num = (v: number | null | undefined, digits = 0) =>
   v == null ? '—' : v.toLocaleString('en-CA', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-
-/** x-ray live can be stored as a fraction (0.86) or a percent (86); normalise. */
-const liveFraction = (v: number | null) => (v == null ? null : v > 1 ? v / 100 : v)
-const pct = (v: number | null) => {
-  const f = liveFraction(v)
-  return f == null ? '—' : `${Math.round(f * 100)}%`
-}
 
 const ALL = '__all__'
 
@@ -50,8 +45,33 @@ const flattenNotes = (notes: string | null | undefined) =>
   (notes ?? '').split(/\s*[\r\n]+\s*/).join(' ').trim() || '—'
 
 export default function SamplesHome() {
-  const { samples, trays, batches, incubators } = useData()
+  const { samples, trays, batches, incubators, importSamples } = useData()
+  const session = useSession()
+  const canEdit = session.can('incubation', 'edit')
   const [openSample, setOpenSample] = useState<Sample | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function onImportFile(file: File) {
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const { samples: rows, ignoredHeaders, skipped } = parseXraySheet(await file.text())
+      if (rows.length === 0) {
+        setImportMsg({ ok: false, text: 'No sample rows found — is this the x-ray sheet, saved as CSV?' })
+        return
+      }
+      const r = await importSamples(rows)
+      const bits = [`${r.updated} updated`, `${r.created} added`]
+      if (skipped) bits.push(`${skipped} skipped (no name)`)
+      if (ignoredHeaders.length) bits.push(`ignored columns: ${ignoredHeaders.join(', ')}`)
+      setImportMsg({ ok: !r.error, text: r.error ? `Import failed: ${r.error}` : bits.join(' · ') })
+    } catch (e) {
+      setImportMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not read that file.' })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const incubatorName = useMemo(() => {
     const m = new Map<string, string>()
@@ -217,8 +237,33 @@ export default function SamplesHome() {
                 ))}
               </select>
               <span className="font-mono text-xs text-faint">{visibleSamples.length} shown</span>
+              {canEdit && (
+                <label className="btn-ghost cursor-pointer px-2 py-1 text-xs">
+                  {importing ? 'Importing…' : 'Import x-ray CSV'}
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      e.target.value = ''
+                      if (f) void onImportFile(f)
+                    }}
+                  />
+                </label>
+              )}
             </div>
           </div>
+          {importMsg && (
+            <p
+              className={`mb-2 rounded-sm border border-default px-3 py-2 text-sm ${
+                importMsg.ok ? 'text-primary' : 'text-danger'
+              }`}
+            >
+              {importMsg.text}
+            </p>
+          )}
           {visibleSamples.length === 0 ? (
             <EmptyState>{samples.length === 0 ? 'No samples yet.' : 'No samples match.'}</EmptyState>
           ) : (
@@ -371,19 +416,16 @@ function SampleDetail({
   incubatorName: Map<string, string>
   onClose: () => void
 }) {
-  const frac = liveFraction(s.xrayLivePct)
-  const derived =
-    s.totalVolumeGal != null && frac != null && frac > 0 ? calcSampleSummary(s.totalVolumeGal, frac) : null
-
   const rows: Array<[string, string]> = [
     ['Source', s.source || '—'],
     ['Lot number', s.lotNumber || '—'],
-    ['X-ray live', pct(s.xrayLivePct)],
-    ['X-ray parasite', pct(s.xrayParasitePct)],
-    ['Total volume', s.totalVolumeGal != null ? `${num(s.totalVolumeGal, 1)} gal` : '—'],
-    ['Total weight', s.totalWeightLbs != null ? `${num(s.totalWeightLbs)} lb` : '—'],
-    ['Live bees/lb', num(s.liveBeesPerLb)],
-    ['Recorded trays', s.totalTrays != null ? num(s.totalTrays) : '—'],
+    ['Total Kg', num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)],
+    ['Live Bees/Kg', num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)],
+    ['Parasites', num(s.parasites, 1)],
+    ['Chalkbrood', num(s.chalkbrood, 1)],
+    ['Total Gal', num(s.totalVolumeGal, 1)],
+    ['Kg for 2gal', num(trayWeightKg(s), 2)],
+    ['Expected trays', s.totalTrays != null ? num(Math.ceil(s.totalTrays)) : '—'],
     ['Trays in system', trays.length ? num(trays.length) : '—'],
   ]
 
@@ -398,17 +440,6 @@ function SampleDetail({
             </div>
           ))}
         </dl>
-
-        {derived && (
-          <div className="rounded-lg bg-overlay p-3 text-sm">
-            <div className="mb-1 font-semibold">Derived tray math</div>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-secondary">
-              <span>Live gal: {num(derived.liveGalsTotal, 1)}</span>
-              <span>Fills ~{num(derived.trayCount)} trays</span>
-              <span>Raw {num(derived.rawLbsPerTray, 2)} lb/tray</span>
-            </div>
-          </div>
-        )}
 
         {s.notes && <p className="text-sm text-secondary">{s.notes}</p>}
 

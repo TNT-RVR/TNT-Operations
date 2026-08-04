@@ -67,6 +67,16 @@ export interface DataContextValue {
    * fast cadence (see netlify/functions/poll-govee.mjs).
    */
   saveIncubator: (id: string, patch: Partial<Incubator>) => void
+  /** Persist edits to a sample (x-ray figures, per-tray weight, notes…). */
+  saveSample: (id: string, patch: Partial<Sample>) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Import x-ray rows, matching each BY NAME: an existing sample is updated
+   * (keeping its tray links), an unknown name creates one. Mirrors the desktop
+   * app's `upsert_sample_by_name`.
+   */
+  importSamples: (
+    rows: Array<Partial<Sample> & { name: string }>,
+  ) => Promise<{ updated: number; created: number; error?: string }>
   /**
    * Put a physical tray into service: link the scanned label to the sample it
    * holds and the incubator it's in.

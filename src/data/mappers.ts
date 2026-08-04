@@ -354,6 +354,31 @@ export function incubatorUpdate(patch: Partial<Incubator>): Record<string, unkno
   return row
 }
 
+/** Partial app Sample → snake_case row patch (only the provided keys). */
+export function samplePatch(patch: Partial<Sample>): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.source !== undefined) row.source = patch.source
+  if (patch.lotNumber !== undefined) row.lot_number = patch.lotNumber
+  if (patch.xrayLivePct !== undefined) row.xray_live_pct = patch.xrayLivePct
+  if (patch.xrayParasitePct !== undefined) row.xray_parasite_pct = patch.xrayParasitePct
+  if (patch.xrayDeadPct !== undefined) row.xray_dead_pct = patch.xrayDeadPct
+  if (patch.totalVolumeGal !== undefined) row.total_volume_gal = patch.totalVolumeGal
+  if (patch.totalWeightLbs !== undefined) row.total_weight_lbs = patch.totalWeightLbs
+  if (patch.totalWeightKg !== undefined) row.total_weight_kg = patch.totalWeightKg
+  if (patch.liveBeesPerLb !== undefined) row.live_bees_per_lb = patch.liveBeesPerLb
+  if (patch.liveBeesPerKg !== undefined) row.live_bees_per_kg = patch.liveBeesPerKg
+  if (patch.parasites !== undefined) row.parasites = patch.parasites
+  if (patch.chalkbrood !== undefined) row.chalkbrood = patch.chalkbrood
+  if (patch.lbsPer2Gal !== undefined) row.lbs_per_2gal = patch.lbsPer2Gal
+  if (patch.kgPer2Gal !== undefined) row.kg_per_2gal = patch.kgPer2Gal
+  if (patch.totalTrays !== undefined) row.total_trays = patch.totalTrays
+  if (patch.incubatorSpace !== undefined) row.incubator_space = patch.incubatorSpace
+  if (patch.notes !== undefined) row.notes = patch.notes
+  if (patch.importDate !== undefined) row.import_date = patch.importDate
+  return row
+}
+
 /**
  * App inspection (sans id) → the row shape for an insert. Rich checklist fields
  * are only included when provided, so the DB defaults (period='manual', booleans

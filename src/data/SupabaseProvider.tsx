@@ -36,6 +36,7 @@ import {
   grantPatch,
   inspectionInsert,
   incubatorUpdate,
+  samplePatch,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
@@ -373,6 +374,54 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             }
             setIncubators((prev) => prev.map((i) => (i.id === id ? toIncubator(data as IncubatorRow) : i)))
           })
+      },
+      saveSample: async (id: string, patch: Partial<Sample>) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row = samplePatch(patch)
+        if (Object.keys(row).length === 0) return { ok: true }
+        const { data, error } = await supabase.from('samples').update(row).eq('id', id).select().single()
+        if (error) {
+          console.error('[data] saveSample:', error.message)
+          return { ok: false, error: error.message }
+        }
+        const saved = toSample(data as SampleRow)
+        setSamples((prev) => prev.map((x) => (x.id === id ? saved : x)))
+        return { ok: true }
+      },
+      importSamples: async (rows: Array<Partial<Sample> & { name: string }>) => {
+        if (!supabase) return { updated: 0, created: 0, error: 'No backend connection.' }
+        // Match by name like the desktop importer, so an update keeps the
+        // sample's id and therefore every tray already linked to it.
+        const byName = new Map(samples.map((s) => [s.name.trim().toLowerCase(), s]))
+        let updated = 0
+        let created = 0
+        const importedAt = new Date().toISOString()
+
+        for (const r of rows) {
+          const existing = byName.get(r.name.trim().toLowerCase())
+          const row = samplePatch({ ...r, importDate: importedAt })
+          if (existing) {
+            const { data, error } = await supabase
+              .from('samples').update(row).eq('id', existing.id).select().single()
+            if (error) {
+              console.error('[data] importSamples update:', error.message)
+              return { updated, created, error: error.message }
+            }
+            const saved = toSample(data as SampleRow)
+            setSamples((prev) => prev.map((x) => (x.id === saved.id ? saved : x)))
+            updated++
+          } else {
+            const { data, error } = await supabase.from('samples').insert(row).select().single()
+            if (error) {
+              console.error('[data] importSamples insert:', error.message)
+              return { updated, created, error: error.message }
+            }
+            const saved = toSample(data as SampleRow)
+            setSamples((prev) => [...prev, saved])
+            created++
+          }
+        }
+        return { updated, created }
       },
       assignTray: async ({
         trayNumber,

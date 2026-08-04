@@ -3,6 +3,7 @@ import { DataContext, type DataContextValue, type NotificationPref } from './con
 import type {
   Field,
   Incubator,
+  Sample,
   Tray,
   Inspection,
   SensorReading,
@@ -38,6 +39,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [trays, setTrays] = useState<Tray[]>(seedTrays)
+  const [samples, setSamples] = useState<Sample[]>(seedSamples)
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
@@ -55,7 +57,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       incubators,
       inspections,
       readings,
-      samples: seedSamples,
+      samples,
       trays,
       batches: seedBatches,
       alerts: seedAlerts,
@@ -70,6 +72,37 @@ function MockProvider({ children }: { children: ReactNode }) {
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
       saveIncubator: (id, patch) =>
         setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
+      saveSample: async (id, patch) => {
+        setSamples((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+        return { ok: true }
+      },
+      importSamples: async (rows) => {
+        let updated = 0
+        let created = 0
+        setSamples((prev) => {
+          const next = [...prev]
+          for (const r of rows) {
+            const i = next.findIndex((x) => x.name.trim().toLowerCase() === r.name.trim().toLowerCase())
+            if (i >= 0) {
+              next[i] = { ...next[i], ...r }
+              updated++
+            } else {
+              next.push({
+                source: '', lotNumber: '', xrayLivePct: null, xrayParasitePct: null, xrayDeadPct: null,
+                totalVolumeGal: null, totalWeightLbs: null, totalWeightKg: null, liveBeesPerLb: null,
+                liveBeesPerKg: null, parasites: null, chalkbrood: null, totalTrays: null,
+                incubatorSpace: null, lbsPer2Gal: null, kgPer2Gal: null, notes: '',
+                importDate: new Date().toISOString(),
+                ...r,
+                id: nextId('s'),
+              })
+              created++
+            }
+          }
+          return next
+        })
+        return { updated, created }
+      },
       assignTray: async ({ trayNumber, sampleId, incubatorId }) => {
         const today = new Date().toISOString().slice(0, 10)
         let created = false
@@ -152,6 +185,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       fields,
       incubators,
       inspections,
+      samples,
       trays,
       readings,
       notifications,

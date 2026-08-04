@@ -3,6 +3,7 @@ import type {
   Field,
   Incubator,
   IncubationBatch,
+  IncubatorAlert,
   Inspection,
   Sample,
   SensorReading,
@@ -41,6 +42,12 @@ export interface DataContextValue {
   trays: Tray[]
   /** Incubation batches (runs) with timeline milestones. */
   batches: IncubationBatch[]
+  /**
+   * Incubation alert history from the monitoring rules (temp/humidity out of
+   * band, thermometer drift, Vapona sensor offline). Distinct from
+   * `notifications`, which is the app-wide bell inbox.
+   */
+  alerts: IncubatorAlert[]
 
   addInspection: (input: Omit<Inspection, 'id'>) => void
   latestReading: (incubatorId: string) => SensorReading | undefined
@@ -60,6 +67,33 @@ export interface DataContextValue {
    * fast cadence (see netlify/functions/poll-govee.mjs).
    */
   saveIncubator: (id: string, patch: Partial<Incubator>) => void
+  /** Persist edits to a sample (x-ray figures, per-tray weight, notes…). */
+  saveSample: (id: string, patch: Partial<Sample>) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Import x-ray rows, matching each BY NAME: an existing sample is updated
+   * (keeping its tray links), an unknown name creates one. Mirrors the desktop
+   * app's `upsert_sample_by_name`.
+   */
+  importSamples: (
+    rows: Array<Partial<Sample> & { name: string }>,
+  ) => Promise<{ updated: number; created: number; error?: string }>
+  /**
+   * Put a physical tray into service: link the scanned label to the sample it
+   * holds and the incubator it's in.
+   *
+   * Upserts on `(sample_id, tray_number)` — the tray's real identity (see
+   * migration 0010). Same sample, different incubator → UPDATES that row (a
+   * mid-season move, not a duplicate). New sample → INSERTS a new row, so the
+   * physical tray keeps its history across seasons.
+   *
+   * Weight comes from the sample's per-tray figure and the date is stamped
+   * automatically; neither is entered by hand.
+   */
+  assignTray: (input: {
+    trayNumber: string
+    sampleId: string
+    incubatorId: string
+  }) => Promise<{ ok: boolean; created: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
+import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, Sample, SensorReading, Tray, AppNotification, Grant } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -115,7 +115,14 @@ export const seedInspections: Inspection[] = [
  * exercises the chart (its range picker needs more than a couple of points).
  * Deterministic — a sine wiggle, not Math.random — so the mock stays stable.
  */
-function seedSeries(incubatorId: string, endIso: string, days: number, targetC: number): SensorReading[] {
+function seedSeries(
+  incubatorId: string,
+  endIso: string,
+  days: number,
+  targetC: number,
+  /** Days of cool storage at the end of the run, as happens before release. */
+  coolTailDays = 0,
+): SensorReading[] {
   const stepMs = 15 * 60_000
   const n = Math.round((days * 24 * 60) / 15)
   const end = Date.parse(endIso)
@@ -126,7 +133,10 @@ function seedSeries(incubatorId: string, endIso: string, days: number, targetC: 
     const daily = Math.sin((i / 96) * Math.PI * 2) * 0.8
     const ripple = Math.sin(i / 7) * 0.25
     const excursion = i > n * 0.55 && i < n * 0.62 ? -2.6 : 0
-    const tempC = Math.round((targetC + daily + ripple + excursion) * 10) / 10
+    // The tail sits in the holding band (~14 C), so the calendar can show
+    // the cooled days that slow development before release.
+    const cooling = i >= n - (coolTailDays * 24 * 60) / 15 ? 14 - targetC : 0
+    const tempC = Math.round((targetC + daily + ripple + excursion + cooling) * 10) / 10
     out.push({
       id: `${incubatorId}-r${i}`,
       incubatorId,
@@ -142,7 +152,7 @@ function seedSeries(incubatorId: string, endIso: string, days: number, targetC: 
 export const seedReadings: SensorReading[] = [
   // 35 days so the chart's 1H/6H/24H/7D/30D/ALL ranges each show something
   // different in mock mode (live mode fetches on demand via loadReadings).
-  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30),
+  ...seedSeries('i1', '2026-07-22T13:00:00Z', 35, 30, 4),
   ...seedSeries('i2', '2026-07-22T13:00:00Z', 2, 29.5),
   { id: 'r3', incubatorId: 'i2', at: '2026-07-22T13:00:00Z', tempC: 29.6, humidityPct: 49, source: 'esp32' },
 ]
@@ -183,25 +193,43 @@ export const seedNotifications: AppNotification[] = [
   },
 ]
 
+export const seedAlerts: IncubatorAlert[] = [
+  {
+    id: 'al1', alertType: 'temp_humidity', severity: 'warning', incubatorId: 'i2', trayId: null, batchId: null,
+    message: 'Incubator B: Temp 35.4°C above maximum 35.0°C',
+    triggeredAt: '2026-07-21T17:47:00Z', acknowledged: true, acknowledgedAt: '2026-07-21T18:02:00Z', notified: false,
+  },
+  {
+    id: 'al2', alertType: 'inspection_temp', severity: 'warning', incubatorId: 'i1', trayId: null, batchId: null,
+    message: 'Inspection temp alert — Incubator A: Thermometer 27.0°C vs Govee 16.0°C (Δ 11.0°C)',
+    triggeredAt: '2026-07-20T10:48:00Z', acknowledged: true, acknowledgedAt: '2026-07-20T11:00:00Z', notified: false,
+  },
+  {
+    id: 'al3', alertType: 'vapona_sensor', severity: 'warning', incubatorId: 'i2', trayId: null, batchId: null,
+    message: 'Vapona sensor “Vapsens” (Incubator B) is offline — no contact for 31 min.',
+    triggeredAt: '2026-07-15T14:05:00Z', acknowledged: false, acknowledgedAt: null, notified: true,
+  },
+]
+
 const nullSampleStats = {
   xrayParasitePct: null, xrayDeadPct: null, totalWeightKg: null, liveBeesPerKg: null,
-  parasites: null, chalkbrood: null, incubatorSpace: null,
+  parasites: null, chalkbrood: null, incubatorSpace: null, kgPer2Gal: null,
 }
 
 export const seedSamples: Sample[] = [
   {
     id: 's1', name: '26-102', source: 'King Hill', lotNumber: 'KH-26-102',
-    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250,
+    xrayLivePct: 0.86, totalVolumeGal: 520, totalWeightLbs: 1117, liveBeesPerLb: 4475, totalTrays: 250, lbsPer2Gal: 5.66,
     notes: 'Strong lot.', importDate: '2026-06-15T00:00:00Z', ...nullSampleStats,
   },
   {
     id: 's2', name: '#4 Sanfoin', source: 'Sanfoin', lotNumber: 'SF-04',
-    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71,
+    xrayLivePct: 0.79, totalVolumeGal: 180, totalWeightLbs: 392, liveBeesPerLb: 4100, totalTrays: 71, lbsPer2Gal: 5.12,
     notes: '', importDate: '2026-06-18T00:00:00Z', ...nullSampleStats,
   },
   {
     id: 's3', name: '#9 Phacelia', source: 'Phacelia', lotNumber: 'PH-09',
-    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null,
+    xrayLivePct: null, totalVolumeGal: null, totalWeightLbs: null, liveBeesPerLb: null, totalTrays: null, lbsPer2Gal: null,
     notes: 'Awaiting x-ray.', importDate: '2026-06-20T00:00:00Z', ...nullSampleStats,
   },
 ]

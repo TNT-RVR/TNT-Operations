@@ -2,22 +2,76 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, StatTile, Badge, EmptyState, Modal } from '@/components/ui'
 import { useData } from '@/data/context'
-import { calcSampleSummary, formatDays, daysFromNow, BATCH_EVENT_FIELDS } from '@/domain/incubation'
+import { useSession } from '@/auth/session'
+import { readXrayFile } from './xrayImport'
+import {
+  formatDays,
+  daysFromNow,
+  BATCH_EVENT_FIELDS,
+  trayYear,
+  lbsToKg,
+  perLbToPerKg,
+  trayWeightKg,
+} from '@/domain/incubation'
 import type { Sample, Tray, IncubationBatch } from '@/data/types'
 
 const num = (v: number | null | undefined, digits = 0) =>
   v == null ? '—' : v.toLocaleString('en-CA', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
-/** x-ray live can be stored as a fraction (0.86) or a percent (86); normalise. */
-const liveFraction = (v: number | null) => (v == null ? null : v > 1 ? v / 100 : v)
-const pct = (v: number | null) => {
-  const f = liveFraction(v)
-  return f == null ? '—' : `${Math.round(f * 100)}%`
-}
+const ALL = '__all__'
+
+type SampleSortKey =
+  | 'name' | 'kg' | 'perKg' | 'parasites' | 'chalkbrood' | 'gal' | 'kg2gal' | 'expected' | 'actual' | 'space' | 'notes'
+
+const SAMPLE_COLUMNS: Array<{ key: SampleSortKey; label: string; align?: 'right' }> = [
+  { key: 'name', label: 'Name' },
+  { key: 'kg', label: 'Total Kg', align: 'right' },
+  { key: 'perKg', label: 'Live Bees/Kg', align: 'right' },
+  { key: 'parasites', label: 'Parasites', align: 'right' },
+  { key: 'chalkbrood', label: 'Chalkbrood', align: 'right' },
+  { key: 'gal', label: 'Total Gal', align: 'right' },
+  { key: 'kg2gal', label: 'Kg for 2gal', align: 'right' },
+  { key: 'expected', label: 'Expected', align: 'right' },
+  { key: 'actual', label: 'Actual', align: 'right' },
+  { key: 'space', label: 'Inc. Space' },
+  { key: 'notes', label: 'Notes' },
+]
+
+/** Flag a sample that filled fewer trays than the x-ray predicted. */
+const shortfall = (expected: number | null, actual: number) => expected != null && actual < expected
+
+/** Notes on one line — they're free text and can contain line breaks. */
+const flattenNotes = (notes: string | null | undefined) =>
+  (notes ?? '').split(/\s*[\r\n]+\s*/).join(' ').trim() || '—'
 
 export default function SamplesHome() {
-  const { samples, trays, batches, incubators } = useData()
+  const { samples, trays, batches, incubators, importSamples } = useData()
+  const session = useSession()
+  const canEdit = session.can('incubation', 'edit')
   const [openSample, setOpenSample] = useState<Sample | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function onImportFile(file: File) {
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const { samples: rows, ignoredHeaders, skipped } = await readXrayFile(file)
+      if (rows.length === 0) {
+        setImportMsg({ ok: false, text: 'No sample rows found — is this the x-ray sheet?' })
+        return
+      }
+      const r = await importSamples(rows)
+      const bits = [`${r.updated} updated`, `${r.created} added`]
+      if (skipped) bits.push(`${skipped} skipped (no name)`)
+      if (ignoredHeaders.length) bits.push(`ignored columns: ${ignoredHeaders.join(', ')}`)
+      setImportMsg({ ok: !r.error, text: r.error ? `Import failed: ${r.error}` : bits.join(' · ') })
+    } catch (e) {
+      setImportMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not read that file.' })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const incubatorName = useMemo(() => {
     const m = new Map<string, string>()
@@ -50,6 +104,78 @@ export default function SamplesHome() {
     return { byIncubator, byStatus, unassigned }
   }, [trays])
 
+  const [search, setSearch] = useState('')
+  const [year, setYear] = useState(ALL)
+  const [sortKey, setSortKey] = useState<SampleSortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  function toggleSort(key: SampleSortKey) {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  /** Years a sample was actually used in, taken from its trays' dates. */
+  const sampleYears = useMemo(() => {
+    const ys = new Set<number>()
+    for (const t of trays) {
+      const y = trayYear(t)
+      if (y != null) ys.add(y)
+    }
+    return [...ys].sort((a, b) => b - a)
+  }, [trays])
+
+  const visibleSamples = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = samples
+      .filter((s) => {
+        if (q && !s.name.toLowerCase().includes(q)) return false
+        if (year !== ALL) {
+          // Keep samples used by a tray started in the chosen year.
+          const used = traysBySample.get(s.id) ?? []
+          if (!used.some((t) => trayYear(t) === Number(year))) return false
+        }
+        return true
+      })
+      .map((s) => ({
+        s,
+        actual: (traysBySample.get(s.id) ?? []).length,
+        expected: s.totalTrays == null ? null : Math.ceil(s.totalTrays),
+      }))
+
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (r: (typeof rows)[number]): string | number | null => {
+      switch (sortKey) {
+        case 'name': return r.s.name
+        case 'kg': return lbsToKg(r.s.totalWeightLbs) ?? r.s.totalWeightKg
+        case 'perKg': return r.s.liveBeesPerKg ?? perLbToPerKg(r.s.liveBeesPerLb)
+        case 'parasites': return r.s.parasites
+        case 'chalkbrood': return r.s.chalkbrood
+        case 'gal': return r.s.totalVolumeGal
+        case 'kg2gal': return r.s.kgPer2Gal ?? lbsToKg(r.s.lbsPer2Gal)
+        case 'expected': return r.expected
+        case 'actual': return r.actual
+        case 'space': return r.s.incubatorSpace
+        case 'notes': return r.s.notes || null
+      }
+    }
+    return rows.sort((a, b) => {
+      const av = val(a)
+      const bv = val(b)
+      // Blanks always sort last, like the desktop table.
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
+      return String(av).localeCompare(String(bv)) * dir
+    })
+  }, [samples, trays, traysBySample, search, year, sortKey, sortDir])
+
+  const withExpected = visibleSamples.filter((r) => r.expected != null).length
+  const shortCount = visibleSamples.filter((r) => shortfall(r.expected, r.actual)).length
+
   const activeBatches = batches.filter((b) => b.status !== 'released' && b.status !== 'complete')
 
   return (
@@ -61,10 +187,14 @@ export default function SamplesHome() {
           <StatTile label="Samples" value={samples.length} />
           <StatTile label="Trays" value={num(trays.length)} hint="all statuses" />
           <StatTile label="Batches" value={batches.length} hint={`${activeBatches.length} active`} />
+          {/* Reconciliation, not a vanity count: which lots filled fewer trays
+              than the x-ray predicted. (A "graded samples" tile keyed on
+              xrayLivePct read 0 forever — no sample carries that field.) */}
           <StatTile
-            label="Graded samples"
-            value={samples.filter((s) => s.xrayLivePct != null).length}
-            hint="have x-ray data"
+            label="Short of expected"
+            value={shortCount}
+            tone={shortCount > 0 ? 'warn' : 'good'}
+            hint={`of ${withExpected} with an expected count`}
           />
         </div>
 
@@ -82,44 +212,105 @@ export default function SamplesHome() {
           )}
         </section>
 
-        {/* Samples table */}
+        {/* Samples table — mirrors the desktop app's "X-Ray results & sample
+            records" chart: metric units, and Expected vs Actual trays. */}
         <section>
-          <h2 className="mb-2 font-semibold">Samples</h2>
-          {samples.length === 0 ? (
-            <EmptyState>No samples yet.</EmptyState>
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+            <h2 className="font-semibold">Samples</h2>
+            <div className="flex flex-wrap items-end gap-2">
+              <input
+                className="input w-40"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Sample name…"
+              />
+              <select
+                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+              >
+                <option value={ALL}>All years</option>
+                {sampleYears.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+              <span className="font-mono text-xs text-faint">{visibleSamples.length} shown</span>
+              {canEdit && (
+                <label className="btn-ghost cursor-pointer px-2 py-1 text-xs">
+                  {importing ? 'Importing…' : 'Import x-ray sheet'}
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      e.target.value = ''
+                      if (f) void onImportFile(f)
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+          {importMsg && (
+            <p
+              className={`mb-2 rounded-sm border border-default px-3 py-2 text-sm ${
+                importMsg.ok ? 'text-primary' : 'text-danger'
+              }`}
+            >
+              {importMsg.text}
+            </p>
+          )}
+          {visibleSamples.length === 0 ? (
+            <EmptyState>{samples.length === 0 ? 'No samples yet.' : 'No samples match.'}</EmptyState>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-subtle">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className="w-full min-w-[880px] text-sm">
                 <thead>
                   <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
-                    <th className="px-3 py-2">Sample</th>
-                    <th className="px-3 py-2">Source</th>
-                    <th className="px-3 py-2 text-right">Live %</th>
-                    <th className="px-3 py-2 text-right">Weight (lb)</th>
-                    <th className="px-3 py-2 text-right">Bees/lb</th>
-                    <th className="px-3 py-2 text-right">Trays</th>
+                    {SAMPLE_COLUMNS.map((c) => (
+                      <th
+                        key={c.key}
+                        className={`cursor-pointer select-none px-3 py-2 hover:text-secondary ${
+                          c.align === 'right' ? 'text-right' : ''
+                        }`}
+                        onClick={() => toggleSort(c.key)}
+                      >
+                        {c.label}
+                        <span className="ml-1 inline-block w-3 text-faint">
+                          {sortKey === c.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                        </span>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-subtle">
-                  {samples.map((s) => {
-                    const trayCount = traysBySample.get(s.id)?.length ?? 0
-                    return (
-                      <tr
-                        key={s.id}
-                        className="cursor-pointer hover:bg-[color:var(--hover-wash)]"
-                        onClick={() => setOpenSample(s)}
-                      >
-                        <td className="px-3 py-2 font-medium text-primary">{s.name}</td>
-                        <td className="px-3 py-2 text-muted">{s.source || '—'}</td>
-                        <td className="px-3 py-2 text-right">{pct(s.xrayLivePct)}</td>
-                        <td className="px-3 py-2 text-right">{num(s.totalWeightLbs)}</td>
-                        <td className="px-3 py-2 text-right">{num(s.liveBeesPerLb)}</td>
-                        <td className="px-3 py-2 text-right">
-                          {trayCount > 0 ? num(trayCount) : <span className="text-faint">—</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {visibleSamples.map(({ s, actual, expected }) => (
+                    <tr
+                      key={s.id}
+                      className="cursor-pointer hover:bg-[color:var(--hover-wash)]"
+                      onClick={() => setOpenSample(s)}
+                    >
+                      <td className="px-3 py-2 font-medium text-brand">{s.name}</td>
+                      <td className="px-3 py-2 text-right">{num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)}
+                      </td>
+                      <td className="px-3 py-2 text-right">{num(s.parasites, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.chalkbrood, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.totalVolumeGal, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(s.kgPer2Gal ?? lbsToKg(s.lbsPer2Gal), 2)}</td>
+                      <td className="px-3 py-2 text-right">{expected == null ? '—' : expected}</td>
+                      <td className={`px-3 py-2 text-right ${shortfall(expected, actual) ? 'text-danger' : ''}`}>
+                        {actual}
+                      </td>
+                      <td className="px-3 py-2 text-muted">{s.incubatorSpace ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted">{flattenNotes(s.notes)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -180,9 +371,11 @@ export default function SamplesHome() {
 
       {openSample && (
         <SampleDetail
-          sample={openSample}
+          // Re-read from state so an edit shows immediately.
+          sample={samples.find((x) => x.id === openSample.id) ?? openSample}
           trays={traysBySample.get(openSample.id) ?? []}
           incubatorName={incubatorName}
+          canEdit={canEdit}
           onClose={() => setOpenSample(null)}
         />
       )}
@@ -214,36 +407,131 @@ function BatchCard({ batch }: { batch: IncubationBatch }) {
   )
 }
 
+/** Fields worth correcting by hand, without reimporting a whole sheet. */
+const EDITABLE: Array<{ key: keyof Sample; label: string; step?: string }> = [
+  { key: 'totalWeightKg', label: 'Total Kg', step: '0.1' },
+  { key: 'liveBeesPerKg', label: 'Live Bees/Kg', step: '1' },
+  { key: 'parasites', label: 'Parasites', step: '0.1' },
+  { key: 'chalkbrood', label: 'Chalkbrood', step: '0.1' },
+  { key: 'totalVolumeGal', label: 'Total Gal', step: '0.1' },
+  { key: 'kgPer2Gal', label: 'Kg for 2gal', step: '0.01' },
+  { key: 'totalTrays', label: 'Expected trays', step: '1' },
+  { key: 'incubatorSpace', label: 'Inc. Space', step: '0.01' },
+]
+
 function SampleDetail({
   sample: s,
   trays,
   incubatorName,
+  canEdit,
   onClose,
 }: {
   sample: Sample
   trays: Tray[]
   incubatorName: Map<string, string>
+  canEdit: boolean
   onClose: () => void
 }) {
-  const frac = liveFraction(s.xrayLivePct)
-  const derived =
-    s.totalVolumeGal != null && frac != null && frac > 0 ? calcSampleSummary(s.totalVolumeGal, frac) : null
+  const { saveSample } = useData()
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
+  function startEdit() {
+    const f: Record<string, string> = {}
+    for (const { key } of EDITABLE) {
+      const v = s[key] as number | null
+      f[key] = v == null ? '' : String(v)
+    }
+    f.notes = s.notes ?? ''
+    setForm(f)
+    setErr(null)
+    setEditing(true)
+  }
+
+  async function save() {
+    setSaving(true)
+    setErr(null)
+    const patch: Partial<Sample> = {}
+    for (const { key } of EDITABLE) {
+      const raw = (form[key] ?? '').trim()
+      // Clearing a field means "unknown", not zero.
+      ;(patch as Record<string, unknown>)[key] = raw === '' ? null : Number(raw)
+    }
+    patch.notes = form.notes ?? ''
+    const r = await saveSample(s.id, patch)
+    setSaving(false)
+    if (!r.ok) {
+      setErr(r.error ?? 'Could not save.')
+      return
+    }
+    setEditing(false)
+  }
   const rows: Array<[string, string]> = [
     ['Source', s.source || '—'],
     ['Lot number', s.lotNumber || '—'],
-    ['X-ray live', pct(s.xrayLivePct)],
-    ['X-ray parasite', pct(s.xrayParasitePct)],
-    ['Total volume', s.totalVolumeGal != null ? `${num(s.totalVolumeGal, 1)} gal` : '—'],
-    ['Total weight', s.totalWeightLbs != null ? `${num(s.totalWeightLbs)} lb` : '—'],
-    ['Live bees/lb', num(s.liveBeesPerLb)],
-    ['Recorded trays', s.totalTrays != null ? num(s.totalTrays) : '—'],
+    ['Total Kg', num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)],
+    ['Live Bees/Kg', num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)],
+    ['Parasites', num(s.parasites, 1)],
+    ['Chalkbrood', num(s.chalkbrood, 1)],
+    ['Total Gal', num(s.totalVolumeGal, 1)],
+    ['Kg for 2gal', num(trayWeightKg(s), 2)],
+    ['Expected trays', s.totalTrays != null ? num(Math.ceil(s.totalTrays)) : '—'],
     ['Trays in system', trays.length ? num(trays.length) : '—'],
   ]
+
+  if (editing) {
+    return (
+      <Modal title={`Edit ${s.name}`} onClose={() => setEditing(false)} wide>
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {EDITABLE.map(({ key, label, step }) => (
+              <label key={key} className="block">
+                <span className="label">{label}</span>
+                <input
+                  className="input w-full"
+                  type="number"
+                  step={step}
+                  value={form[key] ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="block">
+            <span className="label">Notes</span>
+            <input
+              className="input w-full"
+              value={form.notes ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
+          </label>
+          <p className="text-xs text-faint">
+            A blank field means “not recorded”, not zero. Kg for 2gal is the per-tray weight the scanner attaches.
+          </p>
+          {err && <p className="text-sm text-danger">{err}</p>}
+          <div className="flex gap-2">
+            <button className="btn-primary" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="btn-ghost" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
 
   return (
     <Modal title={s.name} onClose={onClose} wide>
       <div className="space-y-4">
+        {canEdit && (
+          <button className="btn-ghost px-3 py-1.5 text-sm" onClick={startEdit}>
+            Edit figures
+          </button>
+        )}
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
           {rows.map(([k, v]) => (
             <div key={k} className="flex justify-between gap-2 border-b border-subtle py-1">
@@ -252,17 +540,6 @@ function SampleDetail({
             </div>
           ))}
         </dl>
-
-        {derived && (
-          <div className="rounded-lg bg-overlay p-3 text-sm">
-            <div className="mb-1 font-semibold">Derived tray math</div>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-secondary">
-              <span>Live gal: {num(derived.liveGalsTotal, 1)}</span>
-              <span>Fills ~{num(derived.trayCount)} trays</span>
-              <span>Raw {num(derived.rawLbsPerTray, 2)} lb/tray</span>
-            </div>
-          </div>
-        )}
 
         {s.notes && <p className="text-sm text-secondary">{s.notes}</p>}
 

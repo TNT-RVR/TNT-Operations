@@ -3,6 +3,8 @@ import { DataContext, type DataContextValue, type NotificationPref } from './con
 import type {
   Field,
   Incubator,
+  Sample,
+  Tray,
   Inspection,
   SensorReading,
   AppNotification,
@@ -22,6 +24,7 @@ import {
   seedSamples,
   seedTrays,
   seedBatches,
+  seedAlerts,
   seedGrants,
 } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
@@ -35,6 +38,8 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
   const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
+  const [trays, setTrays] = useState<Tray[]>(seedTrays)
+  const [samples, setSamples] = useState<Sample[]>(seedSamples)
   const [readings] = useState<SensorReading[]>(seedReadings)
   const [notifications, setNotifications] = useState<AppNotification[]>(seedNotifications)
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
@@ -52,9 +57,10 @@ function MockProvider({ children }: { children: ReactNode }) {
       incubators,
       inspections,
       readings,
-      samples: seedSamples,
-      trays: seedTrays,
+      samples,
+      trays,
       batches: seedBatches,
+      alerts: seedAlerts,
       addInspection: (input) => setInspections((prev) => [{ ...input, id: nextId('in') }, ...prev]),
       latestReading: (incubatorId) =>
         readings
@@ -66,6 +72,59 @@ function MockProvider({ children }: { children: ReactNode }) {
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
       saveIncubator: (id, patch) =>
         setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
+      saveSample: async (id, patch) => {
+        setSamples((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
+        return { ok: true }
+      },
+      importSamples: async (rows) => {
+        let updated = 0
+        let created = 0
+        setSamples((prev) => {
+          const next = [...prev]
+          for (const r of rows) {
+            const i = next.findIndex((x) => x.name.trim().toLowerCase() === r.name.trim().toLowerCase())
+            if (i >= 0) {
+              next[i] = { ...next[i], ...r }
+              updated++
+            } else {
+              next.push({
+                source: '', lotNumber: '', xrayLivePct: null, xrayParasitePct: null, xrayDeadPct: null,
+                totalVolumeGal: null, totalWeightLbs: null, totalWeightKg: null, liveBeesPerLb: null,
+                liveBeesPerKg: null, parasites: null, chalkbrood: null, totalTrays: null,
+                incubatorSpace: null, lbsPer2Gal: null, kgPer2Gal: null, notes: '',
+                importDate: new Date().toISOString(),
+                ...r,
+                id: nextId('s'),
+              })
+              created++
+            }
+          }
+          return next
+        })
+        return { updated, created }
+      },
+      assignTray: async ({ trayNumber, sampleId, incubatorId }) => {
+        const today = new Date().toISOString().slice(0, 10)
+        let created = false
+        setTrays((prev) => {
+          const i = prev.findIndex((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
+          if (i >= 0) {
+            const next = [...prev]
+            next[i] = { ...next[i], incubatorId, status: 'active' }
+            return next
+          }
+          created = true
+          return [
+            {
+              id: nextId('t'), trayNumber, sampleId, incubationBatchId: null, incubatorId,
+              weightLbs: null, liveCount: null, parasiteLevelPct: null, volumeGal: null,
+              inDate: today, outDate: null, coolDate: null, status: 'active', notes: '',
+            },
+            ...prev,
+          ]
+        })
+        return { ok: true, created }
+      },
       notifications,
       markNotificationsRead: (ids) =>
         setNotifications((prev) =>
@@ -126,6 +185,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       fields,
       incubators,
       inspections,
+      samples,
+      trays,
       readings,
       notifications,
       notificationPrefs,

@@ -408,3 +408,228 @@ export function formatTemp(tempC: number, unit: 'C' | 'F' = 'C'): string {
   if (unit === 'F') return `${cToF(tempC).toFixed(1)}°F`
   return `${tempC.toFixed(1)}°C`
 }
+
+// ── Season / units ────────────────────────────────────────────────────────────
+
+export const LBS_PER_KG = 0.45359237
+
+/** Pounds → kilograms, passing null through. */
+export function lbsToKg(lbs: number | null | undefined): number | null {
+  return lbs == null ? null : lbs * LBS_PER_KG
+}
+
+/** Per-pound → per-kilogram (e.g. bees per lb → bees per kg). */
+export function perLbToPerKg(perLb: number | null | undefined): number | null {
+  return perLb == null ? null : perLb / LBS_PER_KG
+}
+
+/**
+ * The season a tray usage belongs to.
+ *
+ * There is no season column: it's derived from the tray's own operational
+ * dates, newest meaningful one first. `samples.import_date` is the import
+ * timestamp (uniformly 2026) and must NOT be used for this.
+ * Returns null for a tray with no dates at all — "undated" is a real bucket.
+ */
+export function trayYear(tray: {
+  outDate?: string | null
+  coolDate?: string | null
+  inDate?: string | null
+}): number | null {
+  for (const d of [tray.outDate, tray.coolDate, tray.inDate]) {
+    if (!d) continue
+    const y = Number(String(d).slice(0, 4))
+    if (Number.isFinite(y) && y > 0) return y
+  }
+  return null
+}
+
+/**
+ * The nominal weight of one filled tray, in kg — the sample's "Kg for 2 gal".
+ *
+ * Tray weight is LOOKED UP from the sample, never copied onto the tray: an
+ * x-ray correction must flow through to every tray of that lot. (In the live
+ * data 0 of 4,643 trays carry their own weight; `trays.weight_lbs` is reserved
+ * for an actual measurement.)
+ */
+export function trayWeightKg(sample: {
+  kgPer2Gal?: number | null
+  lbsPer2Gal?: number | null
+} | null | undefined): number | null {
+  if (!sample) return null
+  if (sample.kgPer2Gal != null) return sample.kgPer2Gal
+  return lbsToKg(sample.lbsPer2Gal)
+}
+
+// ── Incubation milestone schedule ────────────────────────────────────────────
+
+/**
+ * The milestone schedule, as day-offsets from the start of an incubation.
+ * Ported from the desktop app's `_INC_MILESTONES`; a milestone on "day N" falls
+ * on `start + (N - 1)` days, so day 1 IS the start date.
+ */
+export const INCUBATION_MILESTONES: Array<{ day: number; label: string }> = [
+  { day: 1, label: 'Incubation Start' },
+  { day: 7, label: 'Vapona In' },
+  { day: 13, label: 'Vapona Out' },
+  { day: 14, label: 'Earliest We Can Cool' },
+  { day: 18, label: '10% Male Emergence' },
+  { day: 23, label: 'Expected Release' },
+  { day: 37, label: 'Latest Release' },
+]
+
+/** A milestone resolved onto a calendar date for one incubator. */
+export interface MilestoneEvent {
+  /** YYYY-MM-DD. */
+  date: string
+  day: number
+  label: string
+  incubatorId: string
+  incubatorName: string
+}
+
+/** Add whole days to a YYYY-MM-DD date, staying in UTC to avoid TZ drift. */
+function addDays(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * When an incubator's current incubation started.
+ *
+ * Prefers the explicit `incubationStart`, EXCEPT the literal "none", which the
+ * desktop app treats as "schedule deliberately removed — do not auto-derive".
+ * Otherwise falls back to the most common in-date among its active trays.
+ */
+export function incubationStartFor(
+  incubator: { id: string; incubationStart?: string | null },
+  trays: Array<{ incubatorId: string | null; status: string; inDate: string | null }>,
+): string | null {
+  const raw = (incubator.incubationStart ?? '').trim()
+  if (raw.toLowerCase() === 'none') return null
+  if (raw) return raw.slice(0, 10)
+
+  const counts = new Map<string, number>()
+  for (const t of trays) {
+    if (t.incubatorId !== incubator.id || t.status !== 'active' || !t.inDate) continue
+    const d = t.inDate.slice(0, 10)
+    counts.set(d, (counts.get(d) ?? 0) + 1)
+  }
+  let best: string | null = null
+  let bestN = 0
+  for (const [d, n] of counts) {
+    // Ties resolve to the earlier date, so the schedule doesn't jump around.
+    if (n > bestN || (n === bestN && best !== null && d < best)) {
+      best = d
+      bestN = n
+    }
+  }
+  return best
+}
+
+/** Every milestone date for the incubators that have a start date. */
+export function milestoneEvents(
+  incubators: Array<{ id: string; name: string; incubationStart?: string | null }>,
+  trays: Array<{ incubatorId: string | null; status: string; inDate: string | null }>,
+): MilestoneEvent[] {
+  const out: MilestoneEvent[] = []
+  for (const inc of incubators) {
+    const start = incubationStartFor(inc, trays)
+    if (!start) continue
+    for (const m of INCUBATION_MILESTONES) {
+      out.push({
+        date: addDays(start, m.day - 1),
+        day: m.day,
+        label: m.label,
+        incubatorId: inc.id,
+        incubatorName: inc.name,
+      })
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.incubatorName.localeCompare(b.incubatorName))
+}
+
+/**
+ * All-day VEVENTs for the milestone list, matching the desktop app's export so
+ * the same file imports into Google Calendar. DTEND is the exclusive next day.
+ */
+export function milestonesToIcs(events: MilestoneEvent[], stampIso: string): string {
+  const stamp = `${stampIso.slice(0, 19).replace(/[-:]/g, '')}Z`
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//TNT Operations//Incubation Timeline//EN',
+    'CALSCALE:GREGORIAN',
+  ]
+  for (const e of events) {
+    const d0 = e.date.replace(/-/g, '')
+    const d1 = addDays(e.date, 1).replace(/-/g, '')
+    lines.push(
+      'BEGIN:VEVENT',
+      // Stable per incubator+milestone, so re-importing updates rather than duplicates.
+      `UID:${e.incubatorId}-${e.day}@tnt-operations`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${d0}`,
+      `DTEND;VALUE=DATE:${d1}`,
+      `SUMMARY:${e.incubatorName} — ${e.label} (Day ${e.day})`,
+      'END:VEVENT',
+    )
+  }
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n')
+}
+
+/**
+ * Mean temperature per incubator per calendar day.
+ *
+ * `toYmd` maps a reading's ISO timestamp to a local calendar day, so the caller
+ * decides the timezone (and this stays pure/testable).
+ */
+export function dailyMeanTempByIncubator(
+  readings: Array<{ incubatorId: string; at: string; tempC: number }>,
+  toYmd: (iso: string) => string,
+): Map<string, Map<string, number>> {
+  const sums = new Map<string, Map<string, { total: number; n: number }>>()
+  for (const r of readings) {
+    if (r.tempC == null || !Number.isFinite(r.tempC)) continue
+    const day = toYmd(r.at)
+    let byDay = sums.get(r.incubatorId)
+    if (!byDay) sums.set(r.incubatorId, (byDay = new Map()))
+    const cur = byDay.get(day)
+    if (cur) {
+      cur.total += r.tempC
+      cur.n++
+    } else byDay.set(day, { total: r.tempC, n: 1 })
+  }
+
+  const out = new Map<string, Map<string, number>>()
+  for (const [incId, byDay] of sums) {
+    const means = new Map<string, number>()
+    for (const [day, { total, n }] of byDay) means.set(day, total / n)
+    out.set(incId, means)
+  }
+  return out
+}
+
+/**
+ * Days an incubator was NOT held at incubation temperature — it sat below the
+ * incubation band's floor. Development slows on these days, so a run that was
+ * cooled will emerge later than its fixed-offset milestones suggest.
+ *
+ * This REPORTS what the sensors recorded; it does not adjust the schedule. How
+ * much cooling delays development isn't modelled anywhere, so shifting dates
+ * would be inventing a number.
+ */
+export function coolDays(
+  means: Map<string, Map<string, number>>,
+  minIncubationC: number = TEMP_MODES.incubation.min ?? 25,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  for (const [incId, byDay] of means) {
+    const days = new Set<string>()
+    for (const [day, mean] of byDay) if (mean < minIncubationC) days.add(day)
+    if (days.size) out.set(incId, days)
+  }
+  return out
+}

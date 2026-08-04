@@ -4,6 +4,7 @@ import type {
   Field,
   Incubator,
   IncubationBatch,
+  IncubatorAlert,
   Inspection,
   Sample,
   SensorReading,
@@ -26,6 +27,7 @@ import {
   toSample,
   toTray,
   toBatch,
+  toAlert,
   toPlacedShelter,
   toShelterTrayLink,
   toNestingBlock,
@@ -34,6 +36,7 @@ import {
   grantPatch,
   inspectionInsert,
   incubatorUpdate,
+  samplePatch,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
@@ -42,6 +45,7 @@ import {
   type SampleRow,
   type TrayRow,
   type BatchRow,
+  type AlertRow,
   type PlacedShelterRow,
   type ShelterTrayLinkRow,
   type NestingBlockRow,
@@ -70,6 +74,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [samples, setSamples] = useState<Sample[]>([])
   const [trays, setTrays] = useState<Tray[]>([])
   const [batches, setBatches] = useState<IncubationBatch[]>([])
+  const [alerts, setAlerts] = useState<IncubatorAlert[]>([])
   const [costPrefsByYear, setCostPrefsByYear] = useState<Record<string, Partial<CostPrefs>>>({})
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
@@ -130,6 +135,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Incubation alert history (the old app's rules). Newest first, capped —
+      // this is a log, so the most recent season is what matters.
+      const al = await sb
+        .from('alerts')
+        .select('*')
+        .order('triggered_at', { ascending: false })
+        .limit(1000)
+      if (cancelled) return
+      if (al.error) console.warn('[data] load alerts:', al.error.message)
+      else setAlerts(((al.data as AlertRow[]) ?? []).map(toAlert))
 
       // Cost-estimator pricing forms (one row per year). Missing table (0007
       // not yet applied) degrades to an empty store — the UI uses defaults.
@@ -265,6 +281,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       samples,
       trays,
       batches,
+      alerts,
       addInspection: (input: Omit<Inspection, 'id'>) => {
         if (!supabase) return
         supabase
@@ -357,6 +374,98 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             }
             setIncubators((prev) => prev.map((i) => (i.id === id ? toIncubator(data as IncubatorRow) : i)))
           })
+      },
+      saveSample: async (id: string, patch: Partial<Sample>) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row = samplePatch(patch)
+        if (Object.keys(row).length === 0) return { ok: true }
+        const { data, error } = await supabase.from('samples').update(row).eq('id', id).select().single()
+        if (error) {
+          console.error('[data] saveSample:', error.message)
+          return { ok: false, error: error.message }
+        }
+        const saved = toSample(data as SampleRow)
+        setSamples((prev) => prev.map((x) => (x.id === id ? saved : x)))
+        return { ok: true }
+      },
+      importSamples: async (rows: Array<Partial<Sample> & { name: string }>) => {
+        if (!supabase) return { updated: 0, created: 0, error: 'No backend connection.' }
+        // Match by name like the desktop importer, so an update keeps the
+        // sample's id and therefore every tray already linked to it.
+        const byName = new Map(samples.map((s) => [s.name.trim().toLowerCase(), s]))
+        let updated = 0
+        let created = 0
+        const importedAt = new Date().toISOString()
+
+        for (const r of rows) {
+          const existing = byName.get(r.name.trim().toLowerCase())
+          const row = samplePatch({ ...r, importDate: importedAt })
+          if (existing) {
+            const { data, error } = await supabase
+              .from('samples').update(row).eq('id', existing.id).select().single()
+            if (error) {
+              console.error('[data] importSamples update:', error.message)
+              return { updated, created, error: error.message }
+            }
+            const saved = toSample(data as SampleRow)
+            setSamples((prev) => prev.map((x) => (x.id === saved.id ? saved : x)))
+            updated++
+          } else {
+            const { data, error } = await supabase.from('samples').insert(row).select().single()
+            if (error) {
+              console.error('[data] importSamples insert:', error.message)
+              return { updated, created, error: error.message }
+            }
+            const saved = toSample(data as SampleRow)
+            setSamples((prev) => [...prev, saved])
+            created++
+          }
+        }
+        return { updated, created }
+      },
+      assignTray: async ({
+        trayNumber,
+        sampleId,
+        incubatorId,
+      }: {
+        trayNumber: string
+        sampleId: string
+        incubatorId: string
+      }) => {
+        if (!supabase) return { ok: false, created: false, error: 'No backend connection.' }
+        const existing = trays.find((t) => t.sampleId === sampleId && t.trayNumber === trayNumber)
+        const row: Record<string, unknown> = {
+          tray_number: trayNumber,
+          sample_id: sampleId,
+          incubator_id: incubatorId,
+          status: 'active',
+        }
+        // Weight is NOT written here: it's looked up from the sample so an
+        // x-ray correction flows through (see trayWeightKg). `weight_lbs` stays
+        // free for an actual measurement. The date is stamped on first use only,
+        // so re-scanning to move a tray doesn't rewrite when it went in.
+        if (!existing) row.in_date = new Date().toISOString().slice(0, 10)
+
+        // Upsert on the tray's real identity (migration 0010): same sample →
+        // update that row (a move), new sample → new row (next season).
+        const { data, error } = await supabase
+          .from('trays')
+          .upsert(row, { onConflict: 'sample_id,tray_number' })
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] assignTray:', error.message)
+          return { ok: false, created: false, error: error.message }
+        }
+        const saved = toTray(data as TrayRow)
+        setTrays((prev) => {
+          const i = prev.findIndex((t) => t.id === saved.id)
+          if (i < 0) return [saved, ...prev]
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, created: !existing }
       },
       notifications,
       markNotificationsRead: (ids: string[]) => {
@@ -547,6 +656,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       samples,
       trays,
       batches,
+      alerts,
       costPrefsByYear,
       placedShelters,
       shelterTrayLinks,

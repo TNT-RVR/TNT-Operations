@@ -5,6 +5,7 @@ import {
   toInspection,
   toSensorReading,
   incubatorUpdate,
+  toAlert,
   toSample,
   toTray,
   toBatch,
@@ -223,6 +224,29 @@ describe('supabase row mappers', () => {
     expect('id' in payload).toBe(false)
   })
 
+  it('maps an alert row (incubation alert history)', () => {
+    const a = toAlert({
+      id: 'al1',
+      alert_type: 'temp_humidity',
+      severity: 'warning',
+      incubator_id: 'i2',
+      tray_id: null,
+      batch_id: null,
+      message: 'Incubator 2: Temp 35.4°C above maximum 35.0°C',
+      triggered_at: '2026-07-23T17:47:00Z',
+      acknowledged: true,
+      acknowledged_at: '2026-07-23T18:02:00Z',
+      notified: false,
+    })
+    expect(a.alertType).toBe('temp_humidity')
+    expect(a.severity).toBe('warning')
+    expect(a.incubatorId).toBe('i2')
+    expect(a.trayId).toBeNull()
+    expect(a.acknowledged).toBe(true)
+    expect(a.acknowledgedAt).toBe('2026-07-23T18:02:00Z')
+    expect(a.notified).toBe(false)
+  })
+
   it('builds an incubator update patch (only the keys present, snake_case)', () => {
     // The poller keys off temp_mode, so a mode-only save must not touch anything else.
     const modeOnly = incubatorUpdate({ tempMode: 'incubation' })
@@ -245,7 +269,7 @@ describe('supabase row mappers', () => {
       xray_live_pct: '0.86', xray_parasite_pct: null, xray_dead_pct: null,
       total_volume_gal: '520', total_weight_lbs: '1117', total_weight_kg: null,
       live_bees_per_lb: '4475', live_bees_per_kg: null, parasites: null, chalkbrood: null,
-      total_trays: '250', incubator_space: null, notes: '', import_date: '2026-06-15T00:00:00Z',
+      total_trays: '250', incubator_space: null, lbs_per_2gal: '5.66', kg_per_2gal: null, notes: '', import_date: '2026-06-15T00:00:00Z',
     })
     expect(sample.xrayLivePct).toBe(0.86)
     expect(sample.totalWeightLbs).toBe(1117)

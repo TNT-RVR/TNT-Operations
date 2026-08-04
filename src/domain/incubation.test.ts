@@ -17,6 +17,15 @@ import {
   fToC,
   formatTemp,
   type Batch,
+  trayYear,
+  lbsToKg,
+  perLbToPerKg,
+  trayWeightKg,
+  incubationStartFor,
+  milestoneEvents,
+  milestonesToIcs,
+  dailyMeanTempByIncubator,
+  coolDays,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -254,5 +263,140 @@ describe('unit conversion', () => {
     expect(formatTemp(25.0, 'F')).toBe('77.0°F')
     expect(formatTemp(-1.24, 'C')).toBe('-1.2°C')
     expect(formatTemp(30.06, 'F')).toBe('86.1°F')
+  })
+})
+
+describe('trayYear + unit helpers', () => {
+  it('prefers out, then cool, then in date', () => {
+    expect(trayYear({ outDate: '2026-07-28', coolDate: '2025-01-01', inDate: '2024-01-01' })).toBe(2026)
+    expect(trayYear({ outDate: null, coolDate: '2025-06-02', inDate: '2024-01-01' })).toBe(2025)
+    expect(trayYear({ outDate: null, coolDate: null, inDate: '2024-05-05' })).toBe(2024)
+  })
+
+  it('returns null when a tray has no dates ("undated" is a real bucket)', () => {
+    expect(trayYear({})).toBeNull()
+    expect(trayYear({ outDate: null, coolDate: null, inDate: null })).toBeNull()
+  })
+
+  it('converts pounds and per-pound rates to metric, passing null through', () => {
+    expect(lbsToKg(100)).toBeCloseTo(45.359237, 6)
+    expect(lbsToKg(null)).toBeNull()
+    // 4475 bees/lb is ~9866 bees/kg
+    expect(perLbToPerKg(4475)).toBeCloseTo(9866.0, 0)
+    expect(perLbToPerKg(null)).toBeNull()
+  })
+})
+
+describe('trayWeightKg', () => {
+  it('prefers the stored kg figure', () => {
+    expect(trayWeightKg({ kgPer2Gal: 2.57, lbsPer2Gal: 5.66 })).toBe(2.57)
+  })
+
+  it('falls back to converting the pounds figure', () => {
+    expect(trayWeightKg({ kgPer2Gal: null, lbsPer2Gal: 5.66 })).toBeCloseTo(2.567, 3)
+  })
+
+  it('is null when the sample has no per-tray weight, or no sample at all', () => {
+    expect(trayWeightKg({ kgPer2Gal: null, lbsPer2Gal: null })).toBeNull()
+    expect(trayWeightKg(null)).toBeNull()
+    expect(trayWeightKg(undefined)).toBeNull()
+  })
+})
+
+describe('incubation milestones', () => {
+  const trays = [
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-01' },
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-01' },
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-03' },
+    { incubatorId: 'i1', status: 'released', inDate: '2025-01-01' }, // ignored
+    { incubatorId: 'i2', status: 'active', inDate: null },
+  ]
+
+  it('prefers the explicit start date', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: '2026-07-10' }, trays)).toBe('2026-07-10')
+  })
+
+  it('treats "none" as schedule removed, not as a date to derive', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: 'none' }, trays)).toBeNull()
+  })
+
+  it('falls back to the most common in-date among ACTIVE trays', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: null }, trays)).toBe('2026-06-01')
+  })
+
+  it('is null when nothing gives a start date', () => {
+    expect(incubationStartFor({ id: 'i2', incubationStart: '' }, trays)).toBeNull()
+  })
+
+  it('places day N at start + (N-1), so day 1 is the start', () => {
+    const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], [])
+    expect(evs[0]).toMatchObject({ day: 1, label: 'Incubation Start', date: '2026-06-01' })
+    expect(evs.find((e) => e.day === 7)?.date).toBe('2026-06-07')
+    expect(evs.find((e) => e.day === 23)?.date).toBe('2026-06-23')
+    expect(evs.find((e) => e.day === 37)?.date).toBe('2026-07-07') // crosses the month
+  })
+
+  it('skips incubators with no start date', () => {
+    const evs = milestoneEvents(
+      [
+        { id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' },
+        { id: 'i2', name: 'Inc 2', incubationStart: null },
+      ],
+      [],
+    )
+    expect(new Set(evs.map((e) => e.incubatorId))).toEqual(new Set(['i1']))
+  })
+
+  it('exports all-day VEVENTs with an exclusive DTEND', () => {
+    const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], [])
+    const ics = milestonesToIcs(evs.slice(0, 1), '2026-08-04T12:00:00.000Z')
+    expect(ics).toContain('BEGIN:VCALENDAR')
+    expect(ics).toContain('DTSTART;VALUE=DATE:20260601')
+    expect(ics).toContain('DTEND;VALUE=DATE:20260602')
+    expect(ics).toContain('SUMMARY:Inc 1 — Incubation Start (Day 1)')
+    expect(ics).toContain('DTSTAMP:20260804T120000Z')
+    expect(ics.endsWith('END:VCALENDAR')).toBe(true)
+    expect(ics.split('\r\n').length).toBeGreaterThan(5) // CRLF line endings
+  })
+})
+
+describe('cool-day reporting', () => {
+  // Fixed UTC-day mapper keeps these tests timezone-independent.
+  const toYmd = (iso: string) => iso.slice(0, 10)
+
+  const readings = [
+    { incubatorId: 'i1', at: '2026-06-01T06:00:00Z', tempC: 30 },
+    { incubatorId: 'i1', at: '2026-06-01T18:00:00Z', tempC: 32 }, // mean 31 → warm
+    { incubatorId: 'i1', at: '2026-06-02T06:00:00Z', tempC: 14 },
+    { incubatorId: 'i1', at: '2026-06-02T18:00:00Z', tempC: 16 }, // mean 15 → cooled
+    { incubatorId: 'i2', at: '2026-06-01T06:00:00Z', tempC: 8 }, // mean 8 → cooled
+  ]
+
+  it('averages per incubator per day', () => {
+    const means = dailyMeanTempByIncubator(readings, toYmd)
+    expect(means.get('i1')?.get('2026-06-01')).toBe(31)
+    expect(means.get('i1')?.get('2026-06-02')).toBe(15)
+    expect(means.get('i2')?.get('2026-06-01')).toBe(8)
+  })
+
+  it('flags only days below the incubation floor', () => {
+    const cool = coolDays(dailyMeanTempByIncubator(readings, toYmd))
+    expect([...(cool.get('i1') ?? [])]).toEqual(['2026-06-02'])
+    expect([...(cool.get('i2') ?? [])]).toEqual(['2026-06-01'])
+  })
+
+  it('uses the day MEAN, so a brief door-open dip is not a cool day', () => {
+    const dip = [
+      { incubatorId: 'i1', at: '2026-06-03T06:00:00Z', tempC: 30 },
+      { incubatorId: 'i1', at: '2026-06-03T07:00:00Z', tempC: 18 }, // door open
+      { incubatorId: 'i1', at: '2026-06-03T08:00:00Z', tempC: 30 },
+    ]
+    const cool = coolDays(dailyMeanTempByIncubator(dip, toYmd))
+    expect(cool.get('i1')).toBeUndefined()
+  })
+
+  it('ignores unusable readings and reports nothing for no data', () => {
+    const means = dailyMeanTempByIncubator([], toYmd)
+    expect(coolDays(means).size).toBe(0)
   })
 })

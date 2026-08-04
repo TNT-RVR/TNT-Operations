@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -52,11 +52,15 @@ const NAV: NavItem[] = [
     module: 'incubation',
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
+      { to: '/incubation/scan', label: 'Scan' },
       { to: '/incubation/samples', label: 'Samples' },
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },
+      { to: '/incubation/alerts', label: 'Alerts' },
     ],
   },
+  // Top-level like Field Mode: gated by the incubation module, but its own tab.
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation' },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
@@ -139,6 +143,8 @@ export default function Layout() {
   const { pathname } = useLocation()
   const items = NAV.filter((n) => s.can(n.module, 'view'))
   const currentLabel = NAV.find((n) => n.to === pathname)?.label
+  /** The section the current route sits under, for the mobile subsection strip. */
+  const activeSection = items.find((n) => n.to !== '/' && pathname.startsWith(n.to))
 
   return (
     <div className="flex h-full flex-col">
@@ -185,6 +191,27 @@ export default function Layout() {
 
         {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}
         <main className="min-w-0 flex-1 overflow-y-auto bg-base">
+          {/* Subsection strip (mobile only). The sidebar is desktop-only and the
+              bottom bar carries only top-level items, so without this a phone
+              cannot reach a subsection at all. */}
+          {activeSection?.children && (
+            <div className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-subtle bg-surface px-3 py-2 md:hidden">
+              {activeSection.children.map((c) => (
+                <NavLink
+                  key={c.to}
+                  to={c.to}
+                  end={c.end}
+                  className={({ isActive }) =>
+                    `shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition ${
+                      isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
+                    }`
+                  }
+                >
+                  {c.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
           <ErrorBoundary key={pathname} label={currentLabel}>
             <Outlet />
           </ErrorBoundary>

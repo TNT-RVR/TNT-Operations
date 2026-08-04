@@ -100,6 +100,10 @@ export interface Sample {
   chalkbrood: number | null
   totalTrays: number | null
   incubatorSpace: number | null
+  /** Pounds of raw sample per 2-gal tray — the per-tray weight the scan flow
+   *  stamps onto a tray. Stored (not derived): no sample carries xrayLivePct. */
+  lbsPer2Gal: number | null
+  kgPer2Gal: number | null
   notes: string
   importDate: string | null
 }
@@ -219,6 +223,30 @@ export interface GrantTask {
 export type NotificationSeverity = 'info' | 'warning' | 'critical'
 
 /** An alert shown in the notification view (integration health, thresholds, …). */
+/**
+ * An incubation alert raised by the monitoring rules (temp/humidity out of
+ * band, inspection thermometer drift, Vapona sensor offline…).
+ *
+ * Distinct from `AppNotification`: this is the incubation-domain alert history
+ * carried over from the original bee-incubation app (`public.alerts`), whereas
+ * AppNotification is the app-wide inbox behind the bell.
+ */
+export interface IncubatorAlert {
+  id: string
+  alertType: string
+  severity: NotificationSeverity
+  incubatorId: string | null
+  trayId: string | null
+  batchId: string | null
+  message: string
+  /** ISO UTC. */
+  triggeredAt: string
+  acknowledged: boolean
+  /** ISO UTC when acknowledged, or null. */
+  acknowledgedAt: string | null
+  notified: boolean
+}
+
 export interface AppNotification {
   id: string
   category: string

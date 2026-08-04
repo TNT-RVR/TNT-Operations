@@ -20,6 +20,7 @@ import type {
   SensorSource,
   AppNotification,
   NotificationSeverity,
+  IncubatorAlert,
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
@@ -183,6 +184,36 @@ export function toNotification(row: NotificationRow): AppNotification {
   }
 }
 
+export interface AlertRow {
+  id: string
+  alert_type: string
+  severity: string
+  incubator_id: string | null
+  tray_id: string | null
+  batch_id: string | null
+  message: string
+  triggered_at: string
+  acknowledged: boolean
+  acknowledged_at: string | null
+  notified: boolean
+}
+
+export function toAlert(row: AlertRow): IncubatorAlert {
+  return {
+    id: row.id,
+    alertType: row.alert_type,
+    severity: (row.severity as NotificationSeverity) ?? 'info',
+    incubatorId: row.incubator_id,
+    trayId: row.tray_id,
+    batchId: row.batch_id,
+    message: row.message,
+    triggeredAt: row.triggered_at,
+    acknowledged: !!row.acknowledged,
+    acknowledgedAt: row.acknowledged_at,
+    notified: !!row.notified,
+  }
+}
+
 export interface SampleRow {
   id: string
   name: string
@@ -200,6 +231,8 @@ export interface SampleRow {
   chalkbrood: Num
   total_trays: Num
   incubator_space: Num
+  lbs_per_2gal: Num
+  kg_per_2gal: Num
   notes: string
   import_date: string | null
 }
@@ -222,6 +255,8 @@ export function toSample(row: SampleRow): Sample {
     chalkbrood: numOrNull(row.chalkbrood),
     totalTrays: numOrNull(row.total_trays),
     incubatorSpace: numOrNull(row.incubator_space),
+    lbsPer2Gal: numOrNull(row.lbs_per_2gal),
+    kgPer2Gal: numOrNull(row.kg_per_2gal),
     notes: row.notes,
     importDate: row.import_date,
   }
@@ -316,6 +351,31 @@ export function incubatorUpdate(patch: Partial<Incubator>): Record<string, unkno
   if (patch.humidityMax !== undefined) row.humidity_max = patch.humidityMax
   if (patch.incubationStart !== undefined) row.incubation_start = patch.incubationStart
   if (patch.capacity !== undefined) row.capacity = patch.capacity
+  return row
+}
+
+/** Partial app Sample → snake_case row patch (only the provided keys). */
+export function samplePatch(patch: Partial<Sample>): Record<string, unknown> {
+  const row: Record<string, unknown> = {}
+  if (patch.name !== undefined) row.name = patch.name
+  if (patch.source !== undefined) row.source = patch.source
+  if (patch.lotNumber !== undefined) row.lot_number = patch.lotNumber
+  if (patch.xrayLivePct !== undefined) row.xray_live_pct = patch.xrayLivePct
+  if (patch.xrayParasitePct !== undefined) row.xray_parasite_pct = patch.xrayParasitePct
+  if (patch.xrayDeadPct !== undefined) row.xray_dead_pct = patch.xrayDeadPct
+  if (patch.totalVolumeGal !== undefined) row.total_volume_gal = patch.totalVolumeGal
+  if (patch.totalWeightLbs !== undefined) row.total_weight_lbs = patch.totalWeightLbs
+  if (patch.totalWeightKg !== undefined) row.total_weight_kg = patch.totalWeightKg
+  if (patch.liveBeesPerLb !== undefined) row.live_bees_per_lb = patch.liveBeesPerLb
+  if (patch.liveBeesPerKg !== undefined) row.live_bees_per_kg = patch.liveBeesPerKg
+  if (patch.parasites !== undefined) row.parasites = patch.parasites
+  if (patch.chalkbrood !== undefined) row.chalkbrood = patch.chalkbrood
+  if (patch.lbsPer2Gal !== undefined) row.lbs_per_2gal = patch.lbsPer2Gal
+  if (patch.kgPer2Gal !== undefined) row.kg_per_2gal = patch.kgPer2Gal
+  if (patch.totalTrays !== undefined) row.total_trays = patch.totalTrays
+  if (patch.incubatorSpace !== undefined) row.incubator_space = patch.incubatorSpace
+  if (patch.notes !== undefined) row.notes = patch.notes
+  if (patch.importDate !== undefined) row.import_date = patch.importDate
   return row
 }
 

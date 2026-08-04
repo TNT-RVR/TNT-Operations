@@ -370,6 +370,16 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   <input className="input w-28" value={obsTray} onChange={(e) => setObsTray(e.target.value)} placeholder="Tray0417" />
                 </label>
                 <TrayScanButton
+                  title="Scan the tray you examined"
+                  resolve={(scanned) => {
+                    const match = findTrays(trays, scanned)[0]
+                    // Unknown labels are still accepted — a tray can be examined
+                    // before it's been assigned — but say so rather than silently
+                    // filling in something that matched nothing.
+                    return match
+                      ? { ok: true, title: match.trayNumber, detail: 'Added to this inspection' }
+                      : { ok: true, title: scanned, detail: 'Not on record — recorded as scanned' }
+                  }}
                   onScan={(label) => {
                     // Use the stored label when it's known, so a prefix
                     // mismatch (Trays0417 vs Tray0417) still records correctly.

@@ -210,12 +210,20 @@ export default function TraysHome() {
               standing at the stack with a tray in hand is one action. */}
           <TrayScanButton
             label="Scan to look up"
-            onScan={(scanned) => {
+            title="Scan a tray to look it up"
+            // A label with no tray is reported on the camera and scanning
+            // continues — you're standing at the stack, not at a form.
+            resolve={(scanned) => {
               const match = findTrays(trays, scanned)[0]
-              const label = match?.trayNumber ?? scanned
+              return match
+                ? { ok: true, title: match.trayNumber, detail: 'Opening history…' }
+                : { ok: false, title: scanned, detail: 'No tray on record for this label' }
+            }}
+            onScan={(scanned) => {
+              const label = findTrays(trays, scanned)[0]?.trayNumber ?? scanned
               setSearch(label)
-              setNotFound(match ? null : label)
-              if (match) setOpenTrayNumber(label)
+              setNotFound(null)
+              setOpenTrayNumber(label)
             }}
           />
           <label className="block">

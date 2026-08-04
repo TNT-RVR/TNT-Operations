@@ -1,97 +1,71 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, X } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Camera } from 'lucide-react'
 import { parseScan } from './trayLookup'
+import { ScannerOverlay, type ScanFeedback } from './ScannerOverlay'
 
 /**
  * Scan ONE tray label and hand back the number.
  *
  * Distinct from the Scan screen's continuous mode: there you point at tray
  * after tray and each one saves itself, whereas here you're filling a single
- * field, so the camera closes as soon as it reads something.
+ * field, so the camera closes as soon as something is accepted.
+ *
+ * `resolve` lets the caller reject a scan — a lookup can say "no tray on
+ * record" and keep the camera open rather than closing on a dead end.
  */
 export function TrayScanButton({
   onScan,
+  resolve,
   disabled,
   label = 'Scan',
+  title = 'Scan a tray',
 }: {
   onScan: (trayNumber: string) => void
+  /** Return ok:false to reject the scan and show a message over the camera. */
+  resolve?: (trayNumber: string) => { ok: boolean; title: string; detail?: string }
   disabled?: boolean
   label?: string
+  title?: string
 }) {
-  const [scanning, setScanning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scannerRef = useRef<any>(null)
-  // A unique container id, so two scanners can never fight over one element.
-  const readerId = useRef(`tray-scan-${Math.random().toString(36).slice(2, 9)}`).current
+  const [open, setOpen] = useState(false)
+  const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
+  const seqRef = useRef(0)
+  const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
 
-  const stop = useCallback(async () => {
-    const inst = scannerRef.current
-    scannerRef.current = null
-    setScanning(false)
-    if (inst) {
-      try {
-        await inst.stop()
-      } catch {
-        /* already stopped */
-      }
-    }
-  }, [])
+  function handle(text: string) {
+    const found = parseScan(text)
+    if (!found) return
+    // Ignore the same code re-decoding while it sits in frame.
+    const now = Date.now()
+    if (found === lastRef.current.label && now - lastRef.current.at < 2000) return
+    lastRef.current = { label: found, at: now }
 
-  useEffect(() => () => void stop(), [stop])
-
-  async function start() {
-    setError(null)
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setError('Camera needs a secure (https) connection — type the number instead.')
-      return
-    }
-    setScanning(true)
+    const r = resolve ? resolve(found) : { ok: true, title: found }
+    setFeedback({ kind: r.ok ? 'ok' : 'error', title: r.title, detail: r.detail, seq: ++seqRef.current })
     try {
-      const { Html5Qrcode } = await import('html5-qrcode')
-      const inst = new Html5Qrcode(readerId)
-      scannerRef.current = inst
-      await inst.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 220 },
-        (text: string) => {
-          const found = parseScan(text)
-          if (!found) return
-          void stop()
-          try {
-            navigator.vibrate?.(40)
-          } catch {
-            /* best-effort */
-          }
-          onScan(found)
-        },
-        () => {
-          /* per-frame decode misses are normal */
-        },
-      )
-    } catch (e) {
-      setScanning(false)
-      scannerRef.current = null
-      setError(e instanceof Error ? e.message : 'Could not start the camera.')
+      navigator.vibrate?.(r.ok ? 40 : [30, 60, 30])
+    } catch {
+      /* best-effort */
     }
+    if (!r.ok) return // keep scanning — a bad read shouldn't end the session
+    onScan(found)
+    // Let the confirmation land before the camera disappears.
+    setTimeout(() => setOpen(false), 550)
   }
 
   return (
-    <div>
-      {!scanning ? (
-        <button className="btn-ghost" onClick={start} disabled={disabled}>
-          <Camera size={16} className="mr-1 inline" />
-          {label}
-        </button>
-      ) : (
-        <button className="btn-ghost" onClick={() => void stop()}>
-          <X size={16} className="mr-1 inline" />
-          Cancel
-        </button>
-      )}
-      {/* html5-qrcode injects the video here; must stay mounted while scanning */}
-      <div id={readerId} className={scanning ? 'mt-2 overflow-hidden rounded-sm' : 'hidden'} />
-      {error && <p className="mt-1 text-xs text-secondary">{error}</p>}
-    </div>
+    <>
+      <button className="btn-ghost" onClick={() => setOpen(true)} disabled={disabled}>
+        <Camera size={16} className="mr-1 inline" />
+        {label}
+      </button>
+      <ScannerOverlay
+        open={open}
+        title={title}
+        feedback={feedback}
+        onScan={handle}
+        onClose={() => setOpen(false)}
+      />
+    </>
   )
 }

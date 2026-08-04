@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -53,13 +53,14 @@ const NAV: NavItem[] = [
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
       { to: '/incubation/scan', label: 'Scan' },
-      { to: '/incubation/calendar', label: 'Calendar' },
       { to: '/incubation/samples', label: 'Samples' },
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },
       { to: '/incubation/alerts', label: 'Alerts' },
     ],
   },
+  // Top-level like Field Mode: gated by the incubation module, but its own tab.
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation' },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },

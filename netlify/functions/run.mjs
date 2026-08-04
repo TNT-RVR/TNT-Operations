@@ -19,7 +19,16 @@ import runGoveePoll from './poll-govee.mjs'
  * set in the Netlify environment it refuses every request (503). Set
  * FN_RUN_TOKEN to a long random string to enable it; unset it to shut the door
  * again without deploying code.
+ *
+ * BACKGROUND: the grants pull calls Claude with web search and takes ~40s+ —
+ * far past the ~10s synchronous limit (a sync run returns an empty 502 when
+ * Netlify cuts it off). Background functions get 15 minutes, so this runs as
+ * one. The trade-off: the caller always gets an immediate 202 with NO body, so
+ * the outcome shows up in the Netlify function log and in the app (new grants +
+ * bell notifications) rather than in the HTTP response — including for a bad
+ * token, which is rejected in the log, not the reply.
  */
+export const config = { background: true }
 
 const JOBS = {
   'grants-pull': runGrantsPull,

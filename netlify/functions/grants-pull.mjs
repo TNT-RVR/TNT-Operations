@@ -20,7 +20,9 @@
  * — or with the "Run now" button on the Netlify UI's Functions page.
  */
 
-export const config = { schedule: '0 14 * * 1' } // Mondays 14:00 UTC
+// Mondays 14:00 UTC. `background` raises the execution limit to 15 minutes —
+// the Claude + web-search call runs ~40s+, well past the ~10s synchronous cap.
+export const config = { schedule: '0 14 * * 1', background: true }
 
 const PROMPT = `Search the web for grants, rebates, and cost-share funding programs that are CURRENTLY OPEN (accepting applications) and that a commercial leafcutter-bee pollination business in Alberta, Canada could apply for. The business provides managed leafcutter bees and bee-shelter placement for hybrid canola and other seed-production fields under contract with seed companies, and also runs bee incubation facilities.
 

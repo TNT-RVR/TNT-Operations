@@ -13,6 +13,10 @@
  *   ANTHROPIC_MODEL        — optional; defaults to claude-sonnet-5
  *
  * Uses global fetch + the PostgREST API — no dependencies.
+ *
+ * MANUAL RUN: scheduled functions can NOT be invoked by URL (Netlify returns
+ * 403 by design). Use the "Run now" button on the Netlify UI's Functions page,
+ * or `netlify functions:invoke grants-pull` locally under `netlify dev`.
  */
 
 export const config = { schedule: '0 14 * * 1' } // Mondays 14:00 UTC

@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
       { to: '/incubation/scan', label: 'Scan' },
+      { to: '/incubation/calendar', label: 'Calendar' },
       { to: '/incubation/samples', label: 'Samples' },
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },

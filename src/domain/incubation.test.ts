@@ -21,6 +21,9 @@ import {
   lbsToKg,
   perLbToPerKg,
   trayWeightKg,
+  incubationStartFor,
+  milestoneEvents,
+  milestonesToIcs,
 } from './incubation'
 
 describe('incubationProgress', () => {
@@ -295,5 +298,62 @@ describe('trayWeightKg', () => {
     expect(trayWeightKg({ kgPer2Gal: null, lbsPer2Gal: null })).toBeNull()
     expect(trayWeightKg(null)).toBeNull()
     expect(trayWeightKg(undefined)).toBeNull()
+  })
+})
+
+describe('incubation milestones', () => {
+  const trays = [
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-01' },
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-01' },
+    { incubatorId: 'i1', status: 'active', inDate: '2026-06-03' },
+    { incubatorId: 'i1', status: 'released', inDate: '2025-01-01' }, // ignored
+    { incubatorId: 'i2', status: 'active', inDate: null },
+  ]
+
+  it('prefers the explicit start date', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: '2026-07-10' }, trays)).toBe('2026-07-10')
+  })
+
+  it('treats "none" as schedule removed, not as a date to derive', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: 'none' }, trays)).toBeNull()
+  })
+
+  it('falls back to the most common in-date among ACTIVE trays', () => {
+    expect(incubationStartFor({ id: 'i1', incubationStart: null }, trays)).toBe('2026-06-01')
+  })
+
+  it('is null when nothing gives a start date', () => {
+    expect(incubationStartFor({ id: 'i2', incubationStart: '' }, trays)).toBeNull()
+  })
+
+  it('places day N at start + (N-1), so day 1 is the start', () => {
+    const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], [])
+    expect(evs[0]).toMatchObject({ day: 1, label: 'Incubation Start', date: '2026-06-01' })
+    expect(evs.find((e) => e.day === 7)?.date).toBe('2026-06-07')
+    expect(evs.find((e) => e.day === 23)?.date).toBe('2026-06-23')
+    expect(evs.find((e) => e.day === 37)?.date).toBe('2026-07-07') // crosses the month
+  })
+
+  it('skips incubators with no start date', () => {
+    const evs = milestoneEvents(
+      [
+        { id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' },
+        { id: 'i2', name: 'Inc 2', incubationStart: null },
+      ],
+      [],
+    )
+    expect(new Set(evs.map((e) => e.incubatorId))).toEqual(new Set(['i1']))
+  })
+
+  it('exports all-day VEVENTs with an exclusive DTEND', () => {
+    const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], [])
+    const ics = milestonesToIcs(evs.slice(0, 1), '2026-08-04T12:00:00.000Z')
+    expect(ics).toContain('BEGIN:VCALENDAR')
+    expect(ics).toContain('DTSTART;VALUE=DATE:20260601')
+    expect(ics).toContain('DTEND;VALUE=DATE:20260602')
+    expect(ics).toContain('SUMMARY:Inc 1 — Incubation Start (Day 1)')
+    expect(ics).toContain('DTSTAMP:20260804T120000Z')
+    expect(ics.endsWith('END:VCALENDAR')).toBe(true)
+    expect(ics.split('\r\n').length).toBeGreaterThan(5) // CRLF line endings
   })
 })

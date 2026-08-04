@@ -460,3 +460,122 @@ export function trayWeightKg(sample: {
   if (sample.kgPer2Gal != null) return sample.kgPer2Gal
   return lbsToKg(sample.lbsPer2Gal)
 }
+
+// ── Incubation milestone schedule ────────────────────────────────────────────
+
+/**
+ * The milestone schedule, as day-offsets from the start of an incubation.
+ * Ported from the desktop app's `_INC_MILESTONES`; a milestone on "day N" falls
+ * on `start + (N - 1)` days, so day 1 IS the start date.
+ */
+export const INCUBATION_MILESTONES: Array<{ day: number; label: string }> = [
+  { day: 1, label: 'Incubation Start' },
+  { day: 7, label: 'Vapona In' },
+  { day: 13, label: 'Vapona Out' },
+  { day: 14, label: 'Earliest We Can Cool' },
+  { day: 18, label: '10% Male Emergence' },
+  { day: 23, label: 'Expected Release' },
+  { day: 37, label: 'Latest Release' },
+]
+
+/** A milestone resolved onto a calendar date for one incubator. */
+export interface MilestoneEvent {
+  /** YYYY-MM-DD. */
+  date: string
+  day: number
+  label: string
+  incubatorId: string
+  incubatorName: string
+}
+
+/** Add whole days to a YYYY-MM-DD date, staying in UTC to avoid TZ drift. */
+function addDays(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * When an incubator's current incubation started.
+ *
+ * Prefers the explicit `incubationStart`, EXCEPT the literal "none", which the
+ * desktop app treats as "schedule deliberately removed — do not auto-derive".
+ * Otherwise falls back to the most common in-date among its active trays.
+ */
+export function incubationStartFor(
+  incubator: { id: string; incubationStart?: string | null },
+  trays: Array<{ incubatorId: string | null; status: string; inDate: string | null }>,
+): string | null {
+  const raw = (incubator.incubationStart ?? '').trim()
+  if (raw.toLowerCase() === 'none') return null
+  if (raw) return raw.slice(0, 10)
+
+  const counts = new Map<string, number>()
+  for (const t of trays) {
+    if (t.incubatorId !== incubator.id || t.status !== 'active' || !t.inDate) continue
+    const d = t.inDate.slice(0, 10)
+    counts.set(d, (counts.get(d) ?? 0) + 1)
+  }
+  let best: string | null = null
+  let bestN = 0
+  for (const [d, n] of counts) {
+    // Ties resolve to the earlier date, so the schedule doesn't jump around.
+    if (n > bestN || (n === bestN && best !== null && d < best)) {
+      best = d
+      bestN = n
+    }
+  }
+  return best
+}
+
+/** Every milestone date for the incubators that have a start date. */
+export function milestoneEvents(
+  incubators: Array<{ id: string; name: string; incubationStart?: string | null }>,
+  trays: Array<{ incubatorId: string | null; status: string; inDate: string | null }>,
+): MilestoneEvent[] {
+  const out: MilestoneEvent[] = []
+  for (const inc of incubators) {
+    const start = incubationStartFor(inc, trays)
+    if (!start) continue
+    for (const m of INCUBATION_MILESTONES) {
+      out.push({
+        date: addDays(start, m.day - 1),
+        day: m.day,
+        label: m.label,
+        incubatorId: inc.id,
+        incubatorName: inc.name,
+      })
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.incubatorName.localeCompare(b.incubatorName))
+}
+
+/**
+ * All-day VEVENTs for the milestone list, matching the desktop app's export so
+ * the same file imports into Google Calendar. DTEND is the exclusive next day.
+ */
+export function milestonesToIcs(events: MilestoneEvent[], stampIso: string): string {
+  const stamp = `${stampIso.slice(0, 19).replace(/[-:]/g, '')}Z`
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//TNT Operations//Incubation Timeline//EN',
+    'CALSCALE:GREGORIAN',
+  ]
+  for (const e of events) {
+    const d0 = e.date.replace(/-/g, '')
+    const d1 = addDays(e.date, 1).replace(/-/g, '')
+    lines.push(
+      'BEGIN:VEVENT',
+      // Stable per incubator+milestone, so re-importing updates rather than duplicates.
+      `UID:${e.incubatorId}-${e.day}@tnt-operations`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${d0}`,
+      `DTEND;VALUE=DATE:${d1}`,
+      `SUMMARY:${e.incubatorName} — ${e.label} (Day ${e.day})`,
+      'END:VEVENT',
+    )
+  }
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n')
+}

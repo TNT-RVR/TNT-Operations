@@ -128,7 +128,17 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               <select
                 className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
                 value={incubator.tempMode ?? 'off'}
-                onChange={(e) => saveIncubator(incubator.id, { tempMode: e.target.value })}
+                onChange={(e) => {
+                  const mode = e.target.value
+                  const patch: Partial<Incubator> = { tempMode: mode }
+                  // Starting an incubation with no start date on record: stamp
+                  // today so the milestone calendar has something to schedule
+                  // from. Editable below, and never overwritten if already set.
+                  if (mode === 'incubation' && !incubator.incubationStart) {
+                    patch.incubationStart = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
+                  }
+                  saveIncubator(incubator.id, patch)
+                }}
               >
                 {(Object.keys(TEMP_MODES) as TempMode[]).map((m) => (
                   <option key={m} value={m}>
@@ -139,6 +149,17 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             </label>
           ) : (
             <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+          )}
+          {canEdit && (
+            <label className="flex items-center gap-2">
+              <span className="label">Started</span>
+              <input
+                type="date"
+                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                value={incubator.incubationStart?.slice(0, 10) ?? ''}
+                onChange={(e) => saveIncubator(incubator.id, { incubationStart: e.target.value || null })}
+              />
+            </label>
           )}
           {incubator.location && <span className="text-sm text-muted">{incubator.location}</span>}
           {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
@@ -160,7 +181,9 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
         {canEdit && (
           <p className="-mt-3 text-xs text-faint">
             {d.running
-              ? 'Running — sensors are logged every 15 minutes.'
+              ? incubator.incubationStart
+                ? 'Running — sensors logged every 15 minutes; milestones scheduled from the start date.'
+                : 'Running — sensors logged every 15 minutes. Set a start date so the calendar can schedule milestones.'
               : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
           </p>
         )}

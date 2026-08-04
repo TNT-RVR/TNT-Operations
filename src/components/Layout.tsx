@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, MoreHorizontal, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -30,10 +31,16 @@ interface NavItem {
   module: Module
   /** Optional subsections shown indented when this section is active. */
   children?: SubNavItem[]
+  /**
+   * Gets a permanent slot in the phone tab bar. Only the sections actually used
+   * on a phone in the shop or the field — the rest live behind "More", because
+   * eight labels collide at 375px.
+   */
+  mobilePrimary?: boolean
 }
 
 const NAV: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard' },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, module: 'dashboard', mobilePrimary: true },
   {
     to: '/maps',
     label: 'Shelter Maps',
@@ -44,12 +51,13 @@ const NAV: NavItem[] = [
       { to: '/maps/costs', label: 'Costs' },
     ],
   },
-  { to: '/field', label: 'Field Mode', icon: Navigation, module: 'maps' },
+  { to: '/field', label: 'Field Mode', icon: Navigation, module: 'maps', mobilePrimary: true },
   {
     to: '/incubation',
     label: 'Incubation',
     icon: Bug,
     module: 'incubation',
+    mobilePrimary: true,
     children: [
       { to: '/incubation', label: 'Incubators', end: true },
       { to: '/incubation/scan', label: 'Scan' },
@@ -60,7 +68,7 @@ const NAV: NavItem[] = [
     ],
   },
   // Top-level like Field Mode: gated by the incubation module, but its own tab.
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation' },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation', mobilePrimary: true },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
@@ -145,6 +153,11 @@ export default function Layout() {
   const currentLabel = NAV.find((n) => n.to === pathname)?.label
   /** The section the current route sits under, for the mobile subsection strip. */
   const activeSection = items.find((n) => n.to !== '/' && pathname.startsWith(n.to))
+  const mobilePrimary = items.filter((n) => n.mobilePrimary)
+  const mobileMore = items.filter((n) => !n.mobilePrimary)
+  const [moreOpen, setMoreOpen] = useState(false)
+  // Close the sheet on navigation, so it never lingers over the new screen.
+  useEffect(() => setMoreOpen(false), [pathname])
 
   return (
     <div className="flex h-full flex-col">
@@ -218,9 +231,10 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* Bottom tab bar (mobile) */}
-      <nav className="flex items-stretch justify-around border-t border-subtle bg-surface md:hidden">
-        {items.map((n) => (
+      {/* Bottom tab bar (mobile). Four primary sections plus More — eight
+          labels collide at 375px, which is every phone in the shop. */}
+      <nav className="relative flex items-stretch justify-around border-t border-subtle bg-surface md:hidden">
+        {mobilePrimary.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
@@ -230,9 +244,51 @@ export default function Layout() {
             }
           >
             <n.icon size={20} />
-            {n.label.split(' ')[0]}
+            <span className="max-w-full truncate px-0.5">{n.label.split(' ')[0]}</span>
           </NavLink>
         ))}
+
+        {mobileMore.length > 0 && (
+          <button
+            onClick={() => setMoreOpen((v) => !v)}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
+              moreOpen || mobileMore.some((n) => pathname.startsWith(n.to)) ? 'text-brand' : 'text-muted'
+            }`}
+            aria-expanded={moreOpen}
+            aria-label="More sections"
+          >
+            <MoreHorizontal size={20} />
+            <span>More</span>
+          </button>
+        )}
+
+        {moreOpen && (
+          <>
+            {/* Tap-away layer, so the sheet closes without a stray navigation. */}
+            <button
+              className="fixed inset-0 z-20 cursor-default"
+              aria-label="Close menu"
+              onClick={() => setMoreOpen(false)}
+            />
+            <div className="absolute bottom-full right-0 z-30 mb-px w-48 overflow-hidden rounded-t-lg border border-subtle bg-surface shadow-lg">
+              {mobileMore.map((n) => (
+                <NavLink
+                  key={n.to}
+                  to={n.to}
+                  onClick={() => setMoreOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 border-b border-subtle px-4 py-3 text-sm last:border-b-0 ${
+                      isActive ? 'bg-brand text-on-brand' : 'text-secondary'
+                    }`
+                  }
+                >
+                  <n.icon size={18} />
+                  {n.label}
+                </NavLink>
+              ))}
+            </div>
+          </>
+        )}
       </nav>
     </div>
   )

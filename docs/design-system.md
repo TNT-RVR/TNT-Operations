@@ -33,11 +33,18 @@ literal hex — keep those values aligned to token hex.
 
 ## 3. Type
 
-- **Montserrat** (`font-display`) — headlines/display: bold, tight tracking/leading,
-  sentence case.
-- **IBM Plex Sans** (`font-sans`) — body + UI at 16px / 1.5.
-- **IBM Plex Mono** (`font-mono`, `.tabular`) — ALL numbers, metrics, telemetry,
-  eyebrows, and labels.
+**The system font stack — no downloaded webfonts.** Montserrat + IBM Plex were
+tried and reverted (2026-08-04): they made the app feel unlike the rest of the
+desktop, and the round trip to Google Fonts bought nothing.
+
+- `font-display` and `font-sans` both resolve to `system-ui` (the tokens are kept
+  separate so headings can diverge later without touching components).
+- `font-mono` / `.tabular` — the system monospace. Reserve it for genuine
+  telemetry readouts (a live sensor value, a coordinate dump).
+- **Numbers in a table column: use `tabular-nums`, not `font-mono`.**
+  `tabular-nums` aligns the digits while keeping the body typeface;
+  `font-mono`/`.tabular` also swap the *face*, which makes that column the only
+  text on the page in a different font. This was a real bug in the Grants table.
 - Eyebrows/labels/badges are UPPERCASE with `--ls-wider`/`--ls-widest`. Headlines
   and UI copy are sentence case.
 

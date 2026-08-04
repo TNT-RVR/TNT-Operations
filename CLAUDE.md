@@ -49,9 +49,13 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
     Honey (`--brand`, `#FEB836`) is the ONLY accent — one primary honey element per
     view; everything else neutral ink. Borders are white-alpha hairlines. Field
     green is retired. Status greens/reds/blues are muted, chart-only data palette.
-  - **Type.** Montserrat (`font-display`) for headings; IBM Plex Sans (`font-sans`)
-    for body/UI; IBM Plex Mono (`font-mono` + `.tabular`) for ALL numbers, metrics,
-    eyebrows, and labels. Eyebrows/labels/badges are UPPERCASE, wide tracking.
+  - **Type.** The SYSTEM font stack — no downloaded webfonts (Montserrat/IBM Plex
+    were tried and REVERTED 2026-08-04). `--font-display` and `--font-sans` are
+    both `system-ui`; `--font-mono` is the system monospace.
+    Eyebrows/labels/badges are UPPERCASE, wide tracking.
+    For numbers in a table column, use `tabular-nums` (aligns digits) — NOT
+    `font-mono`/`.tabular`, which swap the typeface and make that column the only
+    one in a different font. Reserve mono for genuine telemetry readouts.
   - **Primitives.** Use `Button`, `IconButton`, `Input`, `Select`, `Checkbox`,
     `Switch`, `Stat`, `Badge`, `Tag`, `ProgressBar`, `Card`, `Logo`, `Modal`,
     `PageHeader` from `src/components/ui.tsx`. `Stat`/`ProgressBar` are the

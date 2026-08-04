@@ -7,6 +7,8 @@
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
 import type {
+  Block,
+  BlockPlacement,
   Field,
   Incubator,
   IncubationBatch,
@@ -290,6 +292,65 @@ export function toSample(row: SampleRow): Sample {
     kgPer2Gal: numOrNull(row.kg_per_2gal),
     notes: row.notes,
     importDate: row.import_date,
+  }
+}
+
+export interface BlockRow {
+  id: string
+  label: string
+  notes: string | null
+  created_at: string
+}
+
+export function toBlock(row: BlockRow): Block {
+  return {
+    id: row.id,
+    label: row.label,
+    notes: row.notes ?? '',
+    createdAt: row.created_at,
+  }
+}
+
+export interface BlockPlacementRow {
+  id: string
+  block_id: string
+  season: number
+  field_id: string | null
+  shelter_id: string | null
+  lat: Num
+  lon: Num
+  placed_at: string | null
+  placed_by: string | null
+  retrieved_at: string | null
+  gross_weight_lbs: Num
+  retrieved_by: string | null
+  stripped_at: string | null
+  stripped_weight_lbs: Num
+  stripped_by: string | null
+  notes: string | null
+}
+
+export function toBlockPlacement(row: BlockPlacementRow): BlockPlacement {
+  return {
+    id: row.id,
+    blockId: row.block_id,
+    // Postgres integer arrives as a number, but a string here would poison
+    // every season comparison downstream.
+    season: Number(row.season),
+    fieldId: row.field_id,
+    shelterId: row.shelter_id,
+    lat: numOrNull(row.lat),
+    // DB column is `lon`; the app has used `lng` since 0008.
+    lng: numOrNull(row.lon),
+    placedAt: row.placed_at,
+    placedBy: row.placed_by ?? '',
+    retrievedAt: row.retrieved_at,
+    grossWeightLbs: numOrNull(row.gross_weight_lbs),
+    retrievedBy: row.retrieved_by ?? '',
+    strippedAt: row.stripped_at,
+    strippedWeightLbs: numOrNull(row.stripped_weight_lbs),
+    strippedBy: row.stripped_by ?? '',
+    notes: row.notes ?? '',
   }
 }
 

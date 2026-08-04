@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, MoreHorizontal, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -69,6 +69,17 @@ const NAV: NavItem[] = [
   },
   // Top-level like Field Mode: gated by the incubation module, but its own tab.
   { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation', mobilePrimary: true },
+  {
+    to: '/blocks',
+    label: 'Blocks',
+    icon: Boxes,
+    module: 'blocks',
+    children: [
+      { to: '/blocks', label: 'Overview', end: true },
+      { to: '/blocks/scan', label: 'Scan' },
+      { to: '/blocks/list', label: 'Register' },
+    ],
+  },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },

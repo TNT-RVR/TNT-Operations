@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react'
 import type {
+  Block,
+  BlockPlacement,
   Field,
   Incubator,
   IncubationBatch,
@@ -140,6 +142,48 @@ export interface DataContextValue {
   /** Nesting blocks (bees' homes), tied to their shelter. */
   nestingBlocks: NestingBlock[]
   addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => void
+
+  // ── Nesting blocks (place → retrieve → strip, migration 0012) ────────────
+  /** Physical block registry, keyed by the QR label. Loaded via loadBlocks(). */
+  blocks: Block[]
+  /** Per-season block records. Loaded alongside `blocks`. */
+  blockPlacements: BlockPlacement[]
+  blocksLoading: boolean
+  /** Fetch blocks and placements once. Idempotent — safe to call anywhere. */
+  loadBlocks: () => Promise<void>
+  /**
+   * Scan 1 — put a block out in a field. Captures where it is and when.
+   *
+   * An unrecognised label REGISTERS a new block rather than failing: blocks
+   * reach the field faster than anyone will pre-enter them, and refusing the
+   * scan would stop work in its tracks.
+   *
+   * Upserts on `(block_id, season)`, so re-scanning a block already placed
+   * this season corrects its location instead of duplicating it — while last
+   * season's row stays untouched.
+   */
+  placeBlock: (input: {
+    label: string
+    fieldId: string | null
+    lat: number | null
+    lng: number | null
+    season?: number
+  }) => Promise<{ ok: boolean; created: boolean; error?: string }>
+  /**
+   * Scans 2 and 3 — weigh a block full (`retrieve`) then empty (`strip`).
+   * Bee return is the difference, computed on read.
+   *
+   * Fails on a block with no placement this season: a weight that can't be
+   * attributed to a field says nothing about returns.
+   */
+  weighBlock: (input: {
+    label: string
+    stage: 'retrieve' | 'strip'
+    weightLbs: number
+    season?: number
+  }) => Promise<{ ok: boolean; error?: string }>
+  /** Edit a placement directly (fix a weight, move it to the right field…). */
+  saveBlockPlacement: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
 
   // ── Grants (funding pipeline) ────────────────────────────────────────────
   grants: Grant[]

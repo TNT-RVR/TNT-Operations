@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  Block,
+  BlockPlacement,
   Field,
   Incubator,
   IncubationBatch,
@@ -20,6 +22,8 @@ import type {
 import type { CostPrefs } from '@/domain/cost'
 import { supabase } from './supabaseClient'
 import {
+  toBlock,
+  toBlockPlacement,
   toField,
   toIncubator,
   toInspection,
@@ -39,6 +43,8 @@ import {
   inspectionInsert,
   incubatorUpdate,
   samplePatch,
+  type BlockRow,
+  type BlockPlacementRow,
   type FieldRow,
   type IncubatorRow,
   type InspectionRow,
@@ -84,6 +90,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [placedShelters, setPlacedShelters] = useState<PlacedShelter[]>([])
   const [shelterTrayLinks, setShelterTrayLinks] = useState<ShelterTrayLink[]>([])
   const [nestingBlocks, setNestingBlocks] = useState<NestingBlock[]>([])
+  const [blocks, setBlocks] = useState<Block[]>([])
+  const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>([])
+  const [blocksLoading, setBlocksLoading] = useState(false)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -93,6 +102,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const loadedSinceRef = useRef<Map<string, string>>(new Map())
   /** Guards the one-shot tray fetch against every screen calling it at once. */
   const traysPromiseRef = useRef<Promise<void> | null>(null)
+  /** Same one-shot guard for blocks — several screens call loadBlocks(). */
+  const blocksPromiseRef = useRef<Promise<void> | null>(null)
+
+  /** Merge a saved placement into local state, replacing any earlier version. */
+  const upsertPlacement = useCallback((saved: BlockPlacement) => {
+    setBlockPlacements((prev) => {
+      const i = prev.findIndex((x) => x.id === saved.id)
+      if (i < 0) return [saved, ...prev]
+      const next = [...prev]
+      next[i] = saved
+      return next
+    })
+  }, [])
   const readingsRef = useRef<SensorReading[]>([])
   readingsRef.current = readings
   const notifRef = useRef<AppNotification[]>([])
@@ -522,6 +544,146 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         })
         return { ok: true, created: !existing }
       },
+
+      // ── Nesting blocks ────────────────────────────────────────────────────
+      blocks,
+      blockPlacements,
+      blocksLoading,
+      loadBlocks: () => {
+        if (blocksPromiseRef.current) return blocksPromiseRef.current
+        if (!supabase) return Promise.resolve()
+        setBlocksLoading(true)
+        const run = (async () => {
+          // Both tables in parallel — the screen needs them together anyway.
+          const [b, p] = await Promise.all([
+            supabase!.from('blocks').select('*').order('label', { ascending: true }),
+            supabase!.from('block_placements').select('*').order('season', { ascending: false }),
+          ])
+          if (b.error || p.error) {
+            console.error('[data] loadBlocks:', b.error?.message ?? p.error?.message)
+            blocksPromiseRef.current = null // let it retry
+          } else {
+            setBlocks(((b.data as BlockRow[]) ?? []).map(toBlock))
+            setBlockPlacements(((p.data as BlockPlacementRow[]) ?? []).map(toBlockPlacement))
+          }
+          setBlocksLoading(false)
+        })()
+        blocksPromiseRef.current = run
+        return run
+      },
+
+      placeBlock: async ({ label, fieldId, lat, lng, season }) => {
+        if (!supabase) return { ok: false, created: false, error: 'No backend connection.' }
+        const clean = label.trim()
+        if (!clean) return { ok: false, created: false, error: 'That code was empty.' }
+        const yr = season ?? new Date().getFullYear()
+
+        // Register an unknown label rather than refusing it — blocks reach the
+        // field before anyone enters them, and a refusal would stop the work.
+        let block = blocks.find((x) => x.label.trim().toLowerCase() === clean.toLowerCase())
+        const isNewBlock = !block
+        if (!block) {
+          const { data, error } = await supabase
+            .from('blocks')
+            .upsert({ label: clean }, { onConflict: 'label' })
+            .select()
+            .single()
+          if (error) {
+            console.error('[data] placeBlock/register:', error.message)
+            return { ok: false, created: false, error: error.message }
+          }
+          block = toBlock(data as BlockRow)
+          setBlocks((prev) => [...prev, block!].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        const existing = blockPlacements.find((x) => x.blockId === block!.id && x.season === yr)
+        // Upsert on (block_id, season): re-scanning a block already placed this
+        // season CORRECTS its spot; last season's row is a different key and is
+        // left alone.
+        const { data, error } = await supabase
+          .from('block_placements')
+          .upsert(
+            {
+              block_id: block.id,
+              season: yr,
+              field_id: fieldId,
+              lat,
+              lon: lng,
+              placed_at: existing?.placedAt ?? new Date().toISOString(),
+            },
+            { onConflict: 'block_id,season' },
+          )
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] placeBlock:', error.message)
+          return { ok: false, created: false, error: error.message }
+        }
+        upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
+        return { ok: true, created: isNewBlock || !existing }
+      },
+
+      weighBlock: async ({ label, stage, weightLbs, season }) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        if (!Number.isFinite(weightLbs) || weightLbs < 0) return { ok: false, error: 'Enter a valid weight.' }
+        const clean = label.trim()
+        const yr = season ?? new Date().getFullYear()
+
+        const block = blocks.find((x) => x.label.trim().toLowerCase() === clean.toLowerCase())
+        if (!block) return { ok: false, error: `No block on record for “${clean}”.` }
+        // A weight with no placement can't be attributed to a field, so it
+        // tells us nothing about returns. Say so rather than storing an orphan.
+        const placement = blockPlacements.find((x) => x.blockId === block.id && x.season === yr)
+        if (!placement) return { ok: false, error: `${block.label} wasn’t placed in ${yr}.` }
+
+        const now = new Date().toISOString()
+        const patch =
+          stage === 'retrieve'
+            ? { retrieved_at: now, gross_weight_lbs: weightLbs }
+            : { stripped_at: now, stripped_weight_lbs: weightLbs }
+
+        const { data, error } = await supabase
+          .from('block_placements')
+          .update(patch)
+          .eq('id', placement.id)
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] weighBlock:', error.message)
+          return { ok: false, error: error.message }
+        }
+        upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
+        return { ok: true }
+      },
+
+      saveBlockPlacement: async (id: string, patch: Partial<BlockPlacement>) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row: Record<string, unknown> = {}
+        if ('fieldId' in patch) row.field_id = patch.fieldId
+        if ('lat' in patch) row.lat = patch.lat
+        if ('lng' in patch) row.lon = patch.lng
+        if ('grossWeightLbs' in patch) row.gross_weight_lbs = patch.grossWeightLbs
+        if ('strippedWeightLbs' in patch) row.stripped_weight_lbs = patch.strippedWeightLbs
+        if ('placedAt' in patch) row.placed_at = patch.placedAt
+        if ('retrievedAt' in patch) row.retrieved_at = patch.retrievedAt
+        if ('strippedAt' in patch) row.stripped_at = patch.strippedAt
+        if ('notes' in patch) row.notes = patch.notes
+        if (Object.keys(row).length === 0) return { ok: true }
+
+        const { data, error } = await supabase
+          .from('block_placements')
+          .update(row)
+          .eq('id', id)
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] saveBlockPlacement:', error.message)
+          return { ok: false, error: error.message }
+        }
+        upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
+        return { ok: true }
+      },
+
       notifications,
       markNotificationsRead: (ids: string[]) => {
         if (!supabase || ids.length === 0) return
@@ -718,6 +880,10 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,
+      blocks,
+      blockPlacements,
+      blocksLoading,
+      upsertPlacement,
       grants,
       grantTasks,
     ],

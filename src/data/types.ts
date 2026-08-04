@@ -182,6 +182,57 @@ export interface NestingBlock {
   createdAt: string
 }
 
+// ── Nesting blocks (place → retrieve → strip; see migration 0012) ────────────
+
+/**
+ * A physical nesting block, identified by the QR label printed on it.
+ * Permanent and reused every season — the per-season record is BlockPlacement.
+ *
+ * Distinct from `NestingBlock` above, which is the unused 0008 stub (no
+ * location, no weights, hung off a shelter) kept only for LineageHome.
+ */
+export interface Block {
+  id: string
+  /** What the QR encodes; the block's permanent identity. */
+  label: string
+  notes: string
+  /** ISO UTC. */
+  createdAt: string
+}
+
+/** How far through the place → retrieve → strip cycle a placement has got. */
+export type BlockStage = 'placed' | 'retrieved' | 'stripped'
+
+/**
+ * One season's use of one block, built up by three scans in the field:
+ * placed (field + GPS), retrieved (gross weight), stripped (empty weight).
+ */
+export interface BlockPlacement {
+  id: string
+  blockId: string
+  /** Calendar year — one placement per block per season. */
+  season: number
+  fieldId: string | null
+  /** Reserved for placing blocks into a specific shelter later. */
+  shelterId: string | null
+  lat: number | null
+  lng: number | null
+  /** ISO UTC. */
+  placedAt: string | null
+  placedBy: string
+  /** ISO UTC. */
+  retrievedAt: string | null
+  /** Weighed with the bee material still in it. */
+  grossWeightLbs: number | null
+  retrievedBy: string
+  /** ISO UTC. */
+  strippedAt: string | null
+  /** Weighed after the bee material was removed. */
+  strippedWeightLbs: number | null
+  strippedBy: string
+  notes: string
+}
+
 // ── Grants (funding pipeline; mirrors the RVR Management App) ────────────────
 
 /** A funding opportunity we're tracking through the application workflow. */

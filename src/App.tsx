@@ -12,6 +12,9 @@ import LineageHome from './features/incubation/LineageHome'
 import AlertsHome from './features/incubation/AlertsHome'
 import ScanHome from './features/incubation/ScanHome'
 import CalendarHome from './features/incubation/CalendarHome'
+import BlocksHome from './features/blocks/BlocksHome'
+import BlockScan from './features/blocks/BlockScan'
+import BlockList from './features/blocks/BlockList'
 import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
 import GrantsHome from './features/grants/GrantsHome'
@@ -32,6 +35,9 @@ export default function App() {
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
+        <Route path="blocks" element={<Protected module="blocks"><BlocksHome /></Protected>} />
+        <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
+        <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
         <Route path="grants" element={<Protected module="grants"><GrantsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />

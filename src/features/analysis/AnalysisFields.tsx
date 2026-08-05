@@ -33,7 +33,7 @@ const COLUMNS: Column[] = [
   { key: 'pollen_balls', label: 'Pollen balls', numeric: true, metric: true },
   { key: 'parasites', label: 'Parasites', numeric: true, metric: true },
   { key: 'percent_return', label: 'Return', numeric: true, metric: true },
-  { key: 'yield_per_acre', label: 'Yield/ac', numeric: true, metric: true },
+  { key: 'yield_per_acre', label: 'Yield per acre', numeric: true, metric: true },
 ]
 
 function csvEscape(v: unknown): string {

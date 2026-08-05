@@ -120,11 +120,11 @@ export const METRICS: readonly MetricDef[] = [
   { key: 'avg_for_variety', label: 'Variety Average', group: 'outcome', unit: 'kg' },
 
   // ── Weather (derived from cached Open-Meteo, Apr 1 – Sep 30) ─────────────
-  { key: 'avgTemp', label: 'Avg Temperature', group: 'weather', unit: 'celsius', derived: true },
-  { key: 'maxTemp', label: 'Max Temperature', group: 'weather', unit: 'celsius', derived: true },
-  { key: 'minTemp', label: 'Min Temperature', group: 'weather', unit: 'celsius', derived: true },
+  { key: 'avgTemp', label: 'Average Temperature', group: 'weather', unit: 'celsius', derived: true },
+  { key: 'maxTemp', label: 'Average Daily High', group: 'weather', unit: 'celsius', derived: true },
+  { key: 'minTemp', label: 'Average Daily Low', group: 'weather', unit: 'celsius', derived: true },
   { key: 'totalPrecip', label: 'Total Precipitation', group: 'weather', unit: 'mm', derived: true },
-  { key: 'avgWind', label: 'Avg Wind Speed', group: 'weather', unit: 'kmh', derived: true },
+  { key: 'avgWind', label: 'Average Wind Speed', group: 'weather', unit: 'kmh', derived: true },
   { key: 'growingDegreeDays', label: 'Growing Degree Days', group: 'weather', unit: 'count', derived: true, description: 'Accumulated heat above a 10 °C base over the season window.' },
   { key: 'rainDays', label: 'Rain Days', group: 'weather', unit: 'count', derived: true, description: 'Days with at least 1 mm of precipitation.' },
   {

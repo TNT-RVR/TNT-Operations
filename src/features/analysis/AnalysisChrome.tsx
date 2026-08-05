@@ -190,15 +190,17 @@ export function CorrelationStats({ c }: { c: Correlation }) {
         {c.r >= 0 ? '+' : ''}
         {c.r.toFixed(3)}
       </span>
+      {/* Spelled out, not "n / r² / p" — see the note on the pair table. */}
       <span className="text-xs text-muted">
-        n = <span className="font-mono tabular-nums text-secondary">{c.n}</span>
+        <span className="font-mono tabular-nums text-secondary">{c.n}</span> field-seasons
       </span>
       <span className="text-xs text-muted">
-        r² = <span className="font-mono tabular-nums text-secondary">{c.r2.toFixed(2)}</span>
+        <span className="font-mono tabular-nums text-secondary">{Math.round(c.r2 * 100)}%</span> of
+        variance explained
       </span>
       {c.pValue !== null && (
         <span className="text-xs text-muted">
-          p ={' '}
+          significance{' '}
           <span className="font-mono tabular-nums text-secondary">
             {c.pValue < 0.001 ? c.pValue.toExponential(1) : c.pValue.toFixed(3)}
           </span>

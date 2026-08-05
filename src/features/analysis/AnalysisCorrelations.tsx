@@ -290,11 +290,17 @@ function PairTable({ pairs, onPick }: { pairs: ScreenedPair[]; onPick: (p: Scree
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
+          {/*
+            Headings are spelled out rather than left as r / n / p. This table
+            is read by people who run a pollination business, not by
+            statisticians — a column labelled "n" is only obvious to someone who
+            already knows what it means.
+          */}
           <tr>
-            <th className="th text-left">Pair</th>
-            <th className="th text-right">r</th>
-            <th className="th text-right">n</th>
-            <th className="th text-right">p</th>
+            <th className="th text-left">Metric pair</th>
+            <th className="th text-right">Correlation (r)</th>
+            <th className="th text-right">Field-seasons (n)</th>
+            <th className="th text-right">Significance (p)</th>
             <th className="th text-left">Verdict</th>
           </tr>
         </thead>

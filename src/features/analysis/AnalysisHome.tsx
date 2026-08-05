@@ -48,13 +48,13 @@ function Overview() {
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Field-seasons" value={rows.length} hint={`${seasons} season${seasons === 1 ? '' : 's'}`} />
             <Stat
-              label="Avg live prepupae"
+              label="Average live prepupae"
               value={avg('live_prepupae')?.toFixed(1) ?? '—'}
               unit="%"
               hint="Healthy fraction of returned cocoons"
             />
             <Stat
-              label="Avg return"
+              label="Average return"
               value={avg('percent_return')?.toFixed(1) ?? '—'}
               unit="%"
               hint="Gallons back over gallons out"

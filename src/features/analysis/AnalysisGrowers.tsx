@@ -118,7 +118,11 @@ function Growers() {
             <Stat
               label="Best average"
               value={reliable[0]?.avg?.toFixed(1) ?? '—'}
-              hint={reliable[0] ? `${reliable[0].name} (n=${reliable[0].n})` : 'None with enough seasons'}
+              hint={
+                reliable[0]
+                  ? `${reliable[0].name} — ${reliable[0].n} field-seasons`
+                  : 'None with enough seasons'
+              }
             />
             <Stat
               label="Spread"
@@ -153,8 +157,8 @@ function Growers() {
                             {formatMetric(g.avg, metricKey)} average
                           </div>
                           <div className="text-muted">
-                            n = {g.n}
-                            {!g.reliable && ' — too few seasons to rank'}
+                            {g.n} field-season{g.n === 1 ? '' : 's'}
+                            {!g.reliable && ' — too few to rank'}
                           </div>
                         </div>
                       )
@@ -186,9 +190,9 @@ function Growers() {
                 <thead>
                   <tr>
                     <th className="th text-left">{GROUP_LABELS[groupBy]}</th>
-                    <th className="th text-right">Seasons</th>
+                    <th className="th text-right">Field-seasons</th>
                     <th className="th text-right">Average</th>
-                    <th className="th text-right">Std dev</th>
+                    <th className="th text-right">Standard deviation</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -196,7 +200,14 @@ function Growers() {
                     <tr key={g.name} className="border-t border-subtle">
                       <td className="px-2 py-2 text-secondary">
                         {g.name}
-                        {!g.reliable && <span className="ml-2 text-xs text-muted">(n&lt;{RELIABLE_N})</span>}
+                        {/* Leading space, not just the margin — otherwise a
+                            screen reader runs the name into the marker. */}
+                        {!g.reliable && (
+                          <span className="ml-2 text-xs text-muted">
+                            {' '}
+                            — under {RELIABLE_N} seasons
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-muted">{g.n}</td>
                       <td className="px-2 py-2 text-right tabular-nums text-primary">

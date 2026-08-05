@@ -22,6 +22,7 @@ import {
 import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
 import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
 import { findGpsOutliers } from '@/domain/gpsOutliers'
+import { inferFieldShape } from '@/domain/fieldShape'
 import type { FieldDict } from '@/domain/tentGrid'
 
 // Block markers sit on satellite imagery and inside exported PNGs, so they are
@@ -139,6 +140,14 @@ export default function ReturnsMap() {
     [fields, active],
   )
   const effectiveClipId = clipFieldId === 'auto' ? (autoMatch?.fieldId ?? '') : clipFieldId
+
+  /**
+   * Outline fitted to the blocks, for when no recorded field matches — a true
+   * circle for a pivot, straight sides for a quarter. Beats tracing the point
+   * cloud, which is lumpy however much it's smoothed, and needs no boundary
+   * drawn by hand.
+   */
+  const fitted = useMemo(() => (effectiveClipId ? null : inferFieldShape(active)), [effectiveClipId, active])
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
@@ -558,10 +567,12 @@ export default function ReturnsMap() {
                 </Select>
                 <span className="mt-1 block text-faint">
                   {autoMatch && clipFieldId === 'auto'
-                    ? `${Math.round(autoMatch.fraction * 100)}% of these points fall inside it — clipping to its real boundary (a true circle for a pivot, straight edges for a polygon).`
+                    ? `${Math.round(autoMatch.fraction * 100)}% of these points fall inside it — using its recorded boundary.`
                     : effectiveClipId
                       ? 'Clipped to that field’s recorded boundary.'
-                      : 'Outline inferred from the points, so a circle will only be approximate. Pick a field for an exact edge.'}
+                      : fitted
+                        ? `No matching field on record, so the outline was fitted to the blocks — a ${fitted.kind === 'circle' ? `circle ${Math.round(fitted.radiusM ?? 0)} m across the radius` : `${fitted.corners}-sided shape with straight edges`}.`
+                        : 'Not enough blocks to fit an outline; using the shape of the points.'}
                 </span>
               </label>
 

@@ -373,6 +373,42 @@ describe('incubation milestones', () => {
     expect(new Set(evs.map((e) => e.incubatorId))).toEqual(new Set(['i1']))
   })
 
+  it('skips an incubator that is switched off', () => {
+    const evs = milestoneEvents(
+      [
+        { id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01', tempMode: 'incubation' },
+        { id: 'i2', name: 'Inc 2', incubationStart: '2026-06-01', tempMode: 'off' },
+      ],
+      [],
+    )
+    expect(new Set(evs.map((e) => e.incubatorId))).toEqual(new Set(['i1']))
+  })
+
+  it('does not invent a run from a stray tray left in an off incubator', () => {
+    // The live case: Incubator 1 off, no start date, one active tray still
+    // assigned to it. The tray fallback would otherwise plot Day 1 → Day 37.
+    const trays = [{ incubatorId: 'i1', status: 'active', inDate: '2026-08-04' }]
+    expect(milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: null, tempMode: 'off' }], trays)).toEqual([])
+    // Same data, incubator actually running → the fallback is still wanted.
+    expect(
+      milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: null, tempMode: 'incubation' }], trays).length,
+    ).toBe(INCUBATION_MILESTONES.length)
+  })
+
+  it('keeps plotting through holding and cool storage — a run continues while cooling', () => {
+    for (const tempMode of ['holding', 'cool_storage']) {
+      const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01', tempMode }], [])
+      expect(evs.length).toBe(INCUBATION_MILESTONES.length)
+    }
+  })
+
+  it('assumes running when the caller does not model modes', () => {
+    // Back-compat: callers passing no tempMode must keep their milestones.
+    expect(milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], []).length).toBe(
+      INCUBATION_MILESTONES.length,
+    )
+  })
+
   it('exports all-day VEVENTs with an exclusive DTEND', () => {
     const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01' }], [])
     const ics = milestonesToIcs(evs.slice(0, 1), '2026-08-04T12:00:00.000Z')

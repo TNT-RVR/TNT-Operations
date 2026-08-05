@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { usePush } from './usePush'
 import { PageHeader, EmptyState, Switch } from '@/components/ui'
 import { useData, type NotificationPref } from '@/data/context'
-import { AlertOctagon, AlertTriangle, Info, Trash2, CheckCheck, type LucideIcon } from 'lucide-react'
+import { AlertOctagon, AlertTriangle, Info, Trash2, CheckCheck, BellRing, type LucideIcon } from 'lucide-react'
 import type { NotificationSeverity } from '@/data/types'
 
 /** Alert types the app can raise — the settings grid rows. */
@@ -9,6 +10,7 @@ const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'sensor_feed_stale', label: 'Sensor feed stale', hint: 'A Govee/ESP32 feed stops reporting (integration health).' },
   { type: 'temp_out_of_range', label: 'Temperature out of range', hint: 'An incubator leaves its temperature band.' },
   { type: 'humidity_out_of_range', label: 'Humidity out of range', hint: 'An incubator leaves its humidity band.' },
+  { type: 'milestone', label: 'Milestone due today', hint: 'Vapona in/out, earliest cool, expected release — from the calendar.' },
   { type: 'grant_new', label: 'New grant found', hint: 'The weekly search finds a funding program you could apply for.' },
   { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
 ]
@@ -106,9 +108,10 @@ export default function NotificationsHome() {
 
         {tab === 'settings' ? (
           <div className="max-w-2xl space-y-2">
+            <PushCard />
             <p className="mb-3 text-sm text-muted">
-              Choose which alerts reach you, per channel. In-app shows in the bell; email and push delivery are stored
-              now and activate when those channels are connected.
+              Choose which alerts reach you, per channel. In-app shows in the bell. Push goes to any device where
+              you've turned notifications on above; email is stored now and activates when that channel is connected.
             </p>
             {ALERT_TYPES.map((a) => {
               const p = prefFor(a.type)
@@ -186,6 +189,69 @@ export default function NotificationsHome() {
               )
             })}
           </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Per-DEVICE push switch.
+ *
+ * Separate from the per-type grid below on purpose: that grid says WHICH alerts
+ * you want, this says whether THIS phone or tablet is allowed to buzz. Both
+ * have to be on for a push to arrive, and they're different questions.
+ */
+function PushCard() {
+  const { state, error, enable, disable } = usePush()
+
+  const body = () => {
+    switch (state) {
+      case 'busy':
+        return <p className="text-xs text-muted">Checking…</p>
+      case 'unsupported':
+        return <p className="text-xs text-muted">This browser doesn’t support push notifications.</p>
+      case 'ios-needs-install':
+        return (
+          <p className="text-xs text-muted">
+            On iPhone, push only works once the app is installed: tap Share → Add to Home Screen, then open it from
+            there and turn this on.
+          </p>
+        )
+      case 'denied':
+        return (
+          <p className="text-xs text-danger">
+            Notifications are blocked for this site. Allow them in your browser’s site settings, then come back.
+          </p>
+        )
+      default:
+        return (
+          <p className="text-xs text-muted">
+            {state === 'on'
+              ? 'This device will buzz for the alert types you’ve enabled below.'
+              : 'Get incubator alerts on this device, even when the app is closed.'}
+          </p>
+        )
+    }
+  }
+
+  return (
+    <div className="card mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 font-semibold text-primary">
+            <BellRing size={16} className="text-brand" />
+            Push notifications on this device
+          </div>
+          <div className="mt-1">{body()}</div>
+          {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+        </div>
+        {(state === 'on' || state === 'off') && (
+          <Switch
+            checked={state === 'on'}
+            onChange={(v) => void (v ? enable() : disable())}
+            label="Push notifications on this device"
+          />
         )}
       </div>
     </div>

@@ -21,6 +21,7 @@ const TYPE_LABELS: Record<string, string> = {
   temp_humidity: 'Temp / humidity',
   inspection_temp: 'Inspection temp',
   vapona_sensor: 'Vapona sensor',
+  milestone: 'Milestone due',
 }
 const typeLabel = (t: string) => TYPE_LABELS[t] ?? t.replace(/_/g, ' ')
 

@@ -74,3 +74,57 @@ self.addEventListener('fetch', (e) => {
     }),
   )
 })
+
+/* ── Web push ───────────────────────────────────────────────────────────────
+ * Alerts from the Netlify sender (temp/humidity out of band, milestones due).
+ * The payload is JSON: { title, body, url, tag, renotify }. */
+
+self.addEventListener('push', (e) => {
+  let d = {}
+  try {
+    d = e.data ? e.data.json() : {}
+  } catch {
+    // A malformed payload must still surface something — a silent drop would
+    // look exactly like "alerts aren't working".
+    d = { title: 'TNT Operations', body: e.data ? e.data.text() : 'New alert' }
+  }
+  const title = d.title || 'TNT Operations'
+  e.waitUntil(
+    self.registration.showNotification(title, {
+      body: d.body || '',
+      icon: '/bee-dark.png',
+      badge: '/bee-dark.png',
+      // Same tag replaces an earlier notice for the same incubator instead of
+      // stacking six of them; renotify still buzzes so it isn't missed.
+      tag: d.tag || 'tnt-alert',
+      renotify: d.renotify !== false,
+      requireInteraction: d.requireInteraction === true,
+      data: { url: d.url || '/incubation' },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const target = (e.notification.data && e.notification.data.url) || '/incubation'
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      // Reuse an open tab if there is one — a second copy of the app is never
+      // what someone wants from tapping an alert.
+      for (const c of list) {
+        if (c.url.includes(location.origin)) return c.focus().then((f) => f.navigate(target))
+      }
+      return self.clients.openWindow(target)
+    }),
+  )
+})
+
+/* The push service can rotate a subscription on its own. Tell the app so it
+ * can re-register, otherwise alerts stop silently. */
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil(
+    self.clients.matchAll({ includeUncontrolled: true }).then((list) => {
+      for (const c of list) c.postMessage({ type: 'push-subscription-change' })
+    }),
+  )
+})

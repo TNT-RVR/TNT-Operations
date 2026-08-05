@@ -37,6 +37,15 @@
  * v1 fallback). Uses global fetch (Node 18+) — no dependencies.
  */
 
+import {
+  pushOptIns,
+  subscriptionsFor,
+  sendToAll,
+  recentlyNotified,
+  lastAlertAt,
+  writeInAppNotification,
+} from './lib/push.mjs'
+
 export const config = {
   // Runs at the FAST rate; idle incubators are throttled per-incubator below.
   schedule: '*/15 * * * *',
@@ -49,6 +58,32 @@ const IDLE_HEARTBEAT_H = 6
 
 /** Anything that isn't `off` is actively being held at a temperature. */
 const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
+
+/**
+ * Target band per mode, in °C. Mirrors TEMP_MODES in src/domain/incubation.ts
+ * (and the desktop app's `get_temp_range`) — if you change one, change both.
+ * `off` has no band: an idle incubator isn't being held anywhere, so it can't
+ * be "out of range".
+ */
+const TEMP_BANDS = {
+  cool_storage: [0.0, 12.0],
+  incubation: [25.0, 35.0],
+  holding: [10.0, 18.0],
+}
+
+/**
+ * Don't re-push the same condition more often than this. The poll runs every
+ * 15 min and an out-of-band incubator STAYS out of band, so without a cooldown
+ * the same alert would fire four times an hour until someone fixed it — which
+ * just teaches people to ignore alerts.
+ */
+const ALERT_COOLDOWN_MIN = 120
+
+/**
+ * Only announce a recovery for a problem raised within this window. An
+ * all-clear for something that went wrong days ago, unseen, is noise.
+ */
+const RECOVERY_LOOKBACK_H = 24
 
 const V2_STATE = 'https://openapi.api.govee.com/router/api/v1/device/state'
 const V1_STATE = 'https://developer-api.govee.com/v1/devices/state'
@@ -118,7 +153,7 @@ export default async () => {
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
 
   const incs = await fetch(
-    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode`,
+    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode,temp_alerts_enabled`,
     { headers: sb },
   ).then((r) => r.json())
 
@@ -163,6 +198,127 @@ export default async () => {
       headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
       body: JSON.stringify(readings),
     })
+  }
+
+  // ── Temperature out of band ───────────────────────────────────────────────
+  // The desktop app raised these and nothing replaced it when we moved to the
+  // cloud, so from 2026-07-23 until now NOTHING was watching temperatures.
+  // Evaluated against the reading just taken, for running incubators only.
+  let tempAlerts = 0
+  let recoveries = 0
+  let pushesSent = 0
+  // NOTE: the preference key is the settings-screen row ('temp_out_of_range'),
+  // while alerts.alert_type stays 'temp_humidity' to match the desktop
+  // app's imported history. They are deliberately different.
+  const optIns = await pushOptIns(SB_URL, sb, 'temp_out_of_range').catch(() => new Set())
+  const subs = await subscriptionsFor(SB_URL, sb, optIns).catch(() => [])
+
+  for (const { inc, running } of plan) {
+    // Off incubators have no band, and the per-incubator switch can mute one
+    // that's known to be misbehaving without silencing the rest.
+    if (!running || inc.temp_alerts_enabled === false) continue
+    const reading = readings.find((r) => r.incubator_id === inc.id)
+    if (!reading || reading.temp_c == null) continue
+
+    const band = TEMP_BANDS[inc.temp_mode]
+    if (!band) continue
+    const [min, max] = band
+    const t = reading.temp_c
+    const dedupKey = `temp_humidity:temp:${inc.id}`
+    const clearKey = `temp_humidity:clear:${inc.id}`
+
+    // ── Back in range: send ONE all-clear, then stay quiet ──────────────────
+    // Without this, alerts just stop, and silence is ambiguous — it reads the
+    // same as "nothing is watching any more".
+    if (t >= min && t <= max) {
+      // Only clear an episode someone was actually told about.
+      const lastProblem = await lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly: true }).catch(() => null)
+      if (!lastProblem) continue
+      // Ignore stale episodes: an all-clear for something that went wrong days
+      // ago and was never seen is noise, not news.
+      if (Date.now() - new Date(lastProblem).getTime() > RECOVERY_LOOKBACK_H * 3600_000) continue
+      // Already cleared this episode? The clear must be NEWER than the problem.
+      const lastClear = await lastAlertAt(SB_URL, sb, clearKey).catch(() => null)
+      if (lastClear && new Date(lastClear) > new Date(lastProblem)) continue
+
+      const okMsg = `${inc.name}: Temp ${t.toFixed(1)}°C is back in range (${min.toFixed(1)}–${max.toFixed(1)}°C)`
+      await fetch(`${SB_URL}/rest/v1/alerts`, {
+        method: 'POST',
+        headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          alert_type: 'temp_humidity',
+          severity: 'info',
+          incubator_id: inc.id,
+          message: okMsg,
+          dedup_key: clearKey,
+          notified: true,
+        }),
+      })
+      await writeInAppNotification(SB_URL, sb, {
+        category: 'incubation',
+        type: 'temp_out_of_range',
+        severity: 'info',
+        title: `${inc.name} is back in range`,
+        body: okMsg,
+        source: 'alert_rules',
+        dedupKey: clearKey,
+      })
+      const okRes = await sendToAll(SB_URL, sb, subs, {
+        title: `${inc.name} back in range`,
+        body: okMsg,
+        url: '/incubation',
+        // Same tag as the problem, so the all-clear REPLACES the warning on the
+        // lock screen rather than sitting beneath it contradicting it.
+        tag: `temp-${inc.id}`,
+      }).catch(() => ({ sent: 0 }))
+      pushesSent += okRes.sent
+      recoveries++
+      continue
+    }
+
+    const above = t > max
+    // Message shape copied from the desktop app's alerts, so the Alerts screen
+    // reads consistently across the changeover.
+    const message =
+      `${inc.name}: Temp ${t.toFixed(1)}°C ` +
+      `${above ? 'above maximum' : 'below minimum'} ${(above ? max : min).toFixed(1)}°C`
+    // On lookup failure assume "already notified": a quiet miss beats a storm.
+    const quiet = await recentlyNotified(SB_URL, sb, dedupKey, ALERT_COOLDOWN_MIN).catch(() => true)
+
+    // Log EVERY occurrence (that's the alert history); notify only past the
+    // cooldown. `notified` is what the cooldown lookup reads next cycle.
+    await fetch(`${SB_URL}/rest/v1/alerts`, {
+      method: 'POST',
+      headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        alert_type: 'temp_humidity',
+        severity: 'warning',
+        incubator_id: inc.id,
+        message,
+        dedup_key: dedupKey,
+        notified: !quiet,
+      }),
+    })
+    tempAlerts++
+    if (quiet) continue
+
+    await writeInAppNotification(SB_URL, sb, {
+      category: 'incubation',
+      type: 'temp_out_of_range',
+      severity: 'warning',
+      title: `${inc.name} is out of range`,
+      body: message,
+      source: 'alert_rules',
+      dedupKey,
+    })
+    const res = await sendToAll(SB_URL, sb, subs, {
+      title: `${inc.name} out of range`,
+      body: message,
+      url: '/incubation',
+      // One live notice per incubator — replaced, not stacked six deep.
+      tag: `temp-${inc.id}`,
+    }).catch(() => ({ sent: 0 }))
+    pushesSent += res.sent
   }
 
   // ── Integration health: alert when a sensor feed goes stale ────────────────
@@ -221,6 +377,7 @@ export default async () => {
     `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +
       `${runningNames.length} running [${runningNames.join(', ') || 'none'}], ` +
       `${heartbeats} idle heartbeat(s), ${readings.length} readings written, ` +
+      `${tempAlerts} temp alerts raised, ${recoveries} recovered, ${pushesSent} push(es) sent, ` +
       `${alerts} stale alerts raised`,
     { status: 200 },
   )

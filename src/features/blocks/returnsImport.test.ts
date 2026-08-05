@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { guessColumns, toSamples, samplesCentre, type SheetTable } from './returnsImport'
+import { guessColumns, toSamples, groupValues, samplesCentre, type SheetTable } from './returnsImport'
 
 describe('guessColumns', () => {
   it('finds the obvious names', () => {
@@ -8,6 +8,7 @@ describe('guessColumns', () => {
       lat: 1,
       lng: 2,
       value: 3,
+      group: -1,
     })
   })
 
@@ -34,7 +35,7 @@ describe('guessColumns', () => {
 const table = (headers: string[], rows: unknown[][]): SheetTable => ({ headers, rows })
 
 describe('toSamples', () => {
-  const cols = { lat: 0, lng: 1, value: 2, label: 3 }
+  const cols = { lat: 0, lng: 1, value: 2, label: 3, group: -1 }
 
   it('reads valid rows', () => {
     const r = toSamples(table(['lat', 'lng', 'v', 'b'], [[49.83, -111.6, 8.1, 'BLK1']]), cols)
@@ -101,5 +102,47 @@ describe('samplesCentre', () => {
 
   it('is null with nothing to centre on', () => {
     expect(samplesCentre([])).toBeNull()
+  })
+})
+
+describe('grouping by field', () => {
+  const t = table(
+    ['field', 'lat', 'lng', 'v'],
+    [
+      ['North Quarter', 49.83, -111.6, 5],
+      ['South Quarter', 49.7, -111.4, 8],
+      ['North Quarter', 49.831, -111.601, 6],
+      ['  ', 49.9, -111.2, 4], // blank group — not a field
+    ],
+  )
+  const cols = { field: -1, lat: 1, lng: 2, value: 3, label: -1, group: 0 } as never
+
+  it('finds a field column by common names', () => {
+    expect(guessColumns(['Field', 'lat', 'lng', 'return']).group).toBe(0)
+    expect(guessColumns(['Site Name', 'lat', 'lng', 'return']).group).toBe(0)
+    expect(guessColumns(['lat', 'lng', 'return']).group).toBe(-1)
+  })
+
+  it('lists distinct values with counts, ignoring blanks', () => {
+    expect(groupValues(t, 0)).toEqual([
+      { value: 'North Quarter', rows: 2 },
+      { value: 'South Quarter', rows: 1 },
+    ])
+  })
+
+  it('returns nothing when there is no grouping column', () => {
+    expect(groupValues(t, -1)).toEqual([])
+  })
+
+  it('maps only the chosen field', () => {
+    // The whole point: a sheet spanning several fields must not be
+    // interpolated as one surface stretching between them.
+    const r = toSamples(t, cols, 'North Quarter')
+    expect(r.samples).toHaveLength(2)
+    expect(r.samples.every((s) => s.lat > 49.82)).toBe(true)
+  })
+
+  it('includes every field when no filter is given', () => {
+    expect(toSamples(t, cols).samples).toHaveLength(4)
   })
 })

@@ -32,8 +32,12 @@ export async function readSheet(file: File): Promise<SheetTable> {
   return { headers: rows[0].map((h) => String(h ?? '').trim()), rows: rows.slice(1) }
 }
 
-/** Candidate header names per field, in preference order. */
-const GUESSES: Record<'lat' | 'lng' | 'value' | 'label', string[]> = {
+/** The columns we try to identify in an imported sheet. */
+export type ColKey = 'lat' | 'lng' | 'value' | 'label' | 'group'
+export type ColMap = Record<ColKey, number>
+
+/** Candidate header names per column, in preference order. */
+const GUESSES: Record<ColKey, string[]> = {
   lat: ['lat', 'latitude', 'y', 'ycoord', 'ypos', 'northing'],
   lng: ['lng', 'lon', 'long', 'longitude', 'x', 'xcoord', 'xpos', 'easting'],
   value: [
@@ -50,7 +54,11 @@ const GUESSES: Record<'lat' | 'lng' | 'value' | 'label', string[]> = {
     'value',
     'z',
   ],
-  label: ['block', 'blocklabel', 'label', 'id', 'blockid', 'name', 'qr'],
+  label: ['blocklabel', 'blockid', 'block', 'label', 'qr'],
+  // The grouping column — usually the field/site a block was placed in. A
+  // season's export normally covers many fields, and interpolating across all
+  // of them at once produces one huge meaningless extent.
+  group: ['field', 'fieldname', 'site', 'location', 'farm', 'quarter', 'grower', 'client'],
 }
 
 /**
@@ -60,7 +68,7 @@ const GUESSES: Record<'lat' | 'lng' | 'value' | 'label', string[]> = {
  * `weight` and `net_weight` doesn't pick whichever happened to come first.
  * Returns -1 for anything it can't find.
  */
-export function guessColumns(headers: string[]): Record<'lat' | 'lng' | 'value' | 'label', number> {
+export function guessColumns(headers: string[]): ColMap {
   const norm = headers.map((h) => normalizeHeader(h))
   const pick = (candidates: string[]): number => {
     for (const c of candidates) {
@@ -73,7 +81,30 @@ export function guessColumns(headers: string[]): Record<'lat' | 'lng' | 'value' 
     }
     return -1
   }
-  return { lat: pick(GUESSES.lat), lng: pick(GUESSES.lng), value: pick(GUESSES.value), label: pick(GUESSES.label) }
+  return {
+    lat: pick(GUESSES.lat),
+    lng: pick(GUESSES.lng),
+    value: pick(GUESSES.value),
+    label: pick(GUESSES.label),
+    group: pick(GUESSES.group),
+  }
+}
+
+/**
+ * Distinct values in the grouping column, with how many rows each has.
+ * Sorted by name so the list is stable between loads.
+ */
+export function groupValues(table: SheetTable, col: number): Array<{ value: string; rows: number }> {
+  if (col < 0) return []
+  const counts = new Map<string, number>()
+  for (const row of table.rows) {
+    const v = String(row[col] ?? '').trim()
+    if (!v) continue
+    counts.set(v, (counts.get(v) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([value, rows]) => ({ value, rows }))
+    .sort((a, b) => a.value.localeCompare(b.value))
 }
 
 export interface ImportResult {
@@ -93,10 +124,7 @@ const validLng = (v: number) => v >= -180 && v <= 180
  * Rows missing a coordinate or a value are dropped rather than defaulted: a
  * block at 0,0 or worth 0 lbs would quietly distort the whole surface.
  */
-export function toSamples(
-  table: SheetTable,
-  cols: Record<'lat' | 'lng' | 'value' | 'label', number>,
-): ImportResult {
+export function toSamples(table: SheetTable, cols: ColMap, groupFilter?: string | null): ImportResult {
   const samples: SamplePoint[] = []
   const reasons: string[] = []
   let skipped = 0
@@ -104,6 +132,11 @@ export function toSamples(
   let badValue = 0
 
   for (const row of table.rows) {
+    // Restrict to one field before anything else — a sheet covering several
+    // fields must not be interpolated as a single surface.
+    if (groupFilter != null && cols.group >= 0) {
+      if (String(row[cols.group] ?? '').trim() !== groupFilter) continue
+    }
     const lat = parseNumber(cols.lat >= 0 ? row[cols.lat] : null)
     const lng = parseNumber(cols.lng >= 0 ? row[cols.lng] : null)
     const value = parseNumber(cols.value >= 0 ? row[cols.value] : null)

@@ -13,7 +13,7 @@ import {
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
-import { readSheet, guessColumns, toSamples, type SheetTable } from './returnsImport'
+import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
 import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
 
 // Block markers sit on satellite imagery and inside exported PNGs, so they are
@@ -42,9 +42,9 @@ export default function ReturnsMap() {
   // Imported spreadsheet (ad-hoc, never written to the database). When present
   // it REPLACES the live samples, so a past season can be checked on its own.
   const [sheet, setSheet] = useState<SheetTable | null>(null)
-  const [cols, setCols] = useState<Record<'lat' | 'lng' | 'value' | 'label', number>>({
-    lat: -1, lng: -1, value: -1, label: -1,
-  })
+  const [cols, setCols] = useState<ColMap>({ lat: -1, lng: -1, value: -1, label: -1, group: -1 })
+  /** Which field within the imported sheet is being mapped. */
+  const [groupPick, setGroupPick] = useState<string | null>(null)
   const [importErr, setImportErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -89,7 +89,11 @@ export default function ReturnsMap() {
       }))
   }, [blockPlacements, blocks, fieldId, activeSeason])
 
-  const imported = useMemo(() => (sheet ? toSamples(sheet, cols) : null), [sheet, cols])
+  const groups = useMemo(() => (sheet ? groupValues(sheet, cols.group) : []), [sheet, cols.group])
+  const imported = useMemo(
+    () => (sheet ? toSamples(sheet, cols, groupPick) : null),
+    [sheet, cols, groupPick],
+  )
   const active = imported ? imported.samples : samples
 
   const grid: ReturnsGrid | null = useMemo(() => {
@@ -105,6 +109,15 @@ export default function ReturnsMap() {
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
+  // Default to the first field in the sheet rather than mapping all of them at
+  // once: points spread across several fields produce one vast extent with the
+  // real surfaces too small to see.
+  useEffect(() => {
+    if (groups.length && (groupPick == null || !groups.some((g) => g.value === groupPick))) {
+      setGroupPick(groups[0].value)
+    }
+  }, [groups, groupPick])
+
   async function onPickFile(file: File) {
     setImportErr(null)
     try {
@@ -112,6 +125,7 @@ export default function ReturnsMap() {
       if (!t.headers.length) throw new Error('That file has no rows.')
       setSheet(t)
       setCols(guessColumns(t.headers))
+      setGroupPick(null)
     } catch (e) {
       setImportErr(e instanceof Error ? e.message : 'Could not read that file.')
     }
@@ -319,6 +333,7 @@ export default function ReturnsMap() {
                   onClick={() => {
                     setSheet(null)
                     setImportErr(null)
+                    setGroupPick(null)
                   }}
                 >
                   <X size={16} className="mr-1 inline" />
@@ -335,13 +350,14 @@ export default function ReturnsMap() {
               <p className="text-xs text-muted">
                 Which column is which? Guessed from the headers — correct anything that's wrong.
               </p>
-              <div className="grid gap-2 md:grid-cols-4">
+              <div className="grid gap-2 md:grid-cols-5">
                 {(
                   [
                     ['lat', 'Latitude'],
                     ['lng', 'Longitude'],
                     ['value', 'Bee return (lbs)'],
                     ['label', 'Block label'],
+                    ['group', 'Field'],
                   ] as const
                 ).map(([key, label]) => (
                   <label key={key} className="text-xs text-muted">
@@ -358,6 +374,26 @@ export default function ReturnsMap() {
                   </label>
                 ))}
               </div>
+              {groups.length > 0 && (
+                <label className="block text-xs text-muted">
+                  Field to map ({groups.length} in this file)
+                  <Select value={groupPick ?? ''} onChange={(e) => setGroupPick(e.target.value)}>
+                    {groups.map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.value} ({g.rows} rows)
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              )}
+
+              {sheet && cols.group < 0 && (
+                <p className="text-xs text-muted">
+                  No field column picked — every point in the file is being mapped as one surface. If the sheet covers
+                  more than one field, choose its field column above.
+                </p>
+              )}
+
               {imported && (
                 <p className="text-xs">
                   <span className="font-semibold text-primary">{imported.samples.length}</span> point

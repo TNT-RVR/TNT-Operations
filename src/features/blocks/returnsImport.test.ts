@@ -186,3 +186,22 @@ describe('delimiter handling', () => {
     expect(rows[1]).toEqual(['North', '49.8', '-111.6', '5'])
   })
 })
+
+describe('Null Island rows', () => {
+  const cols = { lat: 0, lng: 1, value: 2, label: -1, group: -1 }
+
+  it('drops rows at exactly 0,0 and says why', () => {
+    // Numerically valid, so every range check passes — but it stretches the
+    // map extent across the Atlantic and crashed the view.
+    const r = toSamples(table(['lat', 'lng', 'v'], [[49.83, -111.6, 5], [0, 0, 7]]), cols)
+    expect(r.samples).toHaveLength(1)
+    expect(r.skipped).toBe(1)
+    expect(r.reasons.join(' ')).toMatch(/0,0/)
+  })
+
+  it('keeps a genuine coordinate that merely has a zero component', () => {
+    // 0 latitude with a real longitude is the Gulf of Guinea, not a blank.
+    const r = toSamples(table(['lat', 'lng', 'v'], [[0, -111.6, 5]]), cols)
+    expect(r.samples).toHaveLength(1)
+  })
+})

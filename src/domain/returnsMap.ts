@@ -348,6 +348,30 @@ export function syntheticField(samples: SamplePoint[], bufferM = 100): FieldDict
   } as FieldDict
 }
 
+/**
+ * Whether a grid's corners are real places MapLibre will accept.
+ *
+ * The ENU projection is LOCAL: accurate over a field, meaningless over a
+ * continent. One stray point (a 0,0 row, a mistyped decimal) can stretch the
+ * extent far enough that the maths returns latitudes past ±90 — which throws
+ * inside the map library and takes the whole view down. Checked before
+ * anything is handed over, so bad data degrades to a message instead.
+ */
+export function cornersValid(corners: Array<[number, number]>): boolean {
+  return (
+    corners.length === 4 &&
+    corners.every(
+      ([lng, lat]) =>
+        Number.isFinite(lng) && Number.isFinite(lat) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180,
+    )
+  )
+}
+
+/** Rough width/height of the mapped area in metres — for a sanity warning. */
+export function gridExtentM(g: ReturnsGrid): { widthM: number; heightM: number } {
+  return { widthM: g.cols * g.cellM, heightM: g.rows * g.cellM }
+}
+
 /** Summary stats for the legend and the field comparison table. */
 export interface GridStats {
   /** Cells inside the field that got a value. */

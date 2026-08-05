@@ -10,6 +10,8 @@ import {
   rampColor,
   gridToCsv,
   syntheticField,
+  cornersValid,
+  gridExtentM,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -109,6 +111,23 @@ export default function ReturnsMap() {
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
+  /**
+   * A field is hundreds of metres across. Kilometres means the selection still
+   * spans several fields, or a row carries a bad coordinate.
+   */
+  const extentWarning = useMemo(() => {
+    if (!grid) return null
+    if (!cornersValid(grid.corners)) {
+      return 'These points are too far apart to map — they span more of the globe than a field can. Almost always a bad coordinate in one row, or several fields selected at once.'
+    }
+    const { widthM, heightM } = gridExtentM(grid)
+    const km = Math.max(widthM, heightM) / 1000
+    if (km > 25) {
+      return `The selected points cover about ${km.toFixed(0)} km. That's far larger than one field — check the Field column, or look for a row with a bad coordinate.`
+    }
+    return null
+  }, [grid])
+
   // Default to the first field in the sheet rather than mapping all of them at
   // once: points spread across several fields produce one vast extent with the
   // real surfaces too small to see.
@@ -187,6 +206,13 @@ export default function ReturnsMap() {
       for (const m of markersRef.current) m.remove()
       markersRef.current = []
       if (!grid) return
+
+      // Never hand MapLibre a coordinate it will throw on: one bad row used to
+      // crash the entire view with "Invalid LngLat latitude value".
+      if (!cornersValid(grid.corners)) {
+        console.error('[returns] refusing to draw, corners out of range:', grid.corners)
+        return
+      }
 
       map.addSource('returns', {
         type: 'image',
@@ -423,6 +449,12 @@ export default function ReturnsMap() {
             </div>
           )}
         </div>
+
+        {extentWarning && (
+          <div className="card border-danger">
+            <p className="text-sm text-danger">{extentWarning}</p>
+          </div>
+        )}
 
         {!grid && (
           <EmptyState>

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { idwGrid, gridStats, rampColor, gridToCsv, type SamplePoint } from './returnsMap'
+import {
+  idwGrid,
+  gridStats,
+  rampColor,
+  gridToCsv,
+  cornersValid,
+  syntheticField,
+  type SamplePoint,
+} from './returnsMap'
 
 /** A 400 m pivot at a southern-Alberta location — matches the seeded demo field. */
 const PIVOT = {
@@ -204,5 +212,37 @@ describe('performance with real-world sample counts', () => {
     expect(compared).toBeGreaterThan(50)
     // Within a fraction of a pound across the whole surface.
     expect(worst).toBeLessThan(0.5)
+  })
+})
+
+describe('cornersValid', () => {
+  it('accepts a normal field extent', () => {
+    const g = idwGrid(PIVOT, [at(49.83, -111.6, 5)], { cellM: 50 })!
+    expect(cornersValid(g.corners)).toBe(true)
+  })
+
+  it('rejects the extent produced by a 0,0 row', () => {
+    // The real crash: one row at Null Island stretches the local projection
+    // past ±90 latitude, and MapLibre throws "Invalid LngLat latitude value",
+    // taking the whole view down.
+    const pts = [
+      ...Array.from({ length: 20 }, (_, i) => at(49.83 + i * 0.0005, -111.6, 5)),
+      at(0, 0, 5),
+    ]
+    const f = syntheticField(pts)!
+    const g = idwGrid(f, pts, { cellM: 25 })!
+    expect(cornersValid(g.corners)).toBe(false)
+  })
+
+  it('rejects non-finite or malformed corners', () => {
+    expect(cornersValid([])).toBe(false)
+    expect(
+      cornersValid([
+        [0, NaN],
+        [0, 0],
+        [0, 0],
+        [0, 0],
+      ]),
+    ).toBe(false)
   })
 })

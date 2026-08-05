@@ -206,6 +206,15 @@ const validLat = (v: number) => v >= -90 && v <= 90
 const validLng = (v: number) => v >= -180 && v <= 180
 
 /**
+ * "Null Island" — exactly 0,0 — is what spreadsheets and GIS exports leave
+ * behind when a coordinate is missing. It is numerically a legal position, so
+ * it passes every range check, and then drags the map extent across the
+ * Atlantic: one such row is enough to break the projection entirely and crash
+ * the map. No block is ever off the coast of Africa.
+ */
+const isNullIsland = (lat: number, lng: number) => Math.abs(lat) < 1e-9 && Math.abs(lng) < 1e-9
+
+/**
  * Turn the chosen columns into map samples.
  *
  * Rows missing a coordinate or a value are dropped rather than defaulted: a
@@ -217,6 +226,7 @@ export function toSamples(table: SheetTable, cols: ColMap, groupFilter?: string 
   let skipped = 0
   let badCoord = 0
   let badValue = 0
+  let nullIsland = 0
 
   for (const row of table.rows) {
     // Restrict to one field before anything else — a sheet covering several
@@ -232,6 +242,11 @@ export function toSamples(table: SheetTable, cols: ColMap, groupFilter?: string 
       badCoord++
       continue
     }
+    if (isNullIsland(lat, lng)) {
+      skipped++
+      nullIsland++
+      continue
+    }
     if (value == null) {
       skipped++
       badValue++
@@ -242,6 +257,8 @@ export function toSamples(table: SheetTable, cols: ColMap, groupFilter?: string 
   }
 
   if (badCoord) reasons.push(`${badCoord} row${badCoord === 1 ? '' : 's'} with a missing or impossible coordinate`)
+  if (nullIsland)
+    reasons.push(`${nullIsland} row${nullIsland === 1 ? '' : 's'} sitting at 0,0 (missing coordinates)`)
   if (badValue) reasons.push(`${badValue} row${badValue === 1 ? '' : 's'} with no weight`)
   return { samples, skipped, reasons }
 }

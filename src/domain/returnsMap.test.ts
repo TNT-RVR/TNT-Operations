@@ -8,6 +8,7 @@ import {
   syntheticField,
   medianSpacingM,
   autoTrimM,
+  type ReturnsGrid,
   type SamplePoint,
 } from './returnsMap'
 
@@ -370,5 +371,67 @@ describe('spacing is robust to repeated positions', () => {
     let runs = 0
     for (let i = 0; i < filled.length; i++) if (filled[i] && !filled[i - 1]) runs++
     expect(runs).toBe(1)
+  })
+})
+
+describe('edge smoothing', () => {
+  /** Blocks on a 50 m lattice inside the square field. */
+  const lattice: SamplePoint[] = Array.from({ length: 100 }, (_, i) =>
+    at(49.828 + (i % 10) * 0.00045, -111.603 + Math.floor(i / 10) * 0.0007, 5 + (i % 3)),
+  )
+
+  /** Count filled/empty flips along each row — a proxy for a ragged edge. */
+  const rowFlips = (g: ReturnsGrid): number => {
+    let flips = 0
+    for (let ry = 0; ry < g.rows; ry++) {
+      let prev = false
+      for (let cx = 0; cx < g.cols; cx++) {
+        const on = Number.isFinite(g.values[ry * g.cols + cx])
+        if (on !== prev) flips++
+        prev = on
+      }
+    }
+    return flips
+  }
+
+  it('closes the scallops between neighbouring blocks', () => {
+    // The union of one disc per block has an arc-chain rim, which reads as
+    // wavy. Closing should leave a markedly smoother outline.
+    const g = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: 45 })!
+    // Every row that has any surface should enter and leave it once: a wavy
+    // or dotted edge produces many more transitions.
+    const rowsWithData = new Set<number>()
+    for (let ry = 0; ry < g.rows; ry++) {
+      for (let cx = 0; cx < g.cols; cx++) {
+        if (Number.isFinite(g.values[ry * g.cols + cx])) {
+          rowsWithData.add(ry)
+          break
+        }
+      }
+    }
+    expect(rowFlips(g)).toBeLessThanOrEqual(rowsWithData.size * 2)
+  })
+
+  it('does not change the values it keeps', () => {
+    // Smoothing the outline must never repaint the interior.
+    const smooth = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: 45 })!
+    const plain = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
+    let compared = 0
+    for (let i = 0; i < smooth.values.length; i++) {
+      if (!Number.isFinite(smooth.values[i])) continue
+      expect(smooth.values[i]).toBeCloseTo(plain.values[i], 9)
+      compared++
+    }
+    expect(compared).toBeGreaterThan(100)
+  })
+
+  it('never fills beyond the field boundary', () => {
+    // Closing may only add cells that are inside the field and already had a
+    // value computed — it must not spill past the boundary.
+    const g = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: 200 })!
+    const plain = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
+    for (let i = 0; i < g.values.length; i++) {
+      if (Number.isFinite(g.values[i])) expect(Number.isFinite(plain.values[i])).toBe(true)
+    }
   })
 })

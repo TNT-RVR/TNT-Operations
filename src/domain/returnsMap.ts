@@ -169,6 +169,71 @@ class SampleIndex {
 }
 
 /**
+ * Approximate distance, in cells, from every cell to the nearest `true` in
+ * `mask`. Two-pass chamfer (3-4 weights) — not exact Euclidean, but within a
+ * few percent and linear in the number of cells, which matters at 250k.
+ */
+function chamferDistance(mask: Uint8Array, cols: number, rows: number): Float32Array {
+  const BIG = 1e9
+  const d = new Float32Array(cols * rows)
+  for (let i = 0; i < d.length; i++) d[i] = mask[i] ? 0 : BIG
+
+  const D1 = 1 // orthogonal step
+  const D2 = 1.41421356 // diagonal step
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const i = y * cols + x
+      let v = d[i]
+      if (x > 0) v = Math.min(v, d[i - 1] + D1)
+      if (y > 0) v = Math.min(v, d[i - cols] + D1)
+      if (x > 0 && y > 0) v = Math.min(v, d[i - cols - 1] + D2)
+      if (x < cols - 1 && y > 0) v = Math.min(v, d[i - cols + 1] + D2)
+      d[i] = v
+    }
+  }
+  for (let y = rows - 1; y >= 0; y--) {
+    for (let x = cols - 1; x >= 0; x--) {
+      const i = y * cols + x
+      let v = d[i]
+      if (x < cols - 1) v = Math.min(v, d[i + 1] + D1)
+      if (y < rows - 1) v = Math.min(v, d[i + cols] + D1)
+      if (x < cols - 1 && y < rows - 1) v = Math.min(v, d[i + cols + 1] + D2)
+      if (x > 0 && y < rows - 1) v = Math.min(v, d[i + cols - 1] + D2)
+      d[i] = v
+    }
+  }
+  return d
+}
+
+/**
+ * Morphological closing: dilate by `r` cells, then erode by the same.
+ *
+ * The clip mask is a union of discs, one per block, so its outer edge is a
+ * chain of arcs — visibly scalloped. Closing fills any notch narrower than
+ * `r` while leaving the overall shape alone, which turns that scalloped rim
+ * into a clean outline. Genuine concavities wider than `r` survive, so an
+ * L-shaped or notched field keeps its real shape.
+ */
+export function closeMask(mask: Uint8Array, cols: number, rows: number, r: number): Uint8Array {
+  if (r <= 0) return mask
+  // Dilate: every cell within r of the mask.
+  const dist = chamferDistance(mask, cols, rows)
+  const dilated = new Uint8Array(cols * rows)
+  for (let i = 0; i < dilated.length; i++) dilated[i] = dist[i] <= r ? 1 : 0
+
+  // Erode the dilation by the same radius: a cell survives only if it is at
+  // least r from the outside. Net effect is the notches filled, edge restored.
+  const inverse = new Uint8Array(cols * rows)
+  for (let i = 0; i < inverse.length; i++) inverse[i] = dilated[i] ? 0 : 1
+  const distOut = chamferDistance(inverse, cols, rows)
+
+  const out = new Uint8Array(cols * rows)
+  for (let i = 0; i < out.length; i++) out[i] = dilated[i] && distOut[i] > r ? 1 : 0
+  return out
+}
+
+/**
  * Interpolate `samples` across `field`, clipped to its boundary.
  *
  * Returns null when there's nothing to draw — no geometry, or no samples. A
@@ -233,6 +298,8 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
   }
 
   const values = new Float64Array(cols * rows).fill(NaN)
+  /** Cells with a block close enough to draw — tidied up after the pass. */
+  const nearMask = new Uint8Array(cols * rows)
   const ring = frame.boundaryEnu
   const r2 = frame.radius * frame.radius
   const maxD2 = o.maxDistanceM == null ? Infinity : o.maxDistanceM * o.maxDistanceM
@@ -272,7 +339,10 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
       // CLIP is a mask, not an influence limit. Beyond the nearest block by
       // more than this, draw nothing; inside it, interpolate normally. Using
       // one distance for both jobs is what produced a flat disc per block.
-      if (scored[0][0] > clipD2) continue
+      //
+      // The value is computed either way and the mask applied afterwards, so
+      // the edge can be tidied without leaving holes where a cell was skipped.
+      if (scored[0][0] <= clipD2) nearMask[ry * cols + cx] = 1
 
       let num = 0
       let den = 0
@@ -296,9 +366,29 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
       const v = Number.isFinite(exact) ? exact : den > 0 ? num / den : NaN
       if (!Number.isFinite(v)) continue // no sample within maxDistanceM
       values[ry * cols + cx] = v
-      if (v < min) min = v
-      if (v > max) max = v
     }
+  }
+
+  // ── Tidy the edge ─────────────────────────────────────────────────────────
+  // The mask is a union of one disc per block, so its rim is a chain of arcs
+  // and reads as visibly wavy. Closing fills the notches between neighbouring
+  // blocks, leaving a clean outline; concavities wider than the radius (a real
+  // notch in the field) survive.
+  if (o.clipDistanceM != null) {
+    const rCells = Math.min(24, Math.max(1, Math.round(o.clipDistanceM / cellM)))
+    const closed = closeMask(nearMask, cols, rows, rCells)
+    for (let i = 0; i < values.length; i++) {
+      // Closing can only ADD cells inside the field, and a value was computed
+      // for every such cell above, so nothing is left blank by accident.
+      if (!closed[i]) values[i] = NaN
+    }
+  }
+
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]
+    if (!Number.isFinite(v)) continue
+    if (v < min) min = v
+    if (v > max) max = v
   }
 
   if (!Number.isFinite(min)) return null // nothing landed inside the field

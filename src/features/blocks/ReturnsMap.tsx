@@ -247,6 +247,8 @@ export default function ReturnsMap() {
           for (const sx of SUB) {
             const e = g.originE + (px + sx) * pxM
             const n = g.originN - (py + sy) * pxM
+            // Boundary decided per pixel; values exist just past the edge so
+            // this line can be sharp rather than following the cell grid.
             if (!insideField(g.frame, e, n)) continue
             hits++
             const v = sampleGrid(g, e, n)

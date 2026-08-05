@@ -106,7 +106,7 @@ describe('idwGrid', () => {
 
   it('clips to a boundary polygon, leaving outside cells empty', () => {
     const g = idwGrid(SQUARE, [at(49.83, -111.6, 5)], { cellM: 25 })!
-    const filled = [...g.values].filter((v) => Number.isFinite(v)).length
+    const filled = [...g.mask].filter(Boolean).length
     expect(filled).toBeGreaterThan(0)
     // The grid is the polygon's bounding box, and the polygon here fills it,
     // so most cells are filled — but the array is still fully allocated.
@@ -117,7 +117,7 @@ describe('idwGrid', () => {
     const g = idwGrid(PIVOT, [at(49.83, -111.6, 5)], { cellM: 50, maxDistanceM: 60 })
     // A tight radius around one central sample: some cells fill, the far ones don't.
     expect(g).not.toBeNull()
-    const filled = [...g!.values].filter((v) => Number.isFinite(v)).length
+    const filled = [...g!.mask].filter(Boolean).length
     expect(filled).toBeGreaterThan(0)
     expect(filled).toBeLessThan(g!.cols * g!.rows)
   })
@@ -287,7 +287,7 @@ describe('edge trimming', () => {
     // grid's corners were filled by extrapolation from distant blocks.
     const trimmed = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: autoTrimM(lattice, 1) })!
     const filled = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
-    const count = (g: typeof trimmed) => [...g.values].filter((v) => Number.isFinite(v)).length
+    const count = (g: typeof trimmed) => [...g.mask].filter(Boolean).length
     expect(count(trimmed)).toBeLessThan(count(filled))
     // Still draws the sampled area itself.
     expect(count(trimmed)).toBeGreaterThan(0)
@@ -308,7 +308,8 @@ describe('clip vs influence — the polka-dot bug', () => {
     // Values BETWEEN two blocks must sit between their values, not equal one.
     const g = idwGrid(SQUARE, line, { cellM: 5, clipDistanceM: 40 })!
     const distinct = new Set<number>()
-    for (const v of g.values) if (Number.isFinite(v)) distinct.add(Math.round(v * 100) / 100)
+    for (let i = 0; i < g.values.length; i++)
+      if (g.mask[i] && Number.isFinite(g.values[i])) distinct.add(Math.round(g.values[i] * 100) / 100)
     // A disc-per-block surface would contain essentially 3 values.
     expect(distinct.size).toBeGreaterThan(20)
   })
@@ -318,6 +319,7 @@ describe('clip vs influence — the polka-dot bug', () => {
     const tight = idwGrid(SQUARE, line, { cellM: 5, clipDistanceM: 40 })!
     let compared = 0
     for (let i = 0; i < tight.values.length; i++) {
+      if (!tight.mask[i]) continue
       const t = tight.values[i]
       if (!Number.isFinite(t)) continue
       // Every cell the tight version draws must have the SAME value as before.
@@ -329,7 +331,7 @@ describe('clip vs influence — the polka-dot bug', () => {
 
   it('maxDistanceM still limits influence when asked for explicitly', () => {
     const g = idwGrid(SQUARE, line, { cellM: 5, maxDistanceM: 10 })!
-    const filled = [...g.values].filter((v) => Number.isFinite(v)).length
+    const filled = [...g.mask].filter(Boolean).length
     expect(filled).toBeGreaterThan(0)
   })
 })
@@ -369,7 +371,7 @@ describe('spacing is robust to repeated positions', () => {
     const g = idwGrid(SQUARE, near, { cellM: 10, clipDistanceM: autoTrimM(near, 2) })!
     const row = Math.floor(g.rows / 2)
     const filled: boolean[] = []
-    for (let cx = 0; cx < g.cols; cx++) filled.push(Number.isFinite(g.values[row * g.cols + cx]))
+    for (let cx = 0; cx < g.cols; cx++) filled.push(!!g.mask[row * g.cols + cx])
     // Count runs of filled cells: a continuous band is ONE run, polka dots
     // would be many.
     let runs = 0
@@ -390,7 +392,7 @@ describe('edge smoothing', () => {
     for (let ry = 0; ry < g.rows; ry++) {
       let prev = false
       for (let cx = 0; cx < g.cols; cx++) {
-        const on = Number.isFinite(g.values[ry * g.cols + cx])
+        const on = !!g.mask[ry * g.cols + cx]
         if (on !== prev) flips++
         prev = on
       }
@@ -407,7 +409,7 @@ describe('edge smoothing', () => {
     const rowsWithData = new Set<number>()
     for (let ry = 0; ry < g.rows; ry++) {
       for (let cx = 0; cx < g.cols; cx++) {
-        if (Number.isFinite(g.values[ry * g.cols + cx])) {
+        if (g.mask[ry * g.cols + cx]) {
           rowsWithData.add(ry)
           break
         }
@@ -422,7 +424,7 @@ describe('edge smoothing', () => {
     const plain = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
     let compared = 0
     for (let i = 0; i < smooth.values.length; i++) {
-      if (!Number.isFinite(smooth.values[i])) continue
+      if (!smooth.mask[i]) continue
       expect(smooth.values[i]).toBeCloseTo(plain.values[i], 9)
       compared++
     }
@@ -435,7 +437,7 @@ describe('edge smoothing', () => {
     const g = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: 200 })!
     const plain = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
     for (let i = 0; i < g.values.length; i++) {
-      if (Number.isFinite(g.values[i])) expect(Number.isFinite(plain.values[i])).toBe(true)
+      if (g.mask[i]) expect(!!plain.mask[i]).toBe(true)
     }
   })
 })

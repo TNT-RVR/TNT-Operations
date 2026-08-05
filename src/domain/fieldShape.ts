@@ -20,16 +20,19 @@ import type { FieldDict } from './tentGrid'
 
 export interface ShapeOptions {
   /**
-   * How round a shape must be to be drawn as a circle, measured as hull area
-   * over the area of the circle enclosing it.
+   * How round a shape must be to be drawn as a circle, as the isoperimetric
+   * quotient 4·pi·area / perimeter^2 — the standard measure of compactness.
    *
-   * A circle scores 1.0, a regular octagon 0.90, a hexagon 0.83, a square
-   * 0.64. So 0.88 calls circles and near-circles round while keeping squares
-   * and quarters straight-edged.
+   * A circle scores 1.00, a 12-gon 0.99, an octagon 0.97, a hexagon 0.91, a
+   * square 0.79. So 0.90 calls a lattice-sampled pivot round (its hull is a
+   * many-sided near-circle) while keeping quarters straight-edged.
    *
-   * Area is the right measure here. The obvious alternative — how much the
-   * edge-to-centre distance varies — is far weaker, because hull vertices
-   * spread along a square's sides average out and make it look round.
+   * Two weaker measures were tried first and both misjudged real fields:
+   * variation in edge-to-centre distance called a SQUARE round, because hull
+   * vertices along its sides average out; and hull area over the enclosing
+   * circle called a ROUND field 12-sided, because one outlying block inflates
+   * the enclosing circle and deflates the score. Perimeter and area together
+   * depend on the whole outline and on no single point.
    */
   circleTolerance?: number
   /** Push the outline this far beyond the outermost blocks, in metres. */
@@ -130,7 +133,7 @@ export function simplify(points: Array<[number, number]>, tol: number): Array<[n
  * an outline invented from three blocks would be fiction.
  */
 export function inferFieldShape(samples: SamplePoint[], opts: ShapeOptions = {}): InferredShape | null {
-  const { circleTolerance = 0.88, bufferM = 30, simplifyM = 25 } = opts
+  const { circleTolerance = 0.9, bufferM = 30, simplifyM = 25 } = opts
   const usable = samples.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))
   if (usable.length < 8) return null
 
@@ -149,13 +152,18 @@ export function inferFieldShape(samples: SamplePoint[], opts: ShapeOptions = {})
   const cy = hull.reduce((a, p) => a + p[1], 0) / hull.length
 
   // ── Circle or polygon? ───────────────────────────────────────────────────
-  // How much of its enclosing circle does the shape actually fill? A circle
-  // fills all of it; a square fills 64%. Robust because it uses the whole
-  // outline rather than a handful of vertices.
+  // Compactness: how much area the outline encloses for its perimeter. A
+  // circle is the most efficient shape there is (1.00); a square manages 0.79.
+  // Depends on the whole outline, so no single stray block can swing it.
   const radii = hull.map((p) => Math.hypot(p[0] - cx, p[1] - cy))
-  const maxR = Math.max(...radii)
   const hullArea = Math.abs(polygonArea(hull))
-  const circularity = maxR > 0 ? hullArea / (Math.PI * maxR * maxR) : 0
+  let perimeter = 0
+  for (let i = 0; i < hull.length; i++) {
+    const [x1, y1] = hull[i]
+    const [x2, y2] = hull[(i + 1) % hull.length]
+    perimeter += Math.hypot(x2 - x1, y2 - y1)
+  }
+  const circularity = perimeter > 0 ? (4 * Math.PI * hullArea) / (perimeter * perimeter) : 0
 
   const centre = { lat: lat0 + cy / mPerLat, lng: lng0 + cx / mPerLng }
 

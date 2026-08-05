@@ -72,8 +72,15 @@ export interface ReturnsGrid {
   rows: number
   /** Cell size actually used (may be coarsened to respect maxCells). */
   cellM: number
-  /** Row-major values; NaN where the cell is outside the field. */
+  /**
+   * Row-major interpolated values. Computed a little BEYOND the field edge on
+   * purpose: the renderer decides the boundary per pixel, and it needs values
+   * either side of that line to sample cleanly. Without the overspill the edge
+   * falls back to the cell grid and looks like stair-steps.
+   */
   values: Float64Array
+  /** 1 where the cell is genuinely inside the field — the honest extent. */
+  mask: Uint8Array
   /** Range across valid cells, for the colour scale. */
   min: number
   max: number
@@ -166,6 +173,32 @@ class SampleIndex {
     }
     return found
   }
+}
+
+/** Roughly within `pad` metres of the field edge, from either side. */
+function nearBoundary(
+  ring: Array<[number, number]> | null,
+  r2: number,
+  e: number,
+  n: number,
+  pad: number,
+): boolean {
+  if (ring && ring.length >= 3) {
+    // Cheap proximity test against the ring's segments.
+    for (let i = 0; i < ring.length; i++) {
+      const [ax, ay] = ring[i]
+      const [bx, by] = ring[(i + 1) % ring.length]
+      const dx = bx - ax
+      const dy = by - ay
+      const len2 = dx * dx + dy * dy
+      let t = len2 === 0 ? 0 : ((e - ax) * dx + (n - ay) * dy) / len2
+      t = Math.max(0, Math.min(1, t))
+      if (Math.hypot(e - (ax + t * dx), n - (ay + t * dy)) <= pad) return true
+    }
+    return false
+  }
+  const r = Math.sqrt(r2)
+  return Math.abs(Math.hypot(e, n) - r) <= pad
 }
 
 /**
@@ -409,9 +442,12 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
     for (let cx = 0; cx < cols; cx++) {
       const e = minE + (cx + 0.5) * cellM
 
-      // Clip to the field: inside the boundary ring, or inside the pivot circle.
+      // Whether this cell is really in the field. Values are computed either
+      // way — see `values` — but only in-field cells count as the surface.
       const inside = ring && ring.length >= 3 ? pointInEnuRing(ring, e, n) : e * e + n * n <= r2
-      if (!inside) continue
+      // Skip cells far outside: they'd never be sampled and cost time. One
+      // cell of overspill is all the renderer needs to interpolate the edge.
+      if (!inside && !nearBoundary(ring, r2, e, n, cellM * 1.5)) continue
 
       const candidates = index.near(e, n, o.maxNeighbors, MAX_RINGS)
       if (candidates.length === 0) continue
@@ -433,7 +469,7 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
       //
       // The value is computed either way and the mask applied afterwards, so
       // the edge can be tidied without leaving holes where a cell was skipped.
-      if (scored[0][0] <= clipD2) nearMask[ry * cols + cx] = 1
+      if (inside && scored[0][0] <= clipD2) nearMask[ry * cols + cx] = 1
 
       let num = 0
       let den = 0
@@ -465,17 +501,16 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
   // and reads as visibly wavy. Closing fills the notches between neighbouring
   // blocks, leaving a clean outline; concavities wider than the radius (a real
   // notch in the field) survive.
+  let mask: Uint8Array = nearMask
   if (o.clipDistanceM != null) {
     const rCells = Math.min(24, Math.max(1, Math.round(o.clipDistanceM / cellM)))
-    const closed = closeMask(nearMask, cols, rows, rCells)
-    for (let i = 0; i < values.length; i++) {
-      // Closing can only ADD cells inside the field, and a value was computed
-      // for every such cell above, so nothing is left blank by accident.
-      if (!closed[i]) values[i] = NaN
-    }
+    mask = closeMask(nearMask, cols, rows, rCells)
   }
 
+  // Range comes from the cells actually inside the field — the overspill past
+  // the edge is scaffolding for the renderer, not part of the surface.
   for (let i = 0; i < values.length; i++) {
+    if (!mask[i]) continue
     const v = values[i]
     if (!Number.isFinite(v)) continue
     if (v < min) min = v
@@ -491,7 +526,7 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
     enuToLonLat(frame, minE, minN), // SW
   ]
 
-  return { cols, rows, cellM, values, min, max, corners, samplesEnu, originE: minE, originN: maxN, frame }
+  return { cols, rows, cellM, values, mask, min, max, corners, samplesEnu, originE: minE, originN: maxN, frame }
 }
 
 /**
@@ -657,6 +692,9 @@ export function gridStats(g: ReturnsGrid): GridStats {
   let n = 0
   let sum = 0
   for (let i = 0; i < g.values.length; i++) {
+    // Mask only: values computed past the edge are scaffolding for the
+    // renderer and must not enter the field's statistics.
+    if (!g.mask[i]) continue
     const v = g.values[i]
     if (!Number.isFinite(v)) continue
     n++
@@ -715,7 +753,9 @@ export function gridToCsv(g: ReturnsGrid): string {
   const out: string[] = ['lng,lat,return_lbs']
   for (let ry = 0; ry < g.rows; ry++) {
     for (let cx = 0; cx < g.cols; cx++) {
-      const v = g.values[ry * g.cols + cx]
+      const i = ry * g.cols + cx
+      if (!g.mask[i]) continue // exported grid is the field, not the overspill
+      const v = g.values[i]
       if (!Number.isFinite(v)) continue
       const e = g.originE + (cx + 0.5) * g.cellM
       const n = g.originN - (ry + 0.5) * g.cellM

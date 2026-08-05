@@ -17,12 +17,16 @@ import {
 } from '@/domain/returnsMap'
 import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
 import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
+import { findGpsOutliers } from '@/domain/gpsOutliers'
+import type { FieldDict } from '@/domain/tentGrid'
 
 // Block markers sit on satellite imagery and inside exported PNGs, so they are
 // fixed light-on-dark rather than theme-following: an exported map must read the
 // same for whoever opens it, and the app's theme is not part of the data.
 const MARKER_FILL = '#FFFFFF' // token-exempt: map pin over imagery
 const MARKER_EDGE = '#111111' // token-exempt: map pin over imagery
+// Excluded points stay on the map in red so a removal is never silent.
+const MARKER_BAD = '#FF4D4F' // token-exempt: map pin over imagery
 
 /**
  * Interpolated bee-return map — the job that used to mean exporting points,
@@ -40,6 +44,9 @@ export default function ReturnsMap() {
   const [cellM, setCellM] = useState(10)
   const [power, setPower] = useState(2)
   const [showPoints, setShowPoints] = useState(true)
+  /** Drop points the GPS clearly got wrong before interpolating. */
+  const [cleanGps, setCleanGps] = useState(true)
+  const [strictness, setStrictness] = useState(5)
 
   // Imported spreadsheet (ad-hoc, never written to the database). When present
   // it REPLACES the live samples, so a past season can be checked on its own.
@@ -96,7 +103,19 @@ export default function ReturnsMap() {
     () => (sheet ? toSamples(sheet, cols, groupPick) : null),
     [sheet, cols, groupPick],
   )
-  const active = imported ? imported.samples : samples
+  const raw = imported ? imported.samples : samples
+
+  // Bad fixes are excluded BEFORE interpolating: on an IDW surface a single
+  // stray point doesn't just misplace itself, it colours the empty space
+  // around it, so cleaning afterwards would be too late.
+  const cleaned = useMemo(() => {
+    if (!cleanGps) return null
+    // Use the real field's boundary when we have one — it's definitive.
+    const geom = imported ? null : ((field?.geometry as FieldDict | undefined) ?? null)
+    return findGpsOutliers(raw, geom, { madK: strictness })
+  }, [raw, cleanGps, imported, field, strictness])
+
+  const active = cleaned ? cleaned.keep : raw
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
@@ -229,6 +248,16 @@ export default function ReturnsMap() {
       map.addLayer({ id: 'returns', type: 'raster', source: 'returns', paint: { 'raster-opacity': 1 } })
 
       if (showPoints) {
+        for (const f of cleaned?.removed ?? []) {
+          const el = document.createElement('div')
+          el.style.cssText =
+            `width:10px;height:10px;border-radius:9999px;background:${MARKER_BAD};` +
+            `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6);opacity:.85`
+          el.title = `Excluded — ${f.sample.label ?? 'block'}, ${Math.round(f.distM)} m away (${f.reason})`
+          markersRef.current.push(
+            new maplibregl.Marker({ element: el }).setLngLat([f.sample.lng, f.sample.lat]).addTo(map),
+          )
+        }
         for (const s of active) {
           const el = document.createElement('div')
           el.style.cssText =
@@ -251,7 +280,7 @@ export default function ReturnsMap() {
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [grid, active, showPoints])
+  }, [grid, active, cleaned, showPoints])
 
   function exportPng() {
     const map = mapRef.current
@@ -472,6 +501,70 @@ export default function ReturnsMap() {
 
         {grid && stats && (
           <>
+            {/* GPS cleaning — stated plainly, never silent. */}
+            <div className="card">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <label className="flex items-center gap-2 font-semibold text-primary">
+                    <input
+                      type="checkbox"
+                      checked={cleanGps}
+                      onChange={(e) => setCleanGps(e.target.checked)}
+                    />
+                    Ignore bad GPS fixes
+                  </label>
+                  <p className="mt-1 text-xs text-muted">
+                    {cleaned && cleaned.removed.length > 0 ? (
+                      <>
+                        <span className="font-semibold text-danger">{cleaned.removed.length}</span> point
+                        {cleaned.removed.length === 1 ? '' : 's'} excluded, shown in red. Furthest{' '}
+                        {Math.round(Math.max(...cleaned.removed.map((r) => r.distM)))} m from the others.
+                      </>
+                    ) : cleanGps ? (
+                      'No obviously bad fixes found — every point is being used.'
+                    ) : (
+                      'Every point is being used, including any bad fixes.'
+                    )}
+                  </p>
+                </div>
+                {cleanGps && (
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    Sensitivity
+                    <Select
+                      value={strictness}
+                      onChange={(e) => setStrictness(Number(e.target.value))}
+                      className="w-32"
+                    >
+                      <option value={8}>Lenient</option>
+                      <option value={5}>Normal</option>
+                      <option value={3}>Strict</option>
+                    </Select>
+                  </label>
+                )}
+              </div>
+
+              {cleaned && cleaned.removed.length > 0 && (
+                <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto border-t border-default pt-2 text-xs">
+                  {cleaned.removed.slice(0, 25).map((f, i) => (
+                    <li key={i} className="flex justify-between gap-2 text-muted">
+                      <span>{f.sample.label ?? `Point ${i + 1}`}</span>
+                      <span>
+                        {Math.round(f.distM)} m ·{' '}
+                        {f.reason === 'outside-boundary'
+                          ? 'outside the field'
+                          : f.reason === 'beyond-hard-limit'
+                            ? 'impossibly far'
+                            : 'far from the others'}
+                      </span>
+                    </li>
+                  ))}
+                  {cleaned.removed.length > 25 && (
+                    <li className="text-faint">…and {cleaned.removed.length - 25} more</li>
+                  )}
+                </ul>
+              )}
+            </div>
+
             {/* Legend */}
             <div className="card">
               <div className="mb-2 flex items-baseline justify-between text-sm">

@@ -21,6 +21,7 @@ import CalendarHome from './features/incubation/CalendarHome'
 import BlocksHome from './features/blocks/BlocksHome'
 import BlockScan from './features/blocks/BlockScan'
 import BlockList from './features/blocks/BlockList'
+import ReturnsMap from './features/blocks/ReturnsMap'
 import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
 import GrantsHome from './features/grants/GrantsHome'
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="blocks" element={<Protected module="blocks"><BlocksHome /></Protected>} />
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
         <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />
+        <Route path="blocks/map" element={<Protected module="blocks"><ReturnsMap /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
         <Route path="tasks" element={<Protected module="tasks"><TasksHome /></Protected>} />
         <Route path="tasks/checklists" element={<Protected module="tasks"><ChecklistsHome /></Protected>} />

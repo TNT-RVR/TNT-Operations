@@ -78,6 +78,7 @@ const NAV: NavItem[] = [
       { to: '/blocks', label: 'Overview', end: true },
       { to: '/blocks/scan', label: 'Scan' },
       { to: '/blocks/list', label: 'Register' },
+      { to: '/blocks/map', label: 'Returns map' },
     ],
   },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },

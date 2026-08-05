@@ -35,11 +35,23 @@ export interface IdwOptions {
   /** Distance exponent. 2 is the QGIS default; higher = more local. */
   power?: number
   /**
-   * Ignore samples further than this from a cell. Null = every sample counts.
-   * A radius keeps a far-off corner from being tinted by blocks hundreds of
-   * metres away, which reads as data where there is none.
+   * Ignore samples further than this when averaging. Null = the nearest
+   * `maxNeighbors` all count, whatever their distance.
+   *
+   * NOTE: this is NOT the edge trim — see `clipDistanceM`. Confusing the two
+   * produces a disc of flat colour around every block ("polka dots"), because
+   * a cell that can only reach one sample just returns that sample's value
+   * instead of blending between blocks.
    */
   maxDistanceM?: number | null
+  /**
+   * Leave a cell empty when the NEAREST sample is further than this.
+   *
+   * Purely a mask on where the surface is drawn — it does not change any value
+   * that is drawn. This is what stops a rectangular grid squaring off a round
+   * field, while the interpolation itself still blends across blocks normally.
+   */
+  clipDistanceM?: number | null
   /** Safety cap on total cells, so a huge field can't lock up the browser. */
   maxCells?: number
   /**
@@ -75,10 +87,14 @@ export interface ReturnsGrid {
   frame: FieldFrame
 }
 
-const DEFAULTS: Required<Omit<IdwOptions, 'maxDistanceM'>> & { maxDistanceM: number | null } = {
+const DEFAULTS: Required<Omit<IdwOptions, 'maxDistanceM' | 'clipDistanceM'>> & {
+  maxDistanceM: number | null
+  clipDistanceM: number | null
+} = {
   cellM: 10,
   power: 2,
   maxDistanceM: null,
+  clipDistanceM: null,
   maxCells: 250_000,
   // Measured against brute force over 3,947 points: 128 neighbours costs ~30ms
   // and lands within 0.46 lbs worst-case (0.10 mean) of weighing every point,
@@ -220,6 +236,7 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
   const ring = frame.boundaryEnu
   const r2 = frame.radius * frame.radius
   const maxD2 = o.maxDistanceM == null ? Infinity : o.maxDistanceM * o.maxDistanceM
+  const clipD2 = o.clipDistanceM == null ? Infinity : o.clipDistanceM * o.clipDistanceM
   const halfPower = o.power / 2
   const isSquare = o.power === 2
   const index = new SampleIndex(samplesEnu, minE, minN, width, height)
@@ -239,51 +256,41 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
       if (!inside) continue
 
       const candidates = index.near(e, n, o.maxNeighbors, MAX_RINGS)
+      if (candidates.length === 0) continue
 
-      // Nearest N only. With many samples the far ones contribute ~nothing at
-      // power 2, and considering them all is what made this unusable.
+      // Distances once, then sort: the nearest decides whether this cell is
+      // drawn at all, and the nearest N decide what colour it is.
+      const scored: Array<[number, number]> = []
+      for (const i of candidates) {
+        const s = samplesEnu[i]
+        const de = e - s.e
+        const dn = n - s.n
+        scored.push([de * de + dn * dn, i])
+      }
+      scored.sort((a, b) => a[0] - b[0])
+
+      // CLIP is a mask, not an influence limit. Beyond the nearest block by
+      // more than this, draw nothing; inside it, interpolate normally. Using
+      // one distance for both jobs is what produced a flat disc per block.
+      if (scored[0][0] > clipD2) continue
+
       let num = 0
       let den = 0
       let exact = NaN
-      if (candidates.length > o.maxNeighbors) {
-        // Partial selection: distance to each candidate, then take the closest N.
-        const scored: Array<[number, number]> = []
-        for (const i of candidates) {
-          const s = samplesEnu[i]
-          const de = e - s.e
-          const dn = n - s.n
-          scored.push([de * de + dn * dn, i])
+      const take = Math.min(o.maxNeighbors, scored.length)
+      for (let k = 0; k < take; k++) {
+        const [d2, i] = scored[k]
+        if (d2 > maxD2) break // sorted, so everything after is further still
+        if (d2 < 1e-9) {
+          // Sitting on a sample: use it rather than dividing by zero.
+          exact = samplesEnu[i].value
+          break
         }
-        scored.sort((a, b) => a[0] - b[0])
-        for (let k = 0; k < o.maxNeighbors; k++) {
-          const [d2, i] = scored[k]
-          if (d2 > maxD2) break
-          if (d2 < 1e-9) {
-            exact = samplesEnu[i].value
-            break
-          }
-          // pow(d2, power/2) is the general form; power 2 is the common case
-          // and reduces to plain 1/d2, avoiding a Math.pow per sample per cell.
-          const w = isSquare ? 1 / d2 : 1 / Math.pow(d2, halfPower)
-          num += w * samplesEnu[i].value
-          den += w
-        }
-      } else {
-        for (const i of candidates) {
-          const s = samplesEnu[i]
-          const de = e - s.e
-          const dn = n - s.n
-          const d2 = de * de + dn * dn
-          if (d2 > maxD2) continue
-          if (d2 < 1e-9) {
-            // Sitting on a sample: use it rather than dividing by zero.
-            exact = s.value
-            break
-          }
-          const w = isSquare ? 1 / d2 : 1 / Math.pow(d2, halfPower)
-          num += w * s.value
-          den += w
-        }
+        // pow(d2, power/2) is the general form; power 2 is the common case and
+        // reduces to plain 1/d2, avoiding a Math.pow per sample per cell.
+        const w = isSquare ? 1 / d2 : 1 / Math.pow(d2, halfPower)
+        num += w * samplesEnu[i].value
+        den += w
       }
 
       const v = Number.isFinite(exact) ? exact : den > 0 ? num / den : NaN

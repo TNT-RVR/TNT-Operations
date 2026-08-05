@@ -130,8 +130,10 @@ export default function ReturnsMap() {
     if (!geom) return null
     // Mask cells with no block nearby, so the surface follows the shape that
     // was actually sampled rather than filling the bounding rectangle.
-    const maxDistanceM = looseness > 0 ? autoTrimM(active, looseness) : null
-    return idwGrid(geom, active, { cellM, power, maxDistanceM })
+    // clipDistanceM only MASKS the edge; it must not limit which blocks a cell
+    // averages, or every block gets its own flat disc instead of a surface.
+    const clipDistanceM = looseness > 0 ? autoTrimM(active, looseness) : null
+    return idwGrid(geom, active, { cellM, power, clipDistanceM })
   }, [field, active, imported, cellM, power, looseness])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])

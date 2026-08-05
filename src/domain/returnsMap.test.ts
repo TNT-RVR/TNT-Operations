@@ -280,11 +280,51 @@ describe('edge trimming', () => {
   it('leaves the far corners empty instead of squaring off the field', () => {
     // The reported problem: a round field rendered as a square because the
     // grid's corners were filled by extrapolation from distant blocks.
-    const trimmed = idwGrid(SQUARE, lattice, { cellM: 10, maxDistanceM: autoTrimM(lattice, 1) })!
-    const filled = idwGrid(SQUARE, lattice, { cellM: 10, maxDistanceM: null })!
+    const trimmed = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: autoTrimM(lattice, 1) })!
+    const filled = idwGrid(SQUARE, lattice, { cellM: 10, clipDistanceM: null })!
     const count = (g: typeof trimmed) => [...g.values].filter((v) => Number.isFinite(v)).length
     expect(count(trimmed)).toBeLessThan(count(filled))
     // Still draws the sampled area itself.
     expect(count(trimmed)).toBeGreaterThan(0)
+  })
+})
+
+describe('clip vs influence — the polka-dot bug', () => {
+  /** Blocks ~50 m apart in a line, with clearly different values. */
+  const line: SamplePoint[] = [
+    at(49.83, -111.6, 2),
+    at(49.83, -111.5993, 8),
+    at(49.83, -111.5986, 2),
+  ]
+
+  it('still blends between blocks when the edge is trimmed tightly', () => {
+    // The reported symptom: a tight trim gave every block its own flat disc,
+    // because the same distance was limiting which samples a cell could see.
+    // Values BETWEEN two blocks must sit between their values, not equal one.
+    const g = idwGrid(SQUARE, line, { cellM: 5, clipDistanceM: 40 })!
+    const distinct = new Set<number>()
+    for (const v of g.values) if (Number.isFinite(v)) distinct.add(Math.round(v * 100) / 100)
+    // A disc-per-block surface would contain essentially 3 values.
+    expect(distinct.size).toBeGreaterThan(20)
+  })
+
+  it('clip masks the edge without changing any value that is drawn', () => {
+    const wide = idwGrid(SQUARE, line, { cellM: 5, clipDistanceM: 500 })!
+    const tight = idwGrid(SQUARE, line, { cellM: 5, clipDistanceM: 40 })!
+    let compared = 0
+    for (let i = 0; i < tight.values.length; i++) {
+      const t = tight.values[i]
+      if (!Number.isFinite(t)) continue
+      // Every cell the tight version draws must have the SAME value as before.
+      expect(t).toBeCloseTo(wide.values[i], 9)
+      compared++
+    }
+    expect(compared).toBeGreaterThan(10)
+  })
+
+  it('maxDistanceM still limits influence when asked for explicitly', () => {
+    const g = idwGrid(SQUARE, line, { cellM: 5, maxDistanceM: 10 })!
+    const filled = [...g.values].filter((v) => Number.isFinite(v)).length
+    expect(filled).toBeGreaterThan(0)
   })
 })

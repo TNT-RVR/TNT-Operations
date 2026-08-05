@@ -15,6 +15,7 @@ import {
   autoTrimM,
   insideField,
   sampleGrid,
+  matchFieldByGeometry,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -64,7 +65,7 @@ export default function ReturnsMap() {
    * outline is inferred from the points themselves, which can only ever be an
    * approximation of a circle or a straight edge.
    */
-  const [clipFieldId, setClipFieldId] = useState('')
+  const [clipFieldId, setClipFieldId] = useState<string>('auto')
   const [importErr, setImportErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -127,6 +128,17 @@ export default function ReturnsMap() {
   }, [raw, cleanGps, imported, field, strictness])
 
   const active = cleaned ? cleaned.keep : raw
+
+  /**
+   * Which known field these points sit in, matched by geometry. Imported field
+   * NAMES rarely match the app's, but coordinates either fall inside a
+   * boundary or they don't.
+   */
+  const autoMatch = useMemo(
+    () => matchFieldByGeometry(fields, active),
+    [fields, active],
+  )
+  const effectiveClipId = clipFieldId === 'auto' ? (autoMatch?.fieldId ?? '') : clipFieldId
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
@@ -528,8 +540,13 @@ export default function ReturnsMap() {
               )}
 
               <label className="block text-xs text-muted">
-                Clip to a real field's boundary (optional)
+                Field outline
                 <Select value={clipFieldId} onChange={(e) => setClipFieldId(e.target.value)}>
+                  <option value="auto">
+                    {autoMatch
+                      ? `Automatic — ${fields.find((f) => f.id === autoMatch.fieldId)?.name ?? 'matched field'}`
+                      : 'Automatic — no matching field found'}
+                  </option>
                   <option value="">Use the shape of the points</option>
                   {fields
                     .filter((f) => f.geometry)
@@ -540,7 +557,11 @@ export default function ReturnsMap() {
                     ))}
                 </Select>
                 <span className="mt-1 block text-faint">
-                  Gives an exact outline — a true circle for a pivot, straight edges for a polygon.
+                  {autoMatch && clipFieldId === 'auto'
+                    ? `${Math.round(autoMatch.fraction * 100)}% of these points fall inside it — clipping to its real boundary (a true circle for a pivot, straight edges for a polygon).`
+                    : effectiveClipId
+                      ? 'Clipped to that field’s recorded boundary.'
+                      : 'Outline inferred from the points, so a circle will only be approximate. Pick a field for an exact edge.'}
                 </span>
               </label>
 

@@ -213,6 +213,52 @@ export function sampleGrid(g: ReturnsGrid, e: number, n: number): number {
   return v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty) + v01 * (1 - tx) * ty + v11 * tx * ty
 }
 
+export interface FieldMatch {
+  fieldId: string
+  /** How many of the samples fall inside that field. */
+  inside: number
+  total: number
+  /** inside / total, 0–1. */
+  fraction: number
+}
+
+/**
+ * Which known field these points actually sit in.
+ *
+ * Matching by GEOMETRY rather than by name: an imported sheet's field names
+ * are whatever someone typed in a past season and rarely match the app's,
+ * whereas the coordinates either fall inside a boundary or they don't.
+ *
+ * Returns the best match, or null when nothing contains a convincing share of
+ * the points — better to infer the outline from the points than to clip a
+ * field's data to the wrong field's boundary and silently lose half of it.
+ */
+export function matchFieldByGeometry(
+  candidates: Array<{ id: string; geometry?: unknown }>,
+  samples: SamplePoint[],
+  minFraction = 0.6,
+): FieldMatch | null {
+  if (samples.length === 0) return null
+  let best: FieldMatch | null = null
+
+  for (const c of candidates) {
+    if (!c.geometry) continue
+    const frame = fieldFrame(c.geometry as FieldDict)
+    if (!frame) continue
+    const enu = latlonListToEnu(
+      samples.map((s) => [s.lat, s.lng] as [number, number]),
+      frame.pivotLon,
+      frame.pivotLat,
+    )
+    let inside = 0
+    for (const [e, n] of enu) if (insideField(frame, e, n)) inside++
+    const fraction = inside / samples.length
+    if (!best || inside > best.inside) best = { fieldId: c.id, inside, total: samples.length, fraction }
+  }
+
+  return best && best.fraction >= minFraction ? best : null
+}
+
 /**
  * Approximate distance, in cells, from every cell to the nearest `true` in
  * `mask`. Two-pass chamfer (3-4 weights) — not exact Euclidean, but within a

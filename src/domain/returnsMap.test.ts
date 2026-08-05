@@ -11,6 +11,7 @@ import {
   autoTrimM,
   insideField,
   sampleGrid,
+  matchFieldByGeometry,
   type ReturnsGrid,
   type SamplePoint,
 } from './returnsMap'
@@ -487,5 +488,39 @@ describe('sampleGrid', () => {
   it('returns NaN well outside the grid', () => {
     const g = idwGrid(SQUARE, lattice, { cellM: 20 })!
     expect(Number.isFinite(sampleGrid(g, g.originE - 5000, g.originN))).toBe(false)
+  })
+})
+
+describe('matchFieldByGeometry', () => {
+  const PIVOT_FIELD = { id: 'pivot', geometry: { PP_Longitude: '-111.6', PP_Latitude: '49.83', Radius: '400', use_bays: false } }
+  const FAR_FIELD = { id: 'far', geometry: { PP_Longitude: '-110.0', PP_Latitude: '50.5', Radius: '400', use_bays: false } }
+  const inPivot: SamplePoint[] = Array.from({ length: 20 }, (_, i) =>
+    at(49.83 + (i % 5) * 0.0005, -111.6 + Math.floor(i / 5) * 0.0008, 5),
+  )
+
+  it('picks the field the points are actually inside', () => {
+    // Matched by geometry, not name: imported sheets carry whatever field
+    // names someone typed years ago.
+    const m = matchFieldByGeometry([FAR_FIELD, PIVOT_FIELD], inPivot)!
+    expect(m.fieldId).toBe('pivot')
+    expect(m.fraction).toBeGreaterThan(0.9)
+  })
+
+  it('returns null when nothing contains the points', () => {
+    // Clipping to the wrong field would silently discard most of the data,
+    // which is worse than an approximate outline.
+    expect(matchFieldByGeometry([FAR_FIELD], inPivot)).toBeNull()
+  })
+
+  it('respects the confidence threshold', () => {
+    // Half in, half far away: not a convincing match.
+    const half = [...inPivot.slice(0, 10), ...Array.from({ length: 10 }, () => at(50.5, -110.0, 5))]
+    expect(matchFieldByGeometry([PIVOT_FIELD], half, 0.9)).toBeNull()
+    expect(matchFieldByGeometry([PIVOT_FIELD], half, 0.4)).not.toBeNull()
+  })
+
+  it('ignores fields with no geometry, and handles no samples', () => {
+    expect(matchFieldByGeometry([{ id: 'x' }], inPivot)).toBeNull()
+    expect(matchFieldByGeometry([PIVOT_FIELD], [])).toBeNull()
   })
 })

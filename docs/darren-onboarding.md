@@ -1,5 +1,10 @@
 # Onboarding — Darren (Admin / Developer)
 
+> **⚠️ Superseded — use [`developer-onboarding.md`](developer-onboarding.md)
+> for anyone new.** This file predates the in-app invite flow and still
+> describes secrets living in Supabase Edge Function env (they're in Netlify).
+> Kept only as the record of how Darren was set up.
+
 This is the checklist to give Darren everything he needs to develop TNT
 Operations and act as an app admin. Two separate things:
 

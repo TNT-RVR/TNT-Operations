@@ -69,7 +69,7 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   `src/components/Protected.tsx`. Section keys live in `MODULES` (`auth/session.tsx`).
 - Secrets never go in the repo or in any `VITE_`-prefixed var except the public
   Supabase URL/anon key. Server secrets (Govee key, service role, SMTP) live in
-  Supabase/Netlify env settings. See `docs/darren-onboarding.md`.
+  Supabase/Netlify env settings. See `docs/developer-onboarding.md`.
 - **Shared Supabase project:** by decision (2026-07-24) TNT reuses the existing
   `pmqbkezevsuwkoryxief` project (the old beetent-maps backend) rather than a new
   one. To avoid colliding with that app's `public.fields` (company/year/name +

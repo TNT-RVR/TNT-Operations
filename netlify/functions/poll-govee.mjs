@@ -42,6 +42,7 @@ import {
   subscriptionsFor,
   sendToAll,
   recentlyNotified,
+  lastAlertAt,
   writeInAppNotification,
 } from './lib/push.mjs'
 
@@ -77,6 +78,12 @@ const TEMP_BANDS = {
  * just teaches people to ignore alerts.
  */
 const ALERT_COOLDOWN_MIN = 120
+
+/**
+ * Only announce a recovery for a problem raised within this window. An
+ * all-clear for something that went wrong days ago, unseen, is noise.
+ */
+const RECOVERY_LOOKBACK_H = 24
 
 const V2_STATE = 'https://openapi.api.govee.com/router/api/v1/device/state'
 const V1_STATE = 'https://developer-api.govee.com/v1/devices/state'
@@ -198,6 +205,7 @@ export default async () => {
   // cloud, so from 2026-07-23 until now NOTHING was watching temperatures.
   // Evaluated against the reading just taken, for running incubators only.
   let tempAlerts = 0
+  let recoveries = 0
   let pushesSent = 0
   // NOTE: the preference key is the settings-screen row ('temp_out_of_range'),
   // while alerts.alert_type stays 'temp_humidity' to match the desktop
@@ -216,7 +224,57 @@ export default async () => {
     if (!band) continue
     const [min, max] = band
     const t = reading.temp_c
-    if (t >= min && t <= max) continue
+    const dedupKey = `temp_humidity:temp:${inc.id}`
+    const clearKey = `temp_humidity:clear:${inc.id}`
+
+    // ── Back in range: send ONE all-clear, then stay quiet ──────────────────
+    // Without this, alerts just stop, and silence is ambiguous — it reads the
+    // same as "nothing is watching any more".
+    if (t >= min && t <= max) {
+      // Only clear an episode someone was actually told about.
+      const lastProblem = await lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly: true }).catch(() => null)
+      if (!lastProblem) continue
+      // Ignore stale episodes: an all-clear for something that went wrong days
+      // ago and was never seen is noise, not news.
+      if (Date.now() - new Date(lastProblem).getTime() > RECOVERY_LOOKBACK_H * 3600_000) continue
+      // Already cleared this episode? The clear must be NEWER than the problem.
+      const lastClear = await lastAlertAt(SB_URL, sb, clearKey).catch(() => null)
+      if (lastClear && new Date(lastClear) > new Date(lastProblem)) continue
+
+      const okMsg = `${inc.name}: Temp ${t.toFixed(1)}°C is back in range (${min.toFixed(1)}–${max.toFixed(1)}°C)`
+      await fetch(`${SB_URL}/rest/v1/alerts`, {
+        method: 'POST',
+        headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          alert_type: 'temp_humidity',
+          severity: 'info',
+          incubator_id: inc.id,
+          message: okMsg,
+          dedup_key: clearKey,
+          notified: true,
+        }),
+      })
+      await writeInAppNotification(SB_URL, sb, {
+        category: 'incubation',
+        type: 'temp_out_of_range',
+        severity: 'info',
+        title: `${inc.name} is back in range`,
+        body: okMsg,
+        source: 'alert_rules',
+        dedupKey: clearKey,
+      })
+      const okRes = await sendToAll(SB_URL, sb, subs, {
+        title: `${inc.name} back in range`,
+        body: okMsg,
+        url: '/incubation',
+        // Same tag as the problem, so the all-clear REPLACES the warning on the
+        // lock screen rather than sitting beneath it contradicting it.
+        tag: `temp-${inc.id}`,
+      }).catch(() => ({ sent: 0 }))
+      pushesSent += okRes.sent
+      recoveries++
+      continue
+    }
 
     const above = t > max
     // Message shape copied from the desktop app's alerts, so the Alerts screen
@@ -224,7 +282,6 @@ export default async () => {
     const message =
       `${inc.name}: Temp ${t.toFixed(1)}°C ` +
       `${above ? 'above maximum' : 'below minimum'} ${(above ? max : min).toFixed(1)}°C`
-    const dedupKey = `temp_humidity:temp:${inc.id}`
     // On lookup failure assume "already notified": a quiet miss beats a storm.
     const quiet = await recentlyNotified(SB_URL, sb, dedupKey, ALERT_COOLDOWN_MIN).catch(() => true)
 
@@ -320,7 +377,7 @@ export default async () => {
     `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +
       `${runningNames.length} running [${runningNames.join(', ') || 'none'}], ` +
       `${heartbeats} idle heartbeat(s), ${readings.length} readings written, ` +
-      `${tempAlerts} temp alerts raised, ${pushesSent} push(es) sent, ` +
+      `${tempAlerts} temp alerts raised, ${recoveries} recovered, ${pushesSent} push(es) sent, ` +
       `${alerts} stale alerts raised`,
     { status: 200 },
   )

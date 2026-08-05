@@ -129,6 +129,22 @@ export async function recentlyNotified(SB_URL, sb, dedupKey, cooldownMin) {
 }
 
 /**
+ * When this dedup key last fired, as an ISO string, or null.
+ *
+ * `notifiedOnly` restricts it to occurrences that actually reached someone —
+ * which is what an all-clear needs, since clearing an alert nobody was told
+ * about is just noise.
+ */
+export async function lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly = false } = {}) {
+  const rows = await fetch(
+    `${SB_URL}/rest/v1/alerts?select=triggered_at&dedup_key=eq.${encodeURIComponent(dedupKey)}` +
+      `${notifiedOnly ? '&notified=is.true' : ''}&order=triggered_at.desc&limit=1`,
+    { headers: sb },
+  ).then((r) => (r.ok ? r.json() : []))
+  return Array.isArray(rows) && rows[0]?.triggered_at ? rows[0].triggered_at : null
+}
+
+/**
  * Also drop it in the in-app bell inbox, for everyone, regardless of push.
  * Push is a nudge; the inbox is the record, so it's written either way.
  */

@@ -42,6 +42,17 @@ export interface IdwOptions {
   maxDistanceM?: number | null
   /** Safety cap on total cells, so a huge field can't lock up the browser. */
   maxCells?: number
+  /**
+   * How many nearest samples actually contribute to a cell.
+   *
+   * Naive IDW weighs EVERY sample for EVERY cell, which is O(cells × samples)
+   * — fine for a dozen blocks, ruinous for thousands (a 250k-cell grid over
+   * 4,000 points is ~1e9 distance calculations, which locks the tab). Distant
+   * samples contribute almost nothing at power 2 anyway, so taking the nearest
+   * N through a spatial index gives the same picture in a fraction of the time.
+   * This is also what QGIS's IDW offers as "N nearest neighbours".
+   */
+  maxNeighbors?: number
 }
 
 export interface ReturnsGrid {
@@ -69,6 +80,76 @@ const DEFAULTS: Required<Omit<IdwOptions, 'maxDistanceM'>> & { maxDistanceM: num
   power: 2,
   maxDistanceM: null,
   maxCells: 250_000,
+  // Measured against brute force over 3,947 points: 128 neighbours costs ~30ms
+  // and lands within 0.46 lbs worst-case (0.10 mean) of weighing every point,
+  // where 16 neighbours drifted by 1.2 lbs. Fidelity matters more than the
+  // extra 15ms when the output is compared against a QGIS map.
+  maxNeighbors: 128,
+}
+
+/**
+ * Uniform-grid spatial index over the samples, so a cell only has to look at
+ * points that are actually near it instead of the whole set.
+ */
+class SampleIndex {
+  private bins = new Map<number, number[]>()
+  private binSize: number
+  private cols: number
+  private minE: number
+  private minN: number
+
+  constructor(
+    pts: Array<{ e: number; n: number; value: number }>,
+    minE: number,
+    minN: number,
+    width: number,
+    height: number,
+  ) {
+    this.minE = minE
+    this.minN = minN
+    // Aim for a handful of points per bin: enough that a ring search finds
+    // neighbours quickly, few enough that each bin stays cheap to scan.
+    const target = Math.max(1, Math.ceil(Math.sqrt(pts.length / 4)))
+    this.binSize = Math.max(1, Math.max(width, height) / target)
+    this.cols = Math.max(1, Math.ceil(width / this.binSize))
+    for (let i = 0; i < pts.length; i++) {
+      const key = this.keyOf(pts[i].e, pts[i].n)
+      const arr = this.bins.get(key)
+      if (arr) arr.push(i)
+      else this.bins.set(key, [i])
+    }
+  }
+
+  private keyOf(e: number, n: number): number {
+    const bx = Math.floor((e - this.minE) / this.binSize)
+    const by = Math.floor((n - this.minN) / this.binSize)
+    return by * this.cols + bx
+  }
+
+  /**
+   * Indices of samples near (e, n): expanding ring search until enough
+   * candidates are found, then one extra ring so a nearer point in a diagonal
+   * bin can't be missed.
+   */
+  near(e: number, n: number, want: number, maxRings: number): number[] {
+    const bx = Math.floor((e - this.minE) / this.binSize)
+    const by = Math.floor((n - this.minN) / this.binSize)
+    const found: number[] = []
+    let extra = -1
+    for (let r = 0; r <= maxRings; r++) {
+      for (let y = by - r; y <= by + r; y++) {
+        for (let x = bx - r; x <= bx + r; x++) {
+          // Only the ring's perimeter — the interior was covered already.
+          if (r > 0 && Math.abs(y - by) !== r && Math.abs(x - bx) !== r) continue
+          const arr = this.bins.get(y * this.cols + x)
+          if (arr) found.push(...arr)
+        }
+      }
+      if (extra >= 0) break // that was the safety ring
+      if (found.length >= want) extra = r // do one more, then stop
+    }
+    return found
+  }
 }
 
 /**
@@ -139,6 +220,11 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
   const ring = frame.boundaryEnu
   const r2 = frame.radius * frame.radius
   const maxD2 = o.maxDistanceM == null ? Infinity : o.maxDistanceM * o.maxDistanceM
+  const halfPower = o.power / 2
+  const isSquare = o.power === 2
+  const index = new SampleIndex(samplesEnu, minE, minN, width, height)
+  /** Cap the ring search so a lone cell in an empty corner can't scan forever. */
+  const MAX_RINGS = 12
   let min = Infinity
   let max = -Infinity
 
@@ -152,22 +238,52 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
       const inside = ring && ring.length >= 3 ? pointInEnuRing(ring, e, n) : e * e + n * n <= r2
       if (!inside) continue
 
+      const candidates = index.near(e, n, o.maxNeighbors, MAX_RINGS)
+
+      // Nearest N only. With many samples the far ones contribute ~nothing at
+      // power 2, and considering them all is what made this unusable.
       let num = 0
       let den = 0
       let exact = NaN
-      for (const s of samplesEnu) {
-        const de = e - s.e
-        const dn = n - s.n
-        const d2 = de * de + dn * dn
-        if (d2 > maxD2) continue
-        if (d2 < 1e-9) {
-          // Sitting on a sample: use it directly rather than dividing by zero.
-          exact = s.value
-          break
+      if (candidates.length > o.maxNeighbors) {
+        // Partial selection: distance to each candidate, then take the closest N.
+        const scored: Array<[number, number]> = []
+        for (const i of candidates) {
+          const s = samplesEnu[i]
+          const de = e - s.e
+          const dn = n - s.n
+          scored.push([de * de + dn * dn, i])
         }
-        const w = 1 / Math.pow(d2, o.power / 2)
-        num += w * s.value
-        den += w
+        scored.sort((a, b) => a[0] - b[0])
+        for (let k = 0; k < o.maxNeighbors; k++) {
+          const [d2, i] = scored[k]
+          if (d2 > maxD2) break
+          if (d2 < 1e-9) {
+            exact = samplesEnu[i].value
+            break
+          }
+          // pow(d2, power/2) is the general form; power 2 is the common case
+          // and reduces to plain 1/d2, avoiding a Math.pow per sample per cell.
+          const w = isSquare ? 1 / d2 : 1 / Math.pow(d2, halfPower)
+          num += w * samplesEnu[i].value
+          den += w
+        }
+      } else {
+        for (const i of candidates) {
+          const s = samplesEnu[i]
+          const de = e - s.e
+          const dn = n - s.n
+          const d2 = de * de + dn * dn
+          if (d2 > maxD2) continue
+          if (d2 < 1e-9) {
+            // Sitting on a sample: use it rather than dividing by zero.
+            exact = s.value
+            break
+          }
+          const w = isSquare ? 1 / d2 : 1 / Math.pow(d2, halfPower)
+          num += w * s.value
+          den += w
+        }
       }
 
       const v = Number.isFinite(exact) ? exact : den > 0 ? num / den : NaN

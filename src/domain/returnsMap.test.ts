@@ -161,3 +161,48 @@ describe('gridToCsv', () => {
     expect(v).toBeCloseTo(6, 3)
   })
 })
+
+describe('performance with real-world sample counts', () => {
+  /** ~3,900 points scattered over the pivot, like an imported season. */
+  const many: SamplePoint[] = Array.from({ length: 3947 }, (_, i) => {
+    const a = (i * 2.399963) % (Math.PI * 2) // golden-angle spiral
+    const r = 0.003 * Math.sqrt(i / 3947)
+    return { lat: 49.83 + r * Math.cos(a), lng: -111.6 + r * 1.5 * Math.sin(a), value: 3 + (i % 7) }
+  })
+
+  it('interpolates thousands of points in reasonable time', () => {
+    // Naive all-samples IDW here is ~1e9 distance calculations and locks the
+    // browser. This is the regression that caused exactly that.
+    const t0 = Date.now()
+    const g = idwGrid(PIVOT, many, { cellM: 10 })!
+    const ms = Date.now() - t0
+    expect(g).not.toBeNull()
+    expect(ms).toBeLessThan(5000)
+  })
+
+  it('still respects the measured range with many points', () => {
+    const g = idwGrid(PIVOT, many, { cellM: 25 })!
+    expect(g.min).toBeGreaterThanOrEqual(3)
+    expect(g.max).toBeLessThanOrEqual(9)
+  })
+
+  it('agrees closely with brute-force IDW', () => {
+    // The spatial index is an optimisation, not a different answer: taking the
+    // nearest N must land in the same place as weighing everything.
+    const few = many.slice(0, 200)
+    const indexed = idwGrid(PIVOT, few, { cellM: 50 })!
+    const brute = idwGrid(PIVOT, few, { cellM: 50, maxNeighbors: few.length })!
+    let compared = 0
+    let worst = 0
+    for (let i = 0; i < indexed.values.length; i++) {
+      const a = indexed.values[i]
+      const b = brute.values[i]
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue
+      compared++
+      worst = Math.max(worst, Math.abs(a - b))
+    }
+    expect(compared).toBeGreaterThan(50)
+    // Within a fraction of a pound across the whole surface.
+    expect(worst).toBeLessThan(0.5)
+  })
+})

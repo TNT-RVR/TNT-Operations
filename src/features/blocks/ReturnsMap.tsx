@@ -199,6 +199,10 @@ export default function ReturnsMap() {
         }
       }
 
+      // The container is hidden until there's something to draw, so the canvas
+      // was sized to zero when the map was created. Without this it stays blank.
+      map.resize()
+
       // Frame the field.
       const b = new maplibregl.LngLatBounds()
       for (const c of grid.corners) b.extend(c as [number, number])

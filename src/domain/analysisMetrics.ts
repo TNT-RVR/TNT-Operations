@@ -157,6 +157,50 @@ export const STORED_METRICS: readonly MetricDef[] = METRICS.filter((m) => !m.der
 /** Metrics computed from the weather cache. */
 export const WEATHER_METRICS: readonly MetricDef[] = METRICS.filter((m) => m.derived)
 
+/**
+ * Which pairs a screen should test.
+ *
+ *  - `stored`          every pair of the recorded columns. No weather.
+ *  - `weather-outcome` exactly one weather metric against one recorded column.
+ */
+export type PairScope = 'stored' | 'weather-outcome'
+
+/**
+ * Build the list of metric pairs for a screen.
+ *
+ * This is not just a display filter — it defines the FAMILY OF TESTS that the
+ * Holm correction is applied over, so what goes in here changes whether a
+ * result is called significant. Weather against weather is deliberately absent
+ * from `weather-outcome`:
+ *
+ *  • It answers nothing. Average temperature against growing degree days is
+ *    near-tautological — GDD is accumulated from the same daily temperatures.
+ *    Rain days against total precipitation is the same measurement twice.
+ *
+ *  • Worse, including it makes the correction stricter for no reason. The eight
+ *    weather metrics contribute 28 weather-vs-weather pairs; carrying those
+ *    through Holm raises the bar every genuine weather-vs-outcome result has to
+ *    clear, so a real finding can be rejected because of tests nobody cared
+ *    about.
+ */
+export function metricPairs(scope: PairScope): Array<[MetricDef, MetricDef]> {
+  const pairs: Array<[MetricDef, MetricDef]> = []
+
+  if (scope === 'weather-outcome') {
+    for (const w of WEATHER_METRICS) {
+      for (const s of STORED_METRICS) pairs.push([w, s])
+    }
+    return pairs
+  }
+
+  for (let i = 0; i < STORED_METRICS.length; i++) {
+    for (let j = i + 1; j < STORED_METRICS.length; j++) {
+      pairs.push([STORED_METRICS[i], STORED_METRICS[j]])
+    }
+  }
+  return pairs
+}
+
 /** Short unit suffix for axes and tooltips. Empty where a bare number reads better. */
 export function unitSuffix(unit: MetricUnit): string {
   switch (unit) {

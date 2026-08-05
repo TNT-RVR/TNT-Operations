@@ -181,6 +181,76 @@ export function parseAnalysisCsvRow(
   return out as Partial<FieldAnalysis> & { field_name: string; year: string }
 }
 
+/**
+ * Parse a coordinate pair the way someone actually supplies one.
+ *
+ * People fixing a missing coordinate get it from Google Maps or a handheld, so
+ * this accepts what those produce: "49.8635, -111.963", tab- or space-separated,
+ * a degree sign, and the `49.83°N, 111.96°W` hemisphere form the crew's scan
+ * CSVs already use (see importPaths.ts, which is forgiving for the same reason).
+ *
+ * Returns null rather than a guess when it cannot read the input — a silently
+ * mis-parsed coordinate puts a field in the wrong province and quietly pollutes
+ * every weather correlation it touches.
+ */
+export function parseCoordinatePair(input: string): { lat: number; lng: number } | null {
+  const s = input.trim()
+  if (!s) return null
+
+  // Pull out signed decimals, keeping any N/S/E/W that immediately follows.
+  const parts = [...s.matchAll(/(-?\d+(?:\.\d+)?)\s*°?\s*([NSEW])?/gi)]
+  if (parts.length < 2) return null
+
+  const read = (m: RegExpMatchArray): { value: number; hemi: string | null } => ({
+    value: parseFloat(m[1]),
+    hemi: m[2] ? m[2].toUpperCase() : null,
+  })
+
+  const a = read(parts[0])
+  const b = read(parts[1])
+  if (!Number.isFinite(a.value) || !Number.isFinite(b.value)) return null
+
+  // Hemisphere letters win over sign — "111.96°W" means -111.96 however it was
+  // typed. Where they're absent, the first number is latitude.
+  let lat = a.hemi === 'S' ? -Math.abs(a.value) : a.hemi === 'N' ? Math.abs(a.value) : a.value
+  let lng = b.hemi === 'W' ? -Math.abs(b.value) : b.hemi === 'E' ? Math.abs(b.value) : b.value
+
+  // Explicitly reversed input ("111.96W, 49.86N") is unambiguous — accept it.
+  if ((a.hemi === 'E' || a.hemi === 'W') && (b.hemi === 'N' || b.hemi === 'S')) {
+    const swapLat = b.hemi === 'S' ? -Math.abs(b.value) : Math.abs(b.value)
+    const swapLng = a.hemi === 'W' ? -Math.abs(a.value) : Math.abs(a.value)
+    lat = swapLat
+    lng = swapLng
+  }
+
+  if (!isValidLat(lat) || !isValidLng(lng)) return null
+  return { lat, lng }
+}
+
+export function isValidLat(lat: number): boolean {
+  return Number.isFinite(lat) && lat >= -90 && lat <= 90
+}
+
+export function isValidLng(lng: number): boolean {
+  return Number.isFinite(lng) && lng >= -180 && lng <= 180
+}
+
+/**
+ * The operation runs in southern Alberta. A coordinate outside this box is
+ * valid on Earth but almost certainly a typo or a swapped pair — worth warning
+ * about, never worth rejecting, since the business could take work elsewhere.
+ */
+export const ALBERTA_BOX = { minLat: 48.9, maxLat: 60.1, minLng: -120.1, maxLng: -109.9 }
+
+export function looksLikeAlberta(lat: number, lng: number): boolean {
+  return (
+    lat >= ALBERTA_BOX.minLat &&
+    lat <= ALBERTA_BOX.maxLat &&
+    lng >= ALBERTA_BOX.minLng &&
+    lng <= ALBERTA_BOX.maxLng
+  )
+}
+
 /** Percent columns, checked against the migration's 0–100 CHECK before upload. */
 const PERCENT_COLS = [
   'live_prepupae', 'immature_larvae', 'dead_prepupae', 'dead_larvae',

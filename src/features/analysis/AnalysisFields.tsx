@@ -7,10 +7,10 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowDown, ArrowUp, Download } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ArrowDown, ArrowUp, Download, X } from 'lucide-react'
 import { Badge, Button, Card, PageHeader, SearchBar, matchesQuery } from '@/components/ui'
-import { formatMetric } from '@/domain/analysisMetrics'
+import { METRIC_BY_KEY, formatMetric } from '@/domain/analysisMetrics'
 import type { FieldAnalysis } from '@/data/types'
 import { AnalysisProvider, useAnalysis } from './useAnalysis'
 import { FilterBar, NotEnoughData } from './AnalysisChrome'
@@ -44,13 +44,28 @@ function csvEscape(v: unknown): string {
 function Fields() {
   const { rows, loading, allRows } = useAnalysis()
   const [query, setQuery] = useState('')
-  const [sortKey, setSortKey] = useState<keyof FieldAnalysis>('year')
+  // Arriving from an Overview tile: `?sort=` opens ranked by that metric,
+  // `?has=` narrows to the rows that actually recorded it. In the URL rather
+  // than in state so the drill-down can be linked to.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requiredMetric = searchParams.get('has')
+  const [sortKey, setSortKey] = useState<keyof FieldAnalysis>(
+    (searchParams.get('sort') as keyof FieldAnalysis) ?? 'year',
+  )
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
 
-  const filtered = useMemo(
-    () => rows.filter((r) => matchesQuery(query, r.field_name, r.company, r.crop, r.farmer_name, r.year, r.field_id)),
-    [rows, query],
-  )
+  const filtered = useMemo(() => {
+    let out = rows
+    if (requiredMetric) {
+      out = out.filter((r) => {
+        const v = r[requiredMetric as keyof FieldAnalysis]
+        return v !== null && v !== undefined && v !== ''
+      })
+    }
+    return out.filter((r) =>
+      matchesQuery(query, r.field_name, r.company, r.crop, r.farmer_name, r.year, r.field_id),
+    )
+  }, [rows, query, requiredMetric])
 
   const sorted = useMemo(() => {
     const out = [...filtered]
@@ -113,6 +128,21 @@ function Fields() {
 
       <Card className="mb-3">
         <SearchBar value={query} onChange={setQuery} placeholder="Search field, company, farmer, LLD…" />
+        {requiredMetric && (
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+            Showing only field-seasons that recorded{' '}
+            <span className="text-secondary">
+              {METRIC_BY_KEY[requiredMetric]?.label ?? requiredMetric}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchParams({})}
+              className="inline-flex items-center gap-1 text-brand"
+            >
+              <X size={11} /> show all
+            </button>
+          </p>
+        )}
       </Card>
 
       {sorted.length === 0 ? (

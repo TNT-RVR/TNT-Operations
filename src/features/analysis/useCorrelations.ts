@@ -13,7 +13,7 @@
 
 import { useMemo } from 'react'
 import { correlate, holmThreshold, type Correlation } from '@/domain/stats'
-import { STORED_METRICS, WEATHER_METRICS, type MetricDef } from '@/domain/analysisMetrics'
+import { metricPairs, type MetricDef, type PairScope } from '@/domain/analysisMetrics'
 import type { FieldAnalysis, FieldWeather } from '@/data/types'
 import { weatherKey } from '@/domain/weather'
 import { verdictFor, type Verdict } from './AnalysisChrome'
@@ -73,27 +73,22 @@ export function withWeather(
 }
 
 /**
- * Screen every pair of the given metrics.
+ * Screen the pairs for a scope.
  *
- * `includeWeather` is opt-in because the weather metrics need a fetch; a screen
- * that has not loaded them would otherwise report every weather pair as
- * "insufficient data" and pollute the Holm correction with dead tests.
+ * The scope is not cosmetic: it defines the family of tests the Holm correction
+ * runs over, so it changes which results are called significant. See
+ * `metricPairs` in domain/analysisMetrics.ts for why weather-against-weather is
+ * excluded rather than merely hidden.
  */
 export function useCorrelationScreen(
   rows: readonly Record<string, unknown>[],
-  includeWeather: boolean,
+  scope: PairScope,
 ): CorrelationScreen {
   return useMemo(() => {
-    const metrics: MetricDef[] = includeWeather
-      ? [...STORED_METRICS, ...WEATHER_METRICS]
-      : [...STORED_METRICS]
-
     const raw: Array<{ x: MetricDef; y: MetricDef; c: Correlation }> = []
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        const c = correlate(rows, metrics[i].key, metrics[j].key)
-        if (c) raw.push({ x: metrics[i], y: metrics[j], c })
-      }
+    for (const [x, y] of metricPairs(scope)) {
+      const c = correlate(rows, x.key, y.key)
+      if (c) raw.push({ x, y, c })
     }
 
     // Correct across everything actually tested. Including the definitional
@@ -128,5 +123,5 @@ export function useCorrelationScreen(
       tested: pairs.length,
       counts,
     }
-  }, [rows, includeWeather])
+  }, [rows, scope])
 }

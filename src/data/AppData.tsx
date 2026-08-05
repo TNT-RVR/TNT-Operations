@@ -309,6 +309,10 @@ function MockProvider({ children }: { children: ReactNode }) {
         })
         return Promise.resolve()
       },
+      saveFieldAnalysis: (id, patch) => {
+        setFieldAnalysis((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+        return Promise.resolve({ ok: true })
+      },
       importFieldAnalysis: (rows) => {
         let inserted = 0
         let updated = 0

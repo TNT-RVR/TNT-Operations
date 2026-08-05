@@ -212,6 +212,18 @@ export interface DataContextValue {
     rows: ReadonlyArray<Pick<FieldAnalysis, 'lat' | 'lng' | 'year'>>,
   ) => Promise<void>
   /**
+   * Edit one analysis row in place.
+   *
+   * Analysis data normally arrives by import, but coordinates are the
+   * exception: 9 of the 157 imported field-seasons have none, and a row without
+   * lat/lng is invisible on the map and carries no weather. Those are fixed by
+   * hand rather than by re-cutting the spreadsheet.
+   */
+  saveFieldAnalysis: (
+    id: string,
+    patch: Partial<FieldAnalysis>,
+  ) => Promise<{ ok: boolean; error?: string }>
+  /**
    * Replace a season's analysis rows from an uploaded CSV.
    *
    * Upserts on `(field_name, year)` — the natural key — so re-uploading a

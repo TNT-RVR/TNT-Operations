@@ -16,7 +16,7 @@ import { Card, PageHeader, Select, Stat } from '@/components/ui'
 import { METRIC_BY_KEY, METRIC_GROUP_LABELS, STORED_METRICS, formatMetric } from '@/domain/analysisMetrics'
 import { mean, parseMetric, stdDev } from '@/domain/stats'
 import { AnalysisProvider, useAnalysis, useCompanyIndex } from './useAnalysis'
-import { FilterBar, MetricSelect, NotEnoughData } from './AnalysisChrome'
+import { FilterBar, MetricSelect, NotEnoughData, StatLink } from './AnalysisChrome'
 import { AXIS_PROPS, GRID_PROPS, TOOLTIP_STYLE, seriesColor } from './chartTheme'
 
 const METRIC_OPTIONS = STORED_METRICS.map((m) => ({
@@ -114,8 +114,14 @@ function Growers() {
           </Card>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-3">
-            <Stat label={`${GROUP_LABELS[groupBy]}s`} value={groups.length} />
-            <Stat
+            <StatLink
+              to="/analysis/fields"
+              label={`${GROUP_LABELS[groupBy]}s`}
+              value={groups.length}
+              hint="See every field-season"
+            />
+            <StatLink
+              to={`/analysis/fields?sort=${metricKey}`}
               label="Best average"
               value={reliable[0]?.avg?.toFixed(1) ?? '—'}
               hint={

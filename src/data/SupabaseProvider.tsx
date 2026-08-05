@@ -684,6 +684,23 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
       },
 
+      saveFieldAnalysis: async (id, patch) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const { data, error } = await supabase
+          .from('field_analysis')
+          .update({ ...patch, updated_at: new Date().toISOString() })
+          .eq('id', id)
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] saveFieldAnalysis:', error.message)
+          return { ok: false, error: error.message }
+        }
+        const saved = toFieldAnalysis(data as FieldAnalysisRow)
+        setFieldAnalysis((prev) => prev.map((r) => (r.id === saved.id ? saved : r)))
+        return { ok: true }
+      },
+
       importFieldAnalysis: async (rows) => {
         if (!supabase) return { inserted: 0, updated: 0, skipped: 0, error: 'No backend connection.' }
         const parsed: Array<Partial<FieldAnalysis> & { field_name: string; year: string }> = []

@@ -9,10 +9,10 @@
  * significance verdict, and, where one applies, the reason it is not a finding.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Calculator, Check, Info, Sparkles } from 'lucide-react'
-import { Badge, Card, Select } from '@/components/ui'
+import { Badge, Card, Select, Stat } from '@/components/ui'
 import { correlationStrength, type Correlation } from '@/domain/stats'
 import { metricRelation } from '@/domain/analysisRelations'
 import { METRIC_BY_KEY } from '@/domain/analysisMetrics'
@@ -291,6 +291,39 @@ export function AiNote({
       </button>
       {state === 'error' && <p className="mt-1 text-xs" style={{ color: 'var(--danger-fg)' }}>{error}</p>}
     </div>
+  )
+}
+
+/**
+ * A metric tile that drills through to the rows behind it.
+ *
+ * Every headline number on these screens is a count of something you might
+ * reasonably want to see. Wrapping `Stat` in a link rather than building
+ * separate summary and detail components keeps the two in step — the tile and
+ * the page it opens are always counting the same thing.
+ *
+ * The destination is a real URL with query parameters, not local state, so a
+ * drill-down can be bookmarked and pasted to someone else.
+ */
+export function StatLink({
+  to,
+  label,
+  value,
+  unit,
+  hint,
+  tone,
+}: {
+  to: string
+  label: string
+  value: ReactNode
+  unit?: string
+  hint?: string
+  tone?: 'default' | 'warn' | 'good' | 'bad'
+}) {
+  return (
+    <Link to={to} className="block rounded-lg transition hover:-translate-y-0.5">
+      <Stat label={label} value={value} unit={unit} hint={hint} tone={tone} />
+    </Link>
   )
 }
 

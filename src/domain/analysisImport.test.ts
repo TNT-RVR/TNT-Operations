@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   cleanCell,
   isBlankCell,
+  isValidLat,
+  isValidLng,
+  looksLikeAlberta,
   parseAnalysisCsvRow,
+  parseCoordinatePair,
   parseDateCell,
   parseNumberCell,
   validateAnalysisRows,
@@ -145,6 +149,71 @@ describe('parseAnalysisCsvRow', () => {
   it('defaults an unticked exclusion flag to false, not missing', () => {
     const row = parseAnalysisCsvRow({ 'Field Name': 'F', Year: '2025', 'Hail Damage': '' })
     expect(row!.hail_damage).toBe(false)
+  })
+})
+
+describe('parseCoordinatePair', () => {
+  it('reads the form Google Maps puts on the clipboard', () => {
+    expect(parseCoordinatePair('49.8635, -111.963')).toEqual({ lat: 49.8635, lng: -111.963 })
+  })
+
+  it('accepts space, tab and degree-sign separators', () => {
+    expect(parseCoordinatePair('49.8635 -111.963')).toEqual({ lat: 49.8635, lng: -111.963 })
+    expect(parseCoordinatePair('49.8635\t-111.963')).toEqual({ lat: 49.8635, lng: -111.963 })
+    expect(parseCoordinatePair('49.8635° -111.963°')).toEqual({ lat: 49.8635, lng: -111.963 })
+  })
+
+  it('reads the hemisphere form the crew scan files use', () => {
+    // Same spelling importPaths.ts already accepts from handhelds.
+    expect(parseCoordinatePair('49.8635°N, 111.963°W')).toEqual({ lat: 49.8635, lng: -111.963 })
+    expect(parseCoordinatePair('49.8635 N 111.963 W')).toEqual({ lat: 49.8635, lng: -111.963 })
+  })
+
+  it('lets the hemisphere letter override a contradictory sign', () => {
+    expect(parseCoordinatePair('49.8635N, -111.963W')).toEqual({ lat: 49.8635, lng: -111.963 })
+  })
+
+  it('accepts an explicitly reversed pair', () => {
+    // "111.96W, 49.86N" is unambiguous — the letters say which is which.
+    expect(parseCoordinatePair('111.963°W, 49.8635°N')).toEqual({ lat: 49.8635, lng: -111.963 })
+  })
+
+  it('returns null rather than guessing at unreadable input', () => {
+    // A mis-parsed coordinate puts a field in the wrong province and quietly
+    // pollutes every weather correlation it touches.
+    expect(parseCoordinatePair('')).toBeNull()
+    expect(parseCoordinatePair('49.8635')).toBeNull()
+    expect(parseCoordinatePair('somewhere near Taber')).toBeNull()
+    expect(parseCoordinatePair('999, -111.963')).toBeNull()
+    expect(parseCoordinatePair('49.8635, -999')).toBeNull()
+  })
+})
+
+describe('isValidLat / isValidLng', () => {
+  it('bounds latitude and longitude', () => {
+    expect(isValidLat(49.8)).toBe(true)
+    expect(isValidLat(90)).toBe(true)
+    expect(isValidLat(90.1)).toBe(false)
+    expect(isValidLat(NaN)).toBe(false)
+    expect(isValidLng(-111.9)).toBe(true)
+    expect(isValidLng(-180)).toBe(true)
+    expect(isValidLng(180.1)).toBe(false)
+  })
+})
+
+describe('looksLikeAlberta', () => {
+  it('accepts real field coordinates from the export', () => {
+    expect(looksLikeAlberta(49.86350894672768, -111.9630002975464)).toBe(true)
+    expect(looksLikeAlberta(50.061, -112.113)).toBe(true)
+  })
+
+  it('rejects a swapped pair, which is the common typo', () => {
+    expect(looksLikeAlberta(-111.963, 49.8635)).toBe(false)
+  })
+
+  it('rejects somewhere clearly elsewhere', () => {
+    expect(looksLikeAlberta(51.5, -0.12)).toBe(false) // London
+    expect(looksLikeAlberta(49.86, 111.963)).toBe(false) // sign dropped
   })
 })
 

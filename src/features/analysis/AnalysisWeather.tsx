@@ -41,6 +41,7 @@ import {
   FilterBar,
   MetricSelect,
   NotEnoughData,
+  StatLink,
   VerdictBadge,
   VerdictNote,
   verdictFor,
@@ -73,7 +74,11 @@ function Weather() {
   }, [allRows, loadFieldWeather])
 
   const joined = useMemo(() => withWeather(rows, fieldWeather), [rows, fieldWeather])
-  const screen = useCorrelationScreen(joined, true)
+  // Weather against outcomes only. Weather against weather answers nothing —
+  // growing degree days are accumulated from the same daily temperatures that
+  // give the average — and including those pairs would only make the
+  // multiple-comparison correction harsher for the pairs that do matter.
+  const screen = useCorrelationScreen(joined, 'weather-outcome')
 
   const withCoords = rows.filter((r) => r.lat !== null && r.lng !== null).length
   const haveWeather = Object.keys(fieldWeather).length > 0
@@ -100,9 +105,8 @@ function Weather() {
   const selected = useMemo(() => correlate(joined, xKey, yKey), [joined, xKey, yKey])
   const verdict = selected ? verdictFor(xKey, yKey, selected, screen.holmCutoff) : null
 
-  const weatherLeads = screen.leads.filter(
-    (p) => METRIC_BY_KEY[p.xKey]?.derived || METRIC_BY_KEY[p.yKey]?.derived,
-  )
+  // Every pair in this screen already involves exactly one weather metric.
+  const weatherLeads = screen.leads
 
   if (loading && allRows.length === 0) return <p className="text-muted">Loading season data…</p>
   if (rows.length === 0) {
@@ -124,15 +128,25 @@ function Weather() {
       <FilterBar />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Stat
-          label="Fields with coordinates"
-          value={withCoords}
-          unit={`/ ${rows.length}`}
-          tone={withCoords < rows.length ? 'warn' : 'default'}
-          hint={withCoords < rows.length ? 'The rest carry no weather' : undefined}
-        />
+        {withCoords < rows.length ? (
+          <StatLink
+            to="/analysis/map"
+            label="Fields with coordinates"
+            value={withCoords}
+            unit={`/ ${rows.length}`}
+            tone="warn"
+            hint="The rest carry no weather — fix on the map"
+          />
+        ) : (
+          <Stat label="Fields with coordinates" value={withCoords} unit={`/ ${rows.length}`} />
+        )}
         <Stat label="Weather cells cached" value={Object.keys(fieldWeather).length} />
-        <Stat label="Weather leads" value={weatherLeads.length} hint="Survived correction" />
+        <StatLink
+          to="/analysis/correlations?verdict=lead"
+          label="Weather leads"
+          value={weatherLeads.length}
+          hint="Survived correction — see all leads"
+        />
       </div>
 
       {!haveWeather ? (
@@ -238,8 +252,10 @@ function Weather() {
               Weather leads
             </h2>
             <p className="mb-3 text-xs text-muted">
-              Pairs involving a weather metric that survived correction across all{' '}
-              {screen.tested} screened.
+              Weather against season outcomes — {screen.tested} pairs screened, corrected for the
+              size of that search. Weather metrics are never compared with each other: growing
+              degree days come from the same daily temperatures as the average, so the two agreeing
+              tells you nothing.
             </p>
             {weatherLeads.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted">

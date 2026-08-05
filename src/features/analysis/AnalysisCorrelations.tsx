@@ -10,6 +10,8 @@
  */
 
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { X } from 'lucide-react'
 import {
   CartesianGrid,
   Cell,
@@ -45,14 +47,35 @@ const PICKER_OPTIONS = METRICS.filter((m) => !m.derived).map((m) => ({
   group: METRIC_GROUP_LABELS[m.group],
 }))
 
+/** Headings and explanations for a `?verdict=` drill-down from the Overview. */
+const VERDICT_TITLES: Record<string, string> = {
+  lead: 'Leads',
+  weak: 'Not significant',
+  fragile: 'Fragile',
+  definitional: 'Arithmetic',
+}
+
+const VERDICT_BLURBS: Record<string, string> = {
+  lead: 'Survived correction for the number of pairs screened. Worth investigating.',
+  weak: 'Not distinguishable from chance once the size of the search is accounted for. Screening this many pairs guarantees some will look striking.',
+  fragile:
+    'The number is real but rests on too little: one field-season carrying the fit, or a column that takes only two values across the rows being compared.',
+  definitional:
+    'Related by arithmetic rather than agronomy. The x-ray grading shares sum to 100%, so they must trade against each other; return % is computed from gallons returned. Strong r, no information.',
+}
+
 function Correlations() {
   const { rows, loading, allRows } = useAnalysis()
   const companyIndex = useCompanyIndex()
   const [xKey, setXKey] = useState('shelters_per_acre')
   const [yKey, setYKey] = useState('live_prepupae')
   const [showAll, setShowAll] = useState(false)
+  // Arriving from an Overview tile ("show me the 26 arithmetic pairs"). Kept in
+  // the URL rather than in state so the drill-down can be linked to.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const verdictFilter = searchParams.get('verdict')
 
-  const screen = useCorrelationScreen(rows as unknown as Record<string, unknown>[], false)
+  const screen = useCorrelationScreen(rows as unknown as Record<string, unknown>[], 'stored')
 
   const points = useMemo(
     () =>
@@ -66,6 +89,14 @@ function Correlations() {
         .filter((p): p is NonNullable<typeof p> => p !== null),
     [rows, xKey, yKey],
   )
+
+  const visiblePairs = useMemo(() => {
+    if (verdictFilter) return screen.pairs.filter((p) => p.verdict.kind === verdictFilter)
+    if (showAll) return screen.pairs
+    // The default view hides the two categories that are set aside; the
+    // checkbox and the Overview tiles are how you get at them.
+    return screen.pairs.filter((p) => p.verdict.kind === 'lead' || p.verdict.kind === 'weak')
+  }, [screen.pairs, verdictFilter, showAll])
 
   const selected = useMemo(
     () => correlate(rows as unknown as Record<string, unknown>[], xKey, yKey),
@@ -255,20 +286,35 @@ function Correlations() {
           <Card>
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-secondary">
-                Every pair ({screen.tested})
+                {verdictFilter
+                  ? `${VERDICT_TITLES[verdictFilter] ?? verdictFilter} (${visiblePairs.length})`
+                  : `Every pair (${screen.tested})`}
               </h2>
-              <label className="flex items-center gap-2 text-xs text-muted">
-                <input
-                  type="checkbox"
-                  checked={showAll}
-                  onChange={(e) => setShowAll(e.target.checked)}
-                  className="accent-[color:var(--brand)]"
-                />
-                Show arithmetic and fragile results
-              </label>
+              {verdictFilter ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchParams({})}
+                  className="inline-flex items-center gap-1 text-xs text-brand"
+                >
+                  <X size={12} /> Show all {screen.tested} pairs
+                </button>
+              ) : (
+                <label className="flex items-center gap-2 text-xs text-muted">
+                  <input
+                    type="checkbox"
+                    checked={showAll}
+                    onChange={(e) => setShowAll(e.target.checked)}
+                    className="accent-[color:var(--brand)]"
+                  />
+                  Show arithmetic and fragile results
+                </label>
+              )}
             </div>
+            {verdictFilter && VERDICT_BLURBS[verdictFilter] && (
+              <p className="mb-3 text-xs text-muted">{VERDICT_BLURBS[verdictFilter]}</p>
+            )}
             <PairTable
-              pairs={showAll ? screen.pairs : screen.pairs.filter((p) => p.verdict.kind === 'lead' || p.verdict.kind === 'weak')}
+              pairs={visiblePairs}
               onPick={(p) => {
                 setXKey(p.xKey)
                 setYKey(p.yKey)

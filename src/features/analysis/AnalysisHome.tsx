@@ -9,16 +9,16 @@
 
 import { Link } from 'react-router-dom'
 import { ArrowRight, TrendingDown, TrendingUp } from 'lucide-react'
-import { Badge, Card, PageHeader, Stat } from '@/components/ui'
+import { Badge, Card, PageHeader } from '@/components/ui'
 import { formatMetric } from '@/domain/analysisMetrics'
 import { mean, parseMetric } from '@/domain/stats'
 import { AnalysisProvider, useAnalysis } from './useAnalysis'
 import { useCorrelationScreen } from './useCorrelations'
-import { CorrelationStats, FilterBar, NotEnoughData } from './AnalysisChrome'
+import { CorrelationStats, FilterBar, NotEnoughData, StatLink } from './AnalysisChrome'
 
 function Overview() {
   const { rows, loading, allRows } = useAnalysis()
-  const screen = useCorrelationScreen(rows as unknown as Record<string, unknown>[], false)
+  const screen = useCorrelationScreen(rows as unknown as Record<string, unknown>[], 'stored')
 
   if (loading && allRows.length === 0) {
     return <p className="text-muted">Loading season data…</p>
@@ -45,34 +45,52 @@ function Overview() {
         <NotEnoughData what="the overview" />
       ) : (
         <>
+          {/* Every tile drills through to the rows behind it. */}
           <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Field-seasons" value={rows.length} hint={`${seasons} season${seasons === 1 ? '' : 's'}`} />
-            <Stat
+            <StatLink
+              to="/analysis/fields"
+              label="Field-seasons"
+              value={rows.length}
+              hint={`${seasons} season${seasons === 1 ? '' : 's'} — see them all`}
+            />
+            <StatLink
+              to="/analysis/fields?sort=live_prepupae"
               label="Average live prepupae"
               value={avg('live_prepupae')?.toFixed(1) ?? '—'}
               unit="%"
-              hint="Healthy fraction of returned cocoons"
+              hint="Healthy fraction — best first"
             />
-            <Stat
+            <StatLink
+              to="/analysis/fields?sort=percent_return"
               label="Average return"
               value={avg('percent_return')?.toFixed(1) ?? '—'}
               unit="%"
-              hint="Gallons back over gallons out"
+              hint="Gallons back over out — best first"
             />
-            <Stat
+            <StatLink
+              to="/analysis/fields?has=yield_per_acre"
               label="Yield recorded"
               value={withYield}
               unit={`/ ${rows.length}`}
               tone={withYield < rows.length / 2 ? 'warn' : 'default'}
-              hint={withYield < rows.length / 2 ? 'Too sparse to correlate against' : undefined}
+              hint={
+                withYield < rows.length / 2
+                  ? 'Too sparse to correlate — see which'
+                  : 'See which fields'
+              }
             />
           </div>
 
           <div className="mb-4 grid gap-3 sm:grid-cols-4">
-            <ScreenCount label="Leads" value={screen.counts.lead} tone="brand" />
-            <ScreenCount label="Not significant" value={screen.counts.weak} tone="neutral" />
-            <ScreenCount label="Fragile" value={screen.counts.fragile} tone="amber" />
-            <ScreenCount label="Arithmetic" value={screen.counts.definitional} tone="neutral" />
+            <ScreenCount label="Leads" value={screen.counts.lead} tone="brand" verdict="lead" />
+            <ScreenCount label="Not significant" value={screen.counts.weak} tone="neutral" verdict="weak" />
+            <ScreenCount label="Fragile" value={screen.counts.fragile} tone="amber" verdict="fragile" />
+            <ScreenCount
+              label="Arithmetic"
+              value={screen.counts.definitional}
+              tone="neutral"
+              verdict="definitional"
+            />
           </div>
 
           <Card className="mb-4">
@@ -140,24 +158,35 @@ function Overview() {
   )
 }
 
+/**
+ * A verdict count, linking to the correlations screen filtered to it.
+ *
+ * The Arithmetic and Fragile counts are the ones worth opening: they are how
+ * you check that the screening is setting aside what it should, rather than
+ * taking on faith that 26 pairs were correctly called meaningless.
+ */
 function ScreenCount({
   label,
   value,
   tone,
+  verdict,
 }: {
   label: string
   value: number
   tone: 'brand' | 'amber' | 'neutral'
+  verdict: string
 }) {
   const color =
     tone === 'brand' ? 'var(--text-brand)' : tone === 'amber' ? 'var(--warn-fg)' : 'var(--text-muted)'
   return (
-    <Card>
-      <div className="label mb-1">{label}</div>
-      <div className="font-mono text-xl font-semibold tabular-nums" style={{ color }}>
-        {value}
-      </div>
-    </Card>
+    <Link to={`/analysis/correlations?verdict=${verdict}`} className="block rounded-lg transition hover:-translate-y-0.5">
+      <Card>
+        <div className="label mb-1">{label}</div>
+        <div className="font-mono text-xl font-semibold tabular-nums" style={{ color }}>
+          {value}
+        </div>
+      </Card>
+    </Link>
   )
 }
 

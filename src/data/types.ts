@@ -455,3 +455,236 @@ export interface SensorReading {
   humidityPct: number
   source: SensorSource
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sales — estimates, invoices, shipping paperwork, finished-goods inventory
+// (migration 0015). Math lives in domain/{pricing,packing,salesDocs}.ts.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A sellable product and how it is costed. */
+export interface Product {
+  id: string
+  sku: string
+  name: string
+  currency: import('@/domain/pricing').Currency
+  /** Unit of sale — 'each', 'ft', 'set'. Prints on the paperwork. */
+  unit: string
+  labor: number
+  /** Fraction, not percent: 0.5 is a 50% markup on cost. */
+  markup: number
+  /** Round the sale price UP to this increment; null quotes the exact figure. */
+  roundTo: number | null
+  /** Joins to `ItemSpec.item` for pallet/weight math. Null = never ships alone. */
+  shipItem: string | null
+  /** Null is honest — salesDocs reports it missing rather than guessing. */
+  hsCode: string | null
+  countryOfOrigin: string | null
+  active: boolean
+  notes: string
+  /** BOM lines, in display order. */
+  parts: ProductPart[]
+  /** Volume breaks, for goods sold by the foot. */
+  tiers: ProductTier[]
+}
+
+/** One BOM line. `unitCost: null` means uncosted — flagged, never treated as free. */
+export interface ProductPart {
+  id: string
+  part: string
+  qty: number
+  unitCost: number | null
+  /** Freight for this part line, per FINISHED unit (the sheet's `=(B*C)+D`). */
+  freightPerUnit: number
+  note: string
+  sort: number
+}
+
+export interface ProductTier {
+  id: string
+  minQty: number
+  unitCost: number
+}
+
+/** Weight and dimensions for one shippable item — the `Item Specs` sheet. */
+export interface ItemSpecRow {
+  id: string
+  item: string
+  weightLbs: number
+  lengthIn: number
+  widthIn: number
+  heightIn: number
+  /** Height each NESTED item adds — not the standing height. */
+  stackedHeightIn: number
+  maxItemsOnPallet: number
+  palletSize: string
+  stacksPerPallet: number
+}
+
+export interface SalesCustomer {
+  id: string
+  company: string
+  contactName: string
+  addressLines: string[]
+  city: string
+  region: string
+  postalCode: string
+  /** ISO 3166-1 alpha-2. Decides which paperwork a shipment needs. */
+  country: string
+  /** BN (Canada) or EIN (US). */
+  taxId: string
+  email: string
+  phone: string
+  gpsLink: string
+  notes: string
+}
+
+export interface Supplier {
+  id: string
+  part: string
+  forItem: string
+  company: string
+  contactName: string
+  email: string
+  phone: string
+  website: string
+  notes: string
+}
+
+export type OrderKind = 'estimate' | 'invoice'
+export type OrderStatus =
+  | 'draft'
+  | 'sent'
+  | 'accepted'
+  | 'declined'
+  | 'invoiced'
+  | 'shipped'
+  | 'paid'
+  | 'void'
+
+/**
+ * An estimate or an invoice. Accepting an estimate spawns a NEW invoice linked
+ * by `fromEstimateId` rather than mutating in place — the quote and the bill
+ * are separate documents and both need to survive.
+ */
+export interface SalesOrder {
+  id: string
+  number: string
+  kind: OrderKind
+  status: OrderStatus
+  fromEstimateId: string | null
+  customerId: string | null
+  currency: import('@/domain/pricing').Currency
+  /** Rate this order was written at, if converted. Kept so it can be re-read. */
+  fxRate: number | null
+  /** ISO date. */
+  issuedDate: string
+  dueDate: string | null
+  poNumber: string
+
+  // Customs and freight terms. All optional — salesDocs reports what's missing.
+  incoterm: import('@/domain/salesDocs').Incoterm | null
+  incotermPlace: string
+  paymentTerms: string
+  transportMode: import('@/domain/salesDocs').TransportMode | null
+  placeOfDirectShipment: string
+  countryOfTranshipment: string
+  reasonForExport: string
+  dateOfDirectShipment: string | null
+
+  carrier: string
+  freightTerms: 'prepaid' | 'collect' | 'third-party' | null
+  declaredValue: number | null
+  specialInstructions: string
+
+  /** Set only when claiming CUSMA preference — see salesDocs. */
+  certifierRole: 'importer' | 'exporter' | 'producer' | null
+  producer: string
+  signatoryName: string
+  signatoryTitle: string
+
+  notes: string
+  createdAt: string
+  updatedAt: string
+
+  lines: SalesOrderLine[]
+  charges: SalesOrderCharge[]
+}
+
+/**
+ * A priced line. Pricing is a SNAPSHOT taken when the line was added: re-costing
+ * a BOM must not restate an invoice that already went to a customer, and a
+ * customs document has to keep saying what it said when it was filed.
+ */
+export interface SalesOrderLine {
+  id: string
+  /** Soft reference — the catalogue can change without rewriting history. */
+  productId: string | null
+  description: string
+  qty: number
+  unit: string
+  unitPrice: number
+  unitCost: number
+  extended: number
+  hsCode: string | null
+  countryOfOrigin: string | null
+  originCriterion: 'A' | 'B' | 'C' | 'D' | null
+  /** Which `ItemSpecRow.item` this packs as, frozen with the price. */
+  shipItem: string | null
+  sort: number
+}
+
+export interface SalesOrderCharge {
+  id: string
+  label: string
+  amount: number
+  /** Billed at cost, no margin. */
+  passThrough: boolean
+  /** Transport from the place of direct shipment — CI1 box 23 breaks this out. */
+  isTransportToBorder: boolean
+  sort: number
+}
+
+/** Marking a shipment is what COMMITS the stock draw-down. */
+export interface Shipment {
+  id: string
+  orderId: string
+  /** ISO UTC. */
+  shippedAt: string
+  carrier: string
+  tracking: string
+  /** Packing figures frozen at ship time, so paperwork keeps matching the truck. */
+  palletCount: number | null
+  netWeightLbs: number | null
+  grossWeightLbs: number | null
+  notes: string
+}
+
+/** Finished-goods stock. Raw parts are costed in the BOM but not stocked. */
+export interface InventoryLevel {
+  id: string
+  productId: string
+  onHand: number
+  /** Spoken for by an invoice that hasn't shipped. */
+  reserved: number
+  /** onHand − reserved. Generated in the DB so nobody computes it differently. */
+  available: number
+  /** Below this, raise a low_stock notification. Null disables the alert. */
+  reorderPoint: number | null
+  location: string
+  updatedAt: string
+}
+
+export type StockReason = 'receive' | 'ship' | 'adjust' | 'reserve' | 'release' | 'count' | 'build'
+
+/** Why a count is what it is. Inventory is an audit trail with a running total. */
+export interface StockMovement {
+  id: string
+  productId: string
+  /** Signed: +50 received, −20 shipped. */
+  delta: number
+  reason: StockReason
+  orderId: string | null
+  note: string
+  /** ISO UTC. */
+  at: string
+}

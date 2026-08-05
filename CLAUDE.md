@@ -226,13 +226,54 @@ _Last reviewed 2026-08-03._
         "New grant" notification). Needs `ANTHROPIC_API_KEY` in Netlify env or it
         no-ops with 501. Manual first pull: `scripts/grants_pull_manual.sql`.
       - `grants` is a new `MODULES` key, so it carries its own role permissions.
+      - **Analysis** (`/analysis`, `0014_field_analysis.sql`) — season analysis
+        ported from the "Leaf Bee Insights" Base44 app (source zip exported
+        2026-08-05). One row per field per season, natural key
+        `(field_name, year)`; 157 real rows, 2020–2025. New `analysis` MODULES
+        key. Subsections: Overview / Fields / Correlations / Weather / Growers /
+        Map / Upload.
+        - **`FieldAnalysis` keeps snake_case**, unlike every other type — the
+          screens address metrics dynamically as `row[metric.key]` off the
+          registry in `domain/analysisMetrics.ts`, so renaming would need a
+          40-entry translation table across the registry, SQL and CSV headers.
+        - **Numerics are numeric.** Base44 typed almost every metric `string`
+          (the sheet carries "69.52%", "-", and Excel's `'-`) and re-parsed on
+          every render. `scripts/import_field_analysis.py` cleans once on the
+          way in; the migration CHECKs percent columns to 0–100.
+        - **The screening is the point.** Over the real data, 473 testable pairs
+          yield only ~25 real leads: 76 are definitional (the 11 x-ray grading
+          shares sum to 100, so they MUST trade against each other;
+          `percent_return` is computed from its own numerator) and ~49 rest on
+          one outlier or a two-valued column. `domain/stats.ts` returns n, a
+          Fisher-z p-value, a leave-one-out fragility flag and a Holm cutoff;
+          `domain/analysisRelations.ts` names the arithmetic pairs. Ranking by
+          |r| alone — all the original did — puts artifacts on top.
+        - **Yield is not a usable outcome**: recorded on 33/157 rows (12 after
+          default exclusions), and every yield correlation is fragile. Fixing
+          that means recording more yield, not more analysis.
+        - Dropped from the port: cocoon/x-ray images and the AI colour analysis
+          (`cocoon_image_url`, `xray_image_url`, `xray_results_url_*`,
+          `color_analysis*` are empty on all 157 rows).
+        - Weather is Open-Meteo archive (Apr 1–Sep 30), fetched by
+          `netlify/functions/weather-fetch.mjs` and cached in `weather_cache` —
+          the original refetched it per field PER PANEL, inside render.
+        - `netlify/functions/analysis-ai.mjs` replaces the 8 `InvokeLLM` sites;
+          it is passed the computed verdict so it explains a result rather than
+          judging one. Needs `ANTHROPIC_API_KEY` or it no-ops with 501.
+        - No alerts: this is after-season analysis (confirmed 2026-08-05).
+        - Charts use **recharts**, themed in `features/analysis/chartTheme.ts`.
+          The categorical series order there is NOT the token declaration order:
+          used as declared, violet↔sky measure ΔE 2.1 under deuteranopia.
+          Reordering (honey, teal, coral, sky, lime, violet) lifts the worst
+          adjacent pair to ΔE 11.0. Token VALUES are untouched.
 
 ## Dev
 - `npm run dev` — runs on mock data, no backend needed.
 - `npm run typecheck && npm test && npm run build` — keep this green before pushing.
-  (133 tests green as of 2026-08-03.)
+  (393 tests green as of 2026-08-05.)
 - `npm test` — Vitest: domain math (`tentGrid`, `geo`, `incubation`, `cost`,
-  `crewRoute`, `shelterOverrides`, `fieldWarnings`, `grants`), row mappers, the
+  `crewRoute`, `shelterOverrides`, `fieldWarnings`, `grants`, `stats`,
+  `weather`, `analysisImport`, `analysisRelations`), row mappers, the
   permission matrix, and the maps helpers (`overlays`, `exports`, `importBoundary`).
 - `npm run lint:tokens` — fails on raw hex outside the token layer (see Hard rules).
 
@@ -247,3 +288,12 @@ _Last reviewed 2026-08-03._
 - PASS-FOLLOWING placement mode is still unported (`NotPortedError`) — see Phase 2.
 - `xray_live_pct` may be stored as a fraction (0.86) or a percent (86); the
   Samples UI normalises (>1 ⇒ ÷100), but the true convention is unconfirmed.
+  (`field_analysis` has no such ambiguity — percent columns are 0–100 by CHECK.)
+- **Analysis migration 0014 is written but NOT yet applied**, and the 157 real
+  rows are not imported. Run `0014_field_analysis.sql` in the Supabase SQL
+  editor, then `python scripts/import_field_analysis.py <Field_export.csv>` and
+  paste `scripts/field_analysis_import.sql`. `weather-fetch` also needs
+  `SUPABASE_SERVICE_ROLE` in Netlify env, and `analysis-ai` needs
+  `ANTHROPIC_API_KEY` (already set if grants-pull works).
+- `field_analysis.shelter_field_id` is never populated — the link to
+  `shelter_fields` exists in the schema but nothing matches names to fields yet.

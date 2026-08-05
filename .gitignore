@@ -25,3 +25,4 @@ yarn-error.log*
 scripts/incubation_import.sql
 scripts/import_parts/
 scripts/fields_import.sql
+scripts/field_analysis_import.sql

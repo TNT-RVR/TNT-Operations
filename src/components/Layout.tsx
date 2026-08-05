@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -81,6 +81,21 @@ const NAV: NavItem[] = [
     ],
   },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },
+  {
+    to: '/analysis',
+    label: 'Analysis',
+    icon: ChartScatter,
+    module: 'analysis',
+    children: [
+      { to: '/analysis', label: 'Overview', end: true },
+      { to: '/analysis/fields', label: 'Fields' },
+      { to: '/analysis/correlations', label: 'Correlations' },
+      { to: '/analysis/weather', label: 'Weather' },
+      { to: '/analysis/growers', label: 'Growers' },
+      { to: '/analysis/map', label: 'Map' },
+      { to: '/analysis/upload', label: 'Upload' },
+    ],
+  },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
   { to: '/users', label: 'Users', icon: Users, module: 'users' },
 ]

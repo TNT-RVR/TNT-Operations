@@ -27,6 +27,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
     "read-excel-file": "^9.3.5",
+    "recharts": "^3.10.1",
     "shpjs": "^6.2.0",
     "web-push": "^3.6.7"
   },

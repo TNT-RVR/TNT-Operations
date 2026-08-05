@@ -19,6 +19,14 @@ import SensorsHome from './features/sensors/SensorsHome'
 import UsersHome from './features/users/UsersHome'
 import GrantsHome from './features/grants/GrantsHome'
 import NotificationsHome from './features/notifications/NotificationsHome'
+import AnalysisHome from './features/analysis/AnalysisHome'
+import AnalysisFields from './features/analysis/AnalysisFields'
+import AnalysisFieldDetail from './features/analysis/AnalysisFieldDetail'
+import AnalysisCorrelations from './features/analysis/AnalysisCorrelations'
+import AnalysisWeather from './features/analysis/AnalysisWeather'
+import AnalysisGrowers from './features/analysis/AnalysisGrowers'
+import AnalysisMap from './features/analysis/AnalysisMap'
+import AnalysisUpload from './features/analysis/AnalysisUpload'
 
 export default function App() {
   return (
@@ -39,6 +47,14 @@ export default function App() {
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
         <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
+        <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
+        <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />
+        <Route path="analysis/fields/:id" element={<Protected module="analysis"><AnalysisFieldDetail /></Protected>} />
+        <Route path="analysis/correlations" element={<Protected module="analysis"><AnalysisCorrelations /></Protected>} />
+        <Route path="analysis/weather" element={<Protected module="analysis"><AnalysisWeather /></Protected>} />
+        <Route path="analysis/growers" element={<Protected module="analysis"><AnalysisGrowers /></Protected>} />
+        <Route path="analysis/map" element={<Protected module="analysis"><AnalysisMap /></Protected>} />
+        <Route path="analysis/upload" element={<Protected module="analysis"><AnalysisUpload /></Protected>} />
         <Route path="grants" element={<Protected module="grants"><GrantsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />
         {/* Notifications are visible to any signed-in user (no module gate). */}

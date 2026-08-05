@@ -7,7 +7,7 @@ import { arrivedNeedingPassword, initialAuthType } from './authLink'
 import { BeeMark } from '@/components/BeeMark'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
-export const MODULES = ['dashboard', 'maps', 'incubation', 'blocks', 'sensors', 'grants', 'users'] as const
+export const MODULES = ['dashboard', 'maps', 'incubation', 'blocks', 'sensors', 'analysis', 'grants', 'users'] as const
 export type Module = (typeof MODULES)[number]
 export type Action = 'view' | 'edit'
 
@@ -26,12 +26,13 @@ export interface User {
 /** Role → what it can do. `edit` implies `view`. */
 const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Full access — highest grant wins.
-  admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', grants: 'edit', users: 'edit' },
-  developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', grants: 'edit', users: 'edit' },
+  admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', analysis: 'edit', grants: 'edit', users: 'edit' },
+  developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', analysis: 'edit', grants: 'edit', users: 'edit' },
   // Field/office staff: run the operation, but not user administration.
-  operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', grants: 'edit' },
+  // `analysis: edit` is what lets them upload the season sheet.
+  operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', analysis: 'edit', grants: 'edit' },
   // Read-only.
-  viewer: { dashboard: 'view', maps: 'view', incubation: 'view', blocks: 'view', sensors: 'view', grants: 'view' },
+  viewer: { dashboard: 'view', maps: 'view', incubation: 'view', blocks: 'view', sensors: 'view', analysis: 'view', grants: 'view' },
   // Signed up, awaiting admin approval — no access to anything.
   pending: {},
 }

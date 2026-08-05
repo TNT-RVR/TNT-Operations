@@ -18,9 +18,21 @@ import type {
   NestingBlock,
   Grant,
   GrantTask,
+  FieldAnalysis,
+  FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+import { parseAnalysisCsvRow } from '@/domain/analysisImport'
+import { summariseWeather, weatherKey, type OpenMeteoDaily } from '@/domain/weather'
 import { supabase } from './supabaseClient'
+
+/** Cached Open-Meteo response, as stored by migration 0014. */
+interface WeatherCacheRow {
+  lat_key: number | string
+  lng_key: number | string
+  year: string
+  daily: unknown
+}
 import {
   toBlock,
   toBlockPlacement,
@@ -60,6 +72,8 @@ import {
   type NestingBlockRow,
   type GrantRow,
   type GrantTaskRow,
+  toFieldAnalysis,
+  type FieldAnalysisRow,
 } from './mappers'
 
 /**
@@ -96,6 +110,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
+  const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
+  const [fieldAnalysisLoading, setFieldAnalysisLoading] = useState(false)
+  const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   /** Oldest timestamp already fetched per incubator, so ranges load once. */
@@ -104,6 +121,14 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const traysPromiseRef = useRef<Promise<void> | null>(null)
   /** Same one-shot guard for blocks — several screens call loadBlocks(). */
   const blocksPromiseRef = useRef<Promise<void> | null>(null)
+  /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
+  const analysisPromiseRef = useRef<Promise<void> | null>(null)
+  /**
+   * Weather cache keys already fetched or in flight. Without this, six panels
+   * mounting at once each start the same 157 lookups — which is precisely what
+   * the Base44 version did.
+   */
+  const weatherInFlightRef = useRef<Set<string>>(new Set())
 
   /** Merge a saved placement into local state, replacing any earlier version. */
   const upsertPlacement = useCallback((saved: BlockPlacement) => {
@@ -570,6 +595,132 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         })()
         blocksPromiseRef.current = run
         return run
+      },
+
+      // ── Season analysis ───────────────────────────────────────────────────
+      fieldAnalysis,
+      fieldAnalysisLoading,
+      loadFieldAnalysis: () => {
+        if (analysisPromiseRef.current) return analysisPromiseRef.current
+        if (!supabase) return Promise.resolve()
+        setFieldAnalysisLoading(true)
+        const run = (async () => {
+          // ~157 rows today and growing by a season a year, so a single select
+          // stays well under PostgREST's 1000-row cap. Ordered newest-first so
+          // the field list opens on the current season.
+          const { data, error } = await supabase!
+            .from('field_analysis')
+            .select('*')
+            .order('year', { ascending: false })
+            .order('field_name', { ascending: true })
+          if (error) {
+            console.error('[data] loadFieldAnalysis:', error.message)
+            analysisPromiseRef.current = null // let it retry
+          } else {
+            setFieldAnalysis(((data as FieldAnalysisRow[]) ?? []).map(toFieldAnalysis))
+          }
+          setFieldAnalysisLoading(false)
+        })()
+        analysisPromiseRef.current = run
+        return run
+      },
+
+      fieldWeather,
+      loadFieldWeather: async (rows) => {
+        if (!supabase) return
+        // Collapse to distinct grid cells first: neighbouring fields share a
+        // cell, and the same field appears once per season.
+        const wanted = new Map<string, { lat: number; lng: number; year: string }>()
+        for (const r of rows) {
+          if (r.lat === null || r.lng === null || !r.year) continue
+          const key = weatherKey(r.lat, r.lng, r.year)
+          if (weatherInFlightRef.current.has(key)) continue
+          wanted.set(key, { lat: r.lat, lng: r.lng, year: r.year })
+        }
+        if (wanted.size === 0) return
+        for (const key of wanted.keys()) weatherInFlightRef.current.add(key)
+
+        try {
+          // Serve whatever the cache already holds before going out.
+          const { data: cached } = await supabase
+            .from('weather_cache')
+            .select('lat_key,lng_key,year,daily')
+            .in('year', [...new Set([...wanted.values()].map((v) => v.year))])
+
+          const found: Record<string, FieldWeather> = {}
+          for (const row of (cached ?? []) as WeatherCacheRow[]) {
+            const key = `${Number(row.lat_key).toFixed(3)},${Number(row.lng_key).toFixed(3)},${row.year}`
+            if (!wanted.has(key)) continue
+            found[key] = summariseWeather(row.daily as OpenMeteoDaily, key, row.year)
+            wanted.delete(key)
+          }
+          if (Object.keys(found).length) setFieldWeather((prev) => ({ ...prev, ...found }))
+
+          // Anything still wanted has never been fetched. The Netlify function
+          // does the outbound call and writes the cache, so the browser never
+          // talks to Open-Meteo directly and one warm-up serves every user.
+          if (wanted.size === 0) return
+          const res = await fetch('/.netlify/functions/weather-fetch', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ cells: [...wanted.entries()].map(([key, v]) => ({ key, ...v })) }),
+          })
+          if (!res.ok) {
+            console.error('[data] loadFieldWeather:', res.status, await res.text())
+            // Allow a retry — a cold cache behind a transient failure should
+            // not stay empty for the rest of the session.
+            for (const key of wanted.keys()) weatherInFlightRef.current.delete(key)
+            return
+          }
+          const payload = (await res.json()) as { cells: Array<{ key: string; year: string; daily: OpenMeteoDaily }> }
+          const fetched: Record<string, FieldWeather> = {}
+          for (const c of payload.cells ?? []) {
+            fetched[c.key] = summariseWeather(c.daily, c.key, c.year)
+          }
+          if (Object.keys(fetched).length) setFieldWeather((prev) => ({ ...prev, ...fetched }))
+        } catch (e) {
+          console.error('[data] loadFieldWeather:', e)
+          for (const key of wanted.keys()) weatherInFlightRef.current.delete(key)
+        }
+      },
+
+      importFieldAnalysis: async (rows) => {
+        if (!supabase) return { inserted: 0, updated: 0, skipped: 0, error: 'No backend connection.' }
+        const parsed: Array<Partial<FieldAnalysis> & { field_name: string; year: string }> = []
+        let skipped = 0
+        for (const raw of rows) {
+          const row = parseAnalysisCsvRow(raw)
+          if (row) parsed.push(row)
+          else skipped++
+        }
+        if (parsed.length === 0) {
+          return { inserted: 0, updated: 0, skipped, error: 'No rows had both a field name and a year.' }
+        }
+
+        // Which keys already exist, so the caller can report inserted vs
+        // updated honestly rather than calling every upsert a "create".
+        const existing = new Set(fieldAnalysis.map((r) => `${r.field_name}|${r.year}`))
+        const updated = parsed.filter((r) => existing.has(`${r.field_name}|${r.year}`)).length
+
+        const { error } = await supabase
+          .from('field_analysis')
+          .upsert(parsed, { onConflict: 'field_name,year' })
+        if (error) {
+          console.error('[data] importFieldAnalysis:', error.message)
+          return { inserted: 0, updated: 0, skipped, error: error.message }
+        }
+
+        // Re-read rather than patching local state: the upsert may have filled
+        // defaults and the ids of new rows are server-assigned.
+        analysisPromiseRef.current = null
+        const { data } = await supabase
+          .from('field_analysis')
+          .select('*')
+          .order('year', { ascending: false })
+          .order('field_name', { ascending: true })
+        setFieldAnalysis(((data as FieldAnalysisRow[]) ?? []).map(toFieldAnalysis))
+
+        return { inserted: parsed.length - updated, updated, skipped }
       },
 
       placeBlock: async ({ label, fieldId, lat, lng, season }) => {

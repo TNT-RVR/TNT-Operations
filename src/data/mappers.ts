@@ -30,6 +30,7 @@ import type {
   Grant,
   GrantStatus,
   GrantTask,
+  FieldAnalysis,
 } from './types'
 
 type Num = number | string | null | undefined
@@ -647,4 +648,53 @@ export function toGrantTask(row: GrantTaskRow): GrantTask {
     assignedTo: row.assigned_to,
     createdAt: row.created_at,
   }
+}
+
+// ── Season analysis (0014) ───────────────────────────────────────────────────
+
+/**
+ * Raw `field_analysis` row. Unusually, the app type keeps these same snake_case
+ * names — the analysis screens address metrics dynamically by column key rather
+ * than by property, so renaming would need a 40-entry translation table. See
+ * the note on `FieldAnalysis` in types.ts.
+ */
+export type FieldAnalysisRow = Record<string, unknown> & { id: string }
+
+/** Every numeric column, so PostgREST's string-or-number output is coerced once. */
+const ANALYSIS_NUMERIC_COLS = [
+  'acres', 'lat', 'lng', 'male_row_spacing', 'female_row_spacing', 'male_rows',
+  'female_rows', 'shelters_per_acre', 'num_structures', 'blocks_per_shelter',
+  'sprayer_width', 'seeding_angle', 'gallons_put_out', 'gallons_returned',
+  'gals_per_acre', 'pounds', 'percent_return', 'live_count', 'live_prepupae',
+  'immature_larvae', 'dead_prepupae', 'dead_larvae', 'pollen_balls',
+  'second_generation', 'predators_and_pests', 'parasites',
+  'chalkbrood_sporulating', 'chalkbrood_non_sporulating', 'machine_damage',
+  'sex_ratio_test_viability', 'percent_female', 'percent_male',
+  'clean_weight_yield', 'yield_per_acre', 'avg_for_variety',
+] as const
+
+const ANALYSIS_TEXT_COLS = [
+  'field_name', 'year', 'company', 'crop', 'field_id', 'variety_code',
+  'farmer_name', 'planting_pattern', 'notes',
+] as const
+
+const ANALYSIS_DATE_COLS = [
+  'seeding_date', 'predicted_flower_date', 'actual_bee_release',
+  'bees_brought_back_in',
+] as const
+
+const ANALYSIS_BOOL_COLS = ['hail_damage', 'bad_recording', 'experimental'] as const
+
+export function toFieldAnalysis(row: FieldAnalysisRow): FieldAnalysis {
+  const out: Record<string, unknown> = {
+    id: row.id,
+    shelter_field_id: (row.shelter_field_id as string | null) ?? null,
+  }
+  for (const c of ANALYSIS_TEXT_COLS) out[c] = (row[c] as string | null) ?? ''
+  for (const c of ANALYSIS_DATE_COLS) out[c] = (row[c] as string | null) ?? null
+  for (const c of ANALYSIS_BOOL_COLS) out[c] = row[c] === true
+  for (const c of ANALYSIS_NUMERIC_COLS) {
+    out[c] = numOrNull(row[c] as number | string | null | undefined)
+  }
+  return out as unknown as FieldAnalysis
 }

@@ -26,8 +26,19 @@ describe('grants (role permission matrix)', () => {
     expect(grants('operator', 'users', 'edit')).toBe(false)
   })
 
+  it('operator can upload the season sheet', () => {
+    // Analysis is office work, not field work, but the same people do it.
+    expect(grants('operator', 'analysis', 'view')).toBe(true)
+    expect(grants('operator', 'analysis', 'edit')).toBe(true)
+  })
+
+  it('viewer can read the analysis but cannot import over it', () => {
+    expect(grants('viewer', 'analysis', 'view')).toBe(true)
+    expect(grants('viewer', 'analysis', 'edit')).toBe(false)
+  })
+
   it('viewer can view operational sections but never edit, and has no users access', () => {
-    for (const m of ['dashboard', 'maps', 'incubation', 'sensors'] as Module[]) {
+    for (const m of ['dashboard', 'maps', 'incubation', 'sensors', 'analysis'] as Module[]) {
       expect(grants('viewer', m, 'view')).toBe(true)
       expect(grants('viewer', m, 'edit')).toBe(false)
     }

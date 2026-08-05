@@ -233,6 +233,114 @@ export interface BlockPlacement {
   notes: string
 }
 
+// ── Season analysis (ported from the Leaf Bee Insights Base44 app) ──────────
+
+/**
+ * One field's record for one season, for after-harvest analysis.
+ *
+ * NOTE the naming. Every other type here is camelCase, mapped from snake_case
+ * columns. This one keeps the database's own column names, on purpose:
+ *
+ * The analysis screens never write `row.livePrepupae`. They iterate the metric
+ * registry in `src/domain/analysisMetrics.ts` and read `row[metric.key]`,
+ * because "which metric" is a runtime choice made by the person looking at the
+ * chart. Renaming the columns would mean carrying a 40-entry translation table
+ * between the registry, the SQL and the CSV headers, and every one of those
+ * three would be a place for a typo to silently produce an empty chart.
+ *
+ * So: a wide statistical record addressed by column key, not a domain object.
+ * `field_analysis` rows are read-only in the app — they arrive by import.
+ */
+export interface FieldAnalysis {
+  id: string
+
+  // Identity
+  field_name: string
+  year: string
+  company: string
+  crop: string
+  /** The seed company's own field number, not ours. */
+  field_id: string
+  variety_code: string
+  farmer_name: string
+  /** Set where a season row could be matched to an operational field. */
+  shelter_field_id: string | null
+
+  // Field & planting layout
+  acres: number | null
+  lat: number | null
+  lng: number | null
+  planting_pattern: string
+  male_row_spacing: number | null
+  female_row_spacing: number | null
+  male_rows: number | null
+  female_rows: number | null
+  shelters_per_acre: number | null
+  num_structures: number | null
+  blocks_per_shelter: number | null
+  sprayer_width: number | null
+  seeding_angle: number | null
+
+  // Bee logistics
+  gallons_put_out: number | null
+  gallons_returned: number | null
+  gals_per_acre: number | null
+  pounds: number | null
+  percent_return: number | null
+  live_count: number | null
+
+  // X-ray grading — percent units (0–100). These 11 sum to ~100; see
+  // src/domain/analysisRelations.ts for why that matters when correlating.
+  live_prepupae: number | null
+  immature_larvae: number | null
+  dead_prepupae: number | null
+  dead_larvae: number | null
+  pollen_balls: number | null
+  second_generation: number | null
+  predators_and_pests: number | null
+  parasites: number | null
+  chalkbrood_sporulating: number | null
+  chalkbrood_non_sporulating: number | null
+  machine_damage: number | null
+  sex_ratio_test_viability: number | null
+  percent_female: number | null
+  percent_male: number | null
+
+  // Timeline (ISO dates, no time component)
+  seeding_date: string | null
+  predicted_flower_date: string | null
+  actual_bee_release: string | null
+  bees_brought_back_in: string | null
+
+  // Outcome — recorded on only about a fifth of rows.
+  clean_weight_yield: number | null
+  yield_per_acre: number | null
+  avg_for_variety: number | null
+
+  // Excluded from analysis by default via the settings toggles.
+  hail_damage: boolean
+  bad_recording: boolean
+  experimental: boolean
+
+  notes: string
+}
+
+/** Season weather for one field, derived from the cached Open-Meteo response. */
+export interface FieldWeather {
+  /** `${lat_key},${lng_key},${year}` — matches how the cache is keyed. */
+  key: string
+  year: string
+  avgTemp: number | null
+  maxTemp: number | null
+  minTemp: number | null
+  totalPrecip: number | null
+  avgWind: number | null
+  growingDegreeDays: number | null
+  rainDays: number | null
+  /** Days warm, dry and calm enough for leafcutters to work. */
+  flightHours: number | null
+}
+
 // ── Grants (funding pipeline; mirrors the RVR Management App) ────────────────
 
 /** A funding opportunity we're tracking through the application workflow. */

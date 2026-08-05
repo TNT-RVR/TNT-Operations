@@ -16,8 +16,12 @@ import type {
   NestingBlock,
   Grant,
   GrantTask,
+  FieldAnalysis,
+  FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+import { parseAnalysisCsvRow } from '@/domain/analysisImport'
+import { weatherKey } from '@/domain/weather'
 import {
   seedFields,
   seedIncubators,
@@ -32,12 +36,42 @@ import {
   seedGrants,
   seedBlocks,
   seedBlockPlacements,
+  seedFieldAnalysis,
 } from './seed'
 import { SupabaseProvider } from './SupabaseProvider'
 import { isSupabaseConfigured } from './supabaseClient'
 
 let idSeq = 1000
 const nextId = (prefix: string) => `${prefix}_${++idSeq}`
+
+/**
+ * A plausible season of weather for mock mode, derived from the cache key.
+ *
+ * Deterministic — no Date.now(), no Math.random() — so the charts look the same
+ * on every reload and the seeded correlations stay stable. It is fake data for
+ * a screen with no backend, not a model of anything.
+ */
+function mockWeather(key: string, year: string, lat: number, lng: number): FieldWeather {
+  // Spread values across a believable southern-Alberta range using the
+  // coordinates and year as the only inputs.
+  const wobble = (salt: number) => {
+    const h = Math.abs(Math.sin((lat * 73.1 + lng * 31.7 + Number(year) + salt) * 12.9898))
+    return h - Math.floor(h)
+  }
+  const avgTemp = 14 + wobble(1) * 6
+  return {
+    key,
+    year,
+    avgTemp,
+    maxTemp: avgTemp + 7 + wobble(2) * 3,
+    minTemp: avgTemp - 7 - wobble(3) * 3,
+    totalPrecip: 120 + wobble(4) * 160,
+    avgWind: 12 + wobble(5) * 10,
+    growingDegreeDays: 900 + wobble(6) * 500,
+    rainDays: Math.round(28 + wobble(7) * 22),
+    flightHours: Math.round(55 + wobble(8) * 45),
+  }
+}
 
 /** Mock backend: seeded in-memory state, no server required. */
 function MockProvider({ children }: { children: ReactNode }) {
@@ -58,6 +92,8 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
+  const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
+  const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
   const nowIso = () => new Date().toISOString()
 
   const value = useMemo<DataContextValue>(
@@ -251,6 +287,55 @@ function MockProvider({ children }: { children: ReactNode }) {
         return Promise.resolve({ ok: true })
       },
 
+      // ── Season analysis ─────────────────────────────────────────────────
+      fieldAnalysis,
+      fieldAnalysisLoading: false,
+      // Mock data is already in memory; nothing to fetch.
+      loadFieldAnalysis: () => Promise.resolve(),
+      fieldWeather,
+      loadFieldWeather: (rows) => {
+        // No network in mock mode. Derive a deterministic season per
+        // coordinate+year so the weather panels have something plausible to
+        // plot — varied enough to correlate against, stable across reloads.
+        setFieldWeather((prev) => {
+          const next = { ...prev }
+          for (const r of rows) {
+            if (r.lat === null || r.lng === null) continue
+            const key = weatherKey(r.lat, r.lng, r.year)
+            if (next[key]) continue
+            next[key] = mockWeather(key, r.year, r.lat, r.lng)
+          }
+          return next
+        })
+        return Promise.resolve()
+      },
+      importFieldAnalysis: (rows) => {
+        let inserted = 0
+        let updated = 0
+        let skipped = 0
+        setFieldAnalysis((prev) => {
+          const byKey = new Map(prev.map((r) => [`${r.field_name}|${r.year}`, r]))
+          for (const raw of rows) {
+            const parsed = parseAnalysisCsvRow(raw)
+            if (!parsed) {
+              skipped++
+              continue
+            }
+            const key = `${parsed.field_name}|${parsed.year}`
+            const existing = byKey.get(key)
+            if (existing) {
+              byKey.set(key, { ...existing, ...parsed, id: existing.id })
+              updated++
+            } else {
+              byKey.set(key, { ...parsed, id: nextId('fa') } as FieldAnalysis)
+              inserted++
+            }
+          }
+          return [...byKey.values()]
+        })
+        return Promise.resolve({ inserted, updated, skipped })
+      },
+
       grants,
       addGrant: (input) => {
         const id = nextId('g')
@@ -306,6 +391,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       blockPlacements,
       grants,
       grantTasks,
+      fieldAnalysis,
+      fieldWeather,
     ],
   )
 

@@ -17,6 +17,8 @@ import type {
   NestingBlock,
   Grant,
   GrantTask,
+  FieldAnalysis,
+  FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
@@ -184,6 +186,40 @@ export interface DataContextValue {
   }) => Promise<{ ok: boolean; error?: string }>
   /** Edit a placement directly (fix a weight, move it to the right field…). */
   saveBlockPlacement: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
+
+  // ── Season analysis (0014) ───────────────────────────────────────────────
+  /**
+   * One row per field per season, for after-harvest analysis. NOT loaded on
+   * mount — only the Analysis section reads them. Call `loadFieldAnalysis()`.
+   */
+  fieldAnalysis: FieldAnalysis[]
+  fieldAnalysisLoading: boolean
+  /** Fetch every analysis row once. Idempotent — safe to call from any screen. */
+  loadFieldAnalysis: () => Promise<void>
+  /**
+   * Season weather per field, keyed by `weatherKey(lat, lng, year)`.
+   * Populated by `loadFieldWeather`; empty until then.
+   */
+  fieldWeather: Record<string, FieldWeather>
+  /**
+   * Fetch and cache season weather for the given field-seasons.
+   *
+   * Deduplicates by rounded coordinate before going out, so the six analysis
+   * panels that all want weather for the same 157 fields cause one round of
+   * work rather than six. Rows without coordinates are skipped, not guessed.
+   */
+  loadFieldWeather: (
+    rows: ReadonlyArray<Pick<FieldAnalysis, 'lat' | 'lng' | 'year'>>,
+  ) => Promise<void>
+  /**
+   * Replace a season's analysis rows from an uploaded CSV.
+   *
+   * Upserts on `(field_name, year)` — the natural key — so re-uploading a
+   * corrected sheet updates in place rather than duplicating the season.
+   */
+  importFieldAnalysis: (
+    rows: ReadonlyArray<Record<string, unknown>>,
+  ) => Promise<{ inserted: number; updated: number; skipped: number; error?: string }>
 
   // ── Grants (funding pipeline) ────────────────────────────────────────────
   grants: Grant[]

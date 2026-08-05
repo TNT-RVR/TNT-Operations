@@ -1,4 +1,4 @@
-import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, TrayInspection, Sample, SensorReading, Tray, AppNotification, Grant, Block, BlockPlacement } from './types'
+import type { Field, Incubator, IncubationBatch, IncubatorAlert, Inspection, TrayInspection, Sample, SensorReading, Tray, AppNotification, Grant, Block, BlockPlacement, FieldAnalysis } from './types'
 
 /** Deterministic demo data for mock mode. No Date.now() so it's stable/testable. */
 
@@ -401,4 +401,103 @@ export const seedBlockPlacements: BlockPlacement[] = [
     strippedAt: '2025-08-02T15:00:00Z', strippedWeightLbs: 4.4, strippedBy: 'demo',
   }),
   placement({ id: 'bp7', blockId: 'blk6' }),
+]
+
+// ── Season analysis (mock mode) ──────────────────────────────────────────────
+// Fourteen synthetic field-seasons across three years. Synthetic rather than a
+// slice of the real export: mock mode is what `npm run dev` runs on with no
+// backend, and a committed seed file is the wrong home for real grower names,
+// coordinates and yields.
+//
+// The numbers carry deliberate scatter. An earlier draft made every metric a
+// clean function of one underlying "quality", which produced r = 1.000 between
+// unrelated columns — the one thing demo data must not do is make the screening
+// UI look broken. Here return tracks live prepupae loosely (the real lead is
+// r = +0.582 over 122 field-seasons), live count is driven mostly by field
+// size, and field size is deliberately NOT aligned with quality.
+//
+// Two further properties are load-bearing for the screens:
+//   • the 11 grading percentages sum to 100 on every row, so the compositional
+//     warning in analysisRelations.ts actually fires,
+//   • yield is present on only 3 of 14 rows, mirroring the real sparsity that
+//     makes every yield correlation fragile.
+
+const analysisRow = (
+  over: Partial<FieldAnalysis> & { id: string; field_name: string; year: string },
+): FieldAnalysis => ({
+  company: 'Corteva',
+  crop: 'Seed Canola',
+  field_id: '',
+  variety_code: '',
+  farmer_name: 'Demo Grower',
+  shelter_field_id: null,
+  acres: 65,
+  lat: 49.86,
+  lng: -111.96,
+  planting_pattern: 'Row',
+  male_row_spacing: 22,
+  female_row_spacing: 22,
+  male_rows: 2,
+  female_rows: 8,
+  shelters_per_acre: 2,
+  num_structures: 130,
+  blocks_per_shelter: 3,
+  sprayer_width: 120,
+  seeding_angle: 0,
+  gallons_put_out: 219,
+  gallons_returned: 76,
+  gals_per_acre: 3,
+  pounds: 199.7,
+  percent_return: 35,
+  live_count: 3828,
+  live_prepupae: 69.5,
+  immature_larvae: 0,
+  dead_prepupae: 0,
+  dead_larvae: 4.1,
+  pollen_balls: 20.9,
+  second_generation: 0,
+  predators_and_pests: 0,
+  parasites: 1.9,
+  chalkbrood_sporulating: 0.2,
+  chalkbrood_non_sporulating: 0,
+  machine_damage: 3.4,
+  sex_ratio_test_viability: null,
+  percent_female: null,
+  percent_male: null,
+  seeding_date: null,
+  predicted_flower_date: null,
+  actual_bee_release: null,
+  bees_brought_back_in: null,
+  clean_weight_yield: null,
+  yield_per_acre: null,
+  avg_for_variety: null,
+  hail_damage: false,
+  bad_recording: false,
+  experimental: false,
+  notes: '',
+  ...over,
+})
+
+export const seedFieldAnalysis: FieldAnalysis[] = [
+  // 2026.
+  analysisRow({ id: 'fa1', field_name: 'Bow Island NW 12-9-12', farmer_name: 'David Torrie', year: '2026', live_prepupae: 74.2, pollen_balls: 14.1, dead_larvae: 4.8, parasites: 2.1, machine_damage: 4.3, chalkbrood_sporulating: 0.5, percent_return: 41, live_count: 3280, acres: 54, gallons_put_out: 178, gallons_returned: 73, num_structures: 108, shelters_per_acre: 2, blocks_per_shelter: 3, lat: 49.874, lng: -111.938 }),
+  analysisRow({ id: 'fa2', field_name: 'Bow Island SE 12-9-12', farmer_name: 'David Torrie', year: '2026', live_prepupae: 71.8, pollen_balls: 18.4, dead_larvae: 3.9, parasites: 1.6, machine_damage: 3.8, chalkbrood_sporulating: 0.5, percent_return: 33, live_count: 3620, acres: 68, gallons_put_out: 225, gallons_returned: 74, num_structures: 132, shelters_per_acre: 1.9, blocks_per_shelter: 3, lat: 49.861, lng: -111.926 }),
+  analysisRow({ id: 'fa3', field_name: 'Taber W half NE 4-10-16', farmer_name: 'Marcel Boehm', year: '2026', live_prepupae: 66.0, pollen_balls: 21.7, dead_larvae: 5.6, parasites: 2.9, machine_damage: 3.4, chalkbrood_sporulating: 0.4, percent_return: 36, live_count: 3510, acres: 60, gallons_put_out: 198, gallons_returned: 71, num_structures: 118, shelters_per_acre: 2, blocks_per_shelter: 4, company: 'BASF', lat: 49.795, lng: -112.142 }),
+  analysisRow({ id: 'fa4', field_name: 'Taber E half NE 4-10-16', farmer_name: 'Marcel Boehm', year: '2026', live_prepupae: 63.4, pollen_balls: 24.2, dead_larvae: 6.1, parasites: 2.4, machine_damage: 3.6, chalkbrood_sporulating: 0.3, percent_return: 28, live_count: 3910, acres: 76, gallons_put_out: 250, gallons_returned: 70, num_structures: 152, shelters_per_acre: 2, blocks_per_shelter: 4, company: 'BASF', lat: 49.798, lng: -112.128 }),
+  analysisRow({ id: 'fa5', field_name: 'Grassy Lake S 22-10-13', farmer_name: 'Sandra Wiebe', year: '2026', live_prepupae: 77.1, pollen_balls: 12.5, dead_larvae: 4.2, parasites: 1.8, machine_damage: 3.9, chalkbrood_sporulating: 0.5, percent_return: 42, live_count: 4980, acres: 80, gallons_put_out: 262, gallons_returned: 110, num_structures: 168, shelters_per_acre: 2.1, blocks_per_shelter: 3, crop: 'Alfalfa', lat: 49.822, lng: -111.607 }),
+  // A hailed-out season — excluded from the default view.
+  analysisRow({ id: 'fa6', field_name: 'Purple Springs N 8-11-14', farmer_name: 'Ellen Redcrow', year: '2026', live_prepupae: 41.2, pollen_balls: 44.8, dead_larvae: 7.3, parasites: 3.1, machine_damage: 3.0, chalkbrood_sporulating: 0.6, percent_return: 12, live_count: 1980, acres: 65, gallons_put_out: 214, gallons_returned: 26, num_structures: 128, shelters_per_acre: 2, blocks_per_shelter: 3, hail_damage: true, notes: 'Hail 12 July, near-total loss of bloom.', lat: 49.884, lng: -112.021 }),
+
+  // 2025 — the year yield was recorded on some fields.
+  analysisRow({ id: 'fa7', field_name: 'Bow Island NW 12-9-12', farmer_name: 'David Torrie', year: '2025', live_prepupae: 72.5, pollen_balls: 16.9, dead_larvae: 5.1, parasites: 1.9, machine_damage: 3.2, chalkbrood_sporulating: 0.4, percent_return: 44, live_count: 3540, acres: 56, gallons_put_out: 184, gallons_returned: 81, num_structures: 112, shelters_per_acre: 1.9, blocks_per_shelter: 3, clean_weight_yield: 1430, yield_per_acre: 25.6, lat: 49.874, lng: -111.938 }),
+  analysisRow({ id: 'fa8', field_name: 'Taber W half NE 4-10-16', farmer_name: 'Marcel Boehm', year: '2025', live_prepupae: 64.8, pollen_balls: 23.1, dead_larvae: 5.9, parasites: 2.6, machine_damage: 3.2, chalkbrood_sporulating: 0.4, percent_return: 29, live_count: 3040, acres: 60, gallons_put_out: 201, gallons_returned: 58, num_structures: 122, shelters_per_acre: 2, blocks_per_shelter: 4, company: 'BASF', clean_weight_yield: 1310, yield_per_acre: 21.8, lat: 49.795, lng: -112.142 }),
+  analysisRow({ id: 'fa9', field_name: 'Grassy Lake S 22-10-13', farmer_name: 'Sandra Wiebe', year: '2025', live_prepupae: 75.9, pollen_balls: 13.8, dead_larvae: 4.6, parasites: 1.7, machine_damage: 3.6, chalkbrood_sporulating: 0.4, percent_return: 38, live_count: 4410, acres: 80, gallons_put_out: 258, gallons_returned: 98, num_structures: 160, shelters_per_acre: 2, blocks_per_shelter: 3, crop: 'Alfalfa', clean_weight_yield: 2120, yield_per_acre: 26.5, lat: 49.822, lng: -111.607 }),
+  analysisRow({ id: 'fa10', field_name: 'Vauxhall E 30-12-15', farmer_name: 'Ken Dyck', year: '2025', live_prepupae: 68.7, pollen_balls: 20.0, dead_larvae: 5.3, parasites: 2.2, machine_damage: 3.4, chalkbrood_sporulating: 0.4, percent_return: 34, live_count: 3660, acres: 64, gallons_put_out: 210, gallons_returned: 71, num_structures: 126, shelters_per_acre: 2, blocks_per_shelter: 4, company: 'Northstar', lat: 50.061, lng: -112.113 }),
+  // Deliberately non-standard spacing trial.
+  analysisRow({ id: 'fa11', field_name: 'Vauxhall W 30-12-15', farmer_name: 'Ken Dyck', year: '2025', live_prepupae: 70.1, pollen_balls: 18.6, dead_larvae: 5.0, parasites: 2.3, machine_damage: 3.6, chalkbrood_sporulating: 0.4, percent_return: 31, live_count: 3380, acres: 66, gallons_put_out: 218, gallons_returned: 68, num_structures: 130, shelters_per_acre: 2, blocks_per_shelter: 3, male_row_spacing: 30, female_row_spacing: 30, experimental: true, company: 'Northstar', notes: 'Wide-row spacing trial.', lat: 50.058, lng: -112.131 }),
+
+  // 2024.
+  analysisRow({ id: 'fa12', field_name: 'Bow Island NW 12-9-12', farmer_name: 'David Torrie', year: '2024', live_prepupae: 70.9, pollen_balls: 18.1, dead_larvae: 5.4, parasites: 2.0, machine_damage: 3.2, chalkbrood_sporulating: 0.4, percent_return: 39, live_count: 4290, acres: 72, gallons_put_out: 244, gallons_returned: 95, num_structures: 146, shelters_per_acre: 2, blocks_per_shelter: 3, lat: 49.874, lng: -111.938 }),
+  analysisRow({ id: 'fa13', field_name: 'Taber E half NE 4-10-16', farmer_name: 'Marcel Boehm', year: '2024', live_prepupae: 61.5, pollen_balls: 26.4, dead_larvae: 6.3, parasites: 2.5, machine_damage: 2.9, chalkbrood_sporulating: 0.4, percent_return: 30, live_count: 3820, acres: 74, gallons_put_out: 244, gallons_returned: 73, num_structures: 148, shelters_per_acre: 2, blocks_per_shelter: 4, company: 'BASF', lat: 49.798, lng: -112.128 }),
+  analysisRow({ id: 'fa14', field_name: 'Grassy Lake S 22-10-13', farmer_name: 'Sandra Wiebe', year: '2024', live_prepupae: 76.4, pollen_balls: 13.2, dead_larvae: 4.4, parasites: 2.0, machine_damage: 3.6, chalkbrood_sporulating: 0.4, percent_return: 40, live_count: 4830, acres: 80, gallons_put_out: 266, gallons_returned: 106, num_structures: 164, shelters_per_acre: 2.1, blocks_per_shelter: 3, crop: 'Alfalfa', lat: 49.822, lng: -111.607 }),
 ]

@@ -381,12 +381,38 @@ export function medianSpacingM(samples: SamplePoint[]): number | null {
       const d2 = dx * dx + dy * dy
       if (d2 < best) best = d2
     }
-    if (Number.isFinite(best)) nn.push(Math.sqrt(best))
+    // Ignore repeats of the SAME position — several blocks recorded at one
+    // spot, or two GPS reads of it. Their separation says nothing about how
+    // far apart sampled positions are, and including them drags the median to
+    // ~0, which collapses the edge trim and gives every block its own disc.
+    if (Number.isFinite(best) && best > 1) nn.push(Math.sqrt(best))
   }
-  if (nn.length === 0) return null
+
+  // Independent estimate that duplicates cannot distort: if n positions cover
+  // this bounding box, they sit roughly sqrt(area / n) apart. Used as a floor.
+  let minLat = Infinity
+  let maxLat = -Infinity
+  let minLng = Infinity
+  let maxLng = -Infinity
+  for (const s of samples) {
+    minLat = Math.min(minLat, s.lat)
+    maxLat = Math.max(maxLat, s.lat)
+    minLng = Math.min(minLng, s.lng)
+    maxLng = Math.max(maxLng, s.lng)
+  }
+  const widthM = (maxLng - minLng) * mPerLng
+  const heightM = (maxLat - minLat) * mPerLat
+  const area = Math.abs(widthM * heightM)
+  const coverage = area > 0 ? Math.sqrt(area / samples.length) : null
+
+  if (nn.length === 0) return coverage
   nn.sort((a, b) => a - b)
   const mid = nn.length >> 1
-  return nn.length % 2 ? nn[mid] : (nn[mid - 1] + nn[mid]) / 2
+  const nnMedian = nn.length % 2 ? nn[mid] : (nn[mid - 1] + nn[mid]) / 2
+
+  // Take the LARGER: too small leaves holes between blocks, too large only
+  // reaches a little further past the edge. The failure modes aren't equal.
+  return coverage == null ? nnMedian : Math.max(nnMedian, coverage)
 }
 
 /**

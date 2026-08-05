@@ -328,3 +328,47 @@ describe('clip vs influence — the polka-dot bug', () => {
     expect(filled).toBeGreaterThan(0)
   })
 })
+
+describe('spacing is robust to repeated positions', () => {
+  const lattice: SamplePoint[] = Array.from({ length: 196 }, (_, i) =>
+    at(49.83 + (i % 14) * 0.00045, -111.6 + Math.floor(i / 14) * 0.0007, 5),
+  )
+
+  it('is not collapsed by blocks recorded at the same spot', () => {
+    // The polka-dot cause: several blocks per position (or two GPS reads of
+    // one) made the nearest-neighbour median ~1 m, so the edge trim fell to
+    // its floor and every block got its own small disc.
+    const exact = lattice.flatMap((p) => [p, { ...p }])
+    const near = lattice.flatMap((p) => [p, { ...p, lat: p.lat + 0.00001 }])
+    for (const set of [exact, near]) {
+      const spacing = medianSpacingM(set)!
+      expect(spacing).toBeGreaterThan(20) // not ~1 m
+    }
+  })
+
+  it('leaves no holes between blocks at the default looseness', () => {
+    const near = lattice.flatMap((p) => [p, { ...p, lat: p.lat + 0.00001 }])
+    // The trim must comfortably exceed the real spacing, or gaps appear.
+    expect(autoTrimM(near, 2)).toBeGreaterThan(50)
+  })
+
+  it('still reflects genuine spacing for clean data', () => {
+    expect(medianSpacingM(lattice)!).toBeGreaterThan(35)
+    expect(medianSpacingM(lattice)!).toBeLessThan(70)
+  })
+
+  it('produces a continuous surface for duplicated positions', () => {
+    // End to end: no isolated discs. Walk the middle row of the grid; once
+    // inside the sampled area it should stay filled, not alternate.
+    const near = lattice.flatMap((p) => [p, { ...p, lat: p.lat + 0.00001 }])
+    const g = idwGrid(SQUARE, near, { cellM: 10, clipDistanceM: autoTrimM(near, 2) })!
+    const row = Math.floor(g.rows / 2)
+    const filled: boolean[] = []
+    for (let cx = 0; cx < g.cols; cx++) filled.push(Number.isFinite(g.values[row * g.cols + cx]))
+    // Count runs of filled cells: a continuous band is ONE run, polka dots
+    // would be many.
+    let runs = 0
+    for (let i = 0; i < filled.length; i++) if (filled[i] && !filled[i - 1]) runs++
+    expect(runs).toBe(1)
+  })
+})

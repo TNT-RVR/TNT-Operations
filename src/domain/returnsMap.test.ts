@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { fieldFrame } from './fieldFrame'
 import {
   idwGrid,
   gridStats,
@@ -8,6 +9,8 @@ import {
   syntheticField,
   medianSpacingM,
   autoTrimM,
+  insideField,
+  sampleGrid,
   type ReturnsGrid,
   type SamplePoint,
 } from './returnsMap'
@@ -433,5 +436,56 @@ describe('edge smoothing', () => {
     for (let i = 0; i < g.values.length; i++) {
       if (Number.isFinite(g.values[i])) expect(Number.isFinite(plain.values[i])).toBe(true)
     }
+  })
+})
+
+describe('exact field outlines', () => {
+  const PIVOT_FIELD = { PP_Longitude: '-111.6', PP_Latitude: '49.83', Radius: '400', use_bays: false }
+
+  it('treats a pivot as a true circle', () => {
+    const f = fieldFrame(PIVOT_FIELD)!
+    // Just inside and just outside the 400 m radius, in several directions.
+    for (const a of [0, Math.PI / 4, Math.PI / 2, 2.4, 4.1]) {
+      expect(insideField(f, 399 * Math.cos(a), 399 * Math.sin(a))).toBe(true)
+      expect(insideField(f, 401 * Math.cos(a), 401 * Math.sin(a))).toBe(false)
+    }
+  })
+
+  it('treats a polygon as straight edges', () => {
+    const f = fieldFrame(SQUARE)!
+    // A square boundary: the corner region is outside, the mid-edge inside.
+    const ring = f.boundaryEnu!
+    const maxE = Math.max(...ring.map((p) => p[0]))
+    const maxN = Math.max(...ring.map((p) => p[1]))
+    expect(insideField(f, maxE - 5, maxN - 5)).toBe(true)
+    expect(insideField(f, maxE + 5, maxN + 5)).toBe(false)
+    // A circle through the corner would wrongly include this point.
+    expect(insideField(f, maxE + 2, 0)).toBe(false)
+  })
+})
+
+describe('sampleGrid', () => {
+  const lattice: SamplePoint[] = Array.from({ length: 64 }, (_, i) =>
+    at(49.828 + (i % 8) * 0.00045, -111.603 + Math.floor(i / 8) * 0.0007, 4 + (i % 4)),
+  )
+
+  it('interpolates between cells rather than stepping', () => {
+    const g = idwGrid(SQUARE, lattice, { cellM: 20 })!
+    // Walk a short line and confirm values change gradually, not in jumps
+    // the size of a cell — that stepping is what made edges look blocky.
+    const e0 = g.originE + 30
+    const n0 = g.originN - 30
+    const seen: number[] = []
+    for (let d = 0; d < 20; d++) {
+      const v = sampleGrid(g, e0 + d, n0)
+      if (Number.isFinite(v)) seen.push(v)
+    }
+    expect(seen.length).toBeGreaterThan(10)
+    expect(new Set(seen.map((v) => Math.round(v * 1000))).size).toBeGreaterThan(5)
+  })
+
+  it('returns NaN well outside the grid', () => {
+    const g = idwGrid(SQUARE, lattice, { cellM: 20 })!
+    expect(Number.isFinite(sampleGrid(g, g.originE - 5000, g.originN))).toBe(false)
   })
 })

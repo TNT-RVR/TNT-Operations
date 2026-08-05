@@ -169,6 +169,51 @@ class SampleIndex {
 }
 
 /**
+ * Whether an ENU point lies inside the field: within the boundary ring when
+ * one is defined, otherwise within the pivot radius.
+ *
+ * Exported so the renderer can test EVERY OUTPUT PIXEL rather than every grid
+ * cell. Testing per cell means the boundary is drawn at the interpolation
+ * resolution, which turns a pivot's circle into visible stair-steps; testing
+ * per pixel gives a true circle (or true straight edges) whatever the grid.
+ */
+export function insideField(frame: FieldFrame, e: number, n: number): boolean {
+  const ring = frame.boundaryEnu
+  if (ring && ring.length >= 3) return pointInEnuRing(ring, e, n)
+  return e * e + n * n <= frame.radius * frame.radius
+}
+
+/**
+ * Value at an arbitrary ENU position, bilinearly interpolated between grid
+ * cells. NaN when any corner is missing, so the surface fades out rather than
+ * smearing values across a hole.
+ */
+export function sampleGrid(g: ReturnsGrid, e: number, n: number): number {
+  const fx = (e - g.originE) / g.cellM - 0.5
+  const fy = (g.originN - n) / g.cellM - 0.5
+  const x0 = Math.floor(fx)
+  const y0 = Math.floor(fy)
+  const tx = fx - x0
+  const ty = fy - y0
+
+  const at = (x: number, y: number): number => {
+    if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) return NaN
+    return g.values[y * g.cols + x]
+  }
+  const v00 = at(x0, y0)
+  const v10 = at(x0 + 1, y0)
+  const v01 = at(x0, y0 + 1)
+  const v11 = at(x0 + 1, y0 + 1)
+  if (!Number.isFinite(v00) || !Number.isFinite(v10) || !Number.isFinite(v01) || !Number.isFinite(v11)) {
+    // On the very edge, fall back to the nearest real value so the boundary
+    // stays filled right up to the geometric edge instead of fraying.
+    const near = [v00, v10, v01, v11].filter((v) => Number.isFinite(v))
+    return near.length ? near[0] : NaN
+  }
+  return v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty) + v01 * (1 - tx) * ty + v11 * tx * ty
+}
+
+/**
  * Approximate distance, in cells, from every cell to the nearest `true` in
  * `mask`. Two-pass chamfer (3-4 weights) — not exact Euclidean, but within a
  * few percent and linear in the number of cells, which matters at 250k.

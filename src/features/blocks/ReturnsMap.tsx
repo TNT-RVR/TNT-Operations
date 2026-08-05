@@ -13,6 +13,8 @@ import {
   cornersValid,
   gridExtentM,
   autoTrimM,
+  insideField,
+  sampleGrid,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -57,6 +59,12 @@ export default function ReturnsMap() {
   const [cols, setCols] = useState<ColMap>({ lat: -1, lng: -1, value: -1, label: -1, group: -1 })
   /** Which field within the imported sheet is being mapped. */
   const [groupPick, setGroupPick] = useState<string | null>(null)
+  /**
+   * Which real field's geometry to clip imported points to. Without this the
+   * outline is inferred from the points themselves, which can only ever be an
+   * approximation of a circle or a straight edge.
+   */
+  const [clipFieldId, setClipFieldId] = useState('')
   const [importErr, setImportErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -177,26 +185,69 @@ export default function ReturnsMap() {
     }
   }
 
-  /** Paint the grid to a canvas: one pixel per cell, transparent where empty. */
+  /**
+   * Paint the surface.
+   *
+   * Rendered at a HIGHER resolution than the interpolation grid, testing the
+   * field boundary per output pixel. One pixel per cell would draw the
+   * boundary at the interpolation resolution, which makes a pivot's circle
+   * visibly stair-stepped; per-pixel gives a true circle and true straight
+   * edges regardless of how coarse the grid is.
+   *
+   * The edge is also anti-aliased by supersampling: each pixel takes several
+   * sub-samples and its opacity is the fraction that landed inside the field,
+   * so the rim is smooth rather than jagged.
+   */
   const renderCanvas = (g: ReturnsGrid): HTMLCanvasElement => {
+    // Cap the texture so a big field can't produce an enormous canvas.
+    const target = Math.min(2048, Math.max(g.cols, g.rows) * 4)
+    const scale = Math.max(1, Math.round(target / Math.max(g.cols, g.rows)))
+    const W = g.cols * scale
+    const H = g.rows * scale
+
     const cv = document.createElement('canvas')
-    cv.width = g.cols
-    cv.height = g.rows
+    cv.width = W
+    cv.height = H
     const ctx = cv.getContext('2d')!
-    const img = ctx.createImageData(g.cols, g.rows)
+    const img = ctx.createImageData(W, H)
     const span = g.max - g.min || 1
-    for (let i = 0; i < g.values.length; i++) {
-      const v = g.values[i]
-      const o = i * 4
-      if (!Number.isFinite(v)) {
-        img.data[o + 3] = 0 // outside the field — fully transparent
-        continue
+
+    // 2x2 sub-samples per pixel: enough to smooth the rim, cheap enough to
+    // stay instant while dragging the controls.
+    const SUB = [0.25, 0.75]
+    const pxM = g.cellM / scale
+
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        let hits = 0
+        let sum = 0
+        let samples = 0
+        for (const sy of SUB) {
+          for (const sx of SUB) {
+            const e = g.originE + (px + sx) * pxM
+            const n = g.originN - (py + sy) * pxM
+            if (!insideField(g.frame, e, n)) continue
+            hits++
+            const v = sampleGrid(g, e, n)
+            if (Number.isFinite(v)) {
+              sum += v
+              samples++
+            }
+          }
+        }
+        const o = (py * W + px) * 4
+        if (hits === 0 || samples === 0) {
+          img.data[o + 3] = 0 // outside the field, or no data here
+          continue
+        }
+        const [r, gg, b] = rampColor((sum / samples - g.min) / span)
+        img.data[o] = r
+        img.data[o + 1] = gg
+        img.data[o + 2] = b
+        // Coverage-weighted alpha smooths the boundary; 200 lets a little
+        // satellite through, as QGIS exports do.
+        img.data[o + 3] = Math.round(200 * (hits / (SUB.length * SUB.length)))
       }
-      const [r, gg, b] = rampColor((v - g.min) / span)
-      img.data[o] = r
-      img.data[o + 1] = gg
-      img.data[o + 2] = b
-      img.data[o + 3] = 200 // let a little satellite through, as QGIS exports do
     }
     ctx.putImageData(img, 0, 0)
     return cv
@@ -475,6 +526,23 @@ export default function ReturnsMap() {
                   </Select>
                 </label>
               )}
+
+              <label className="block text-xs text-muted">
+                Clip to a real field's boundary (optional)
+                <Select value={clipFieldId} onChange={(e) => setClipFieldId(e.target.value)}>
+                  <option value="">Use the shape of the points</option>
+                  {fields
+                    .filter((f) => f.geometry)
+                    .map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                </Select>
+                <span className="mt-1 block text-faint">
+                  Gives an exact outline — a true circle for a pivot, straight edges for a polygon.
+                </span>
+              </label>
 
               {sheet && cols.group < 0 && (
                 <p className="text-xs text-muted">

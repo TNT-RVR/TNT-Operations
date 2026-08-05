@@ -349,6 +349,60 @@ export function syntheticField(samples: SamplePoint[], bufferM = 100): FieldDict
 }
 
 /**
+ * Typical spacing between neighbouring blocks, in metres (median of each
+ * point's nearest neighbour). The basis for how far the surface should extend
+ * past the outermost blocks before it stops meaning anything.
+ */
+export function medianSpacingM(samples: SamplePoint[]): number | null {
+  if (samples.length < 2) return null
+  // Project to a local metre frame about the first point; exact enough for a
+  // spacing statistic and far cheaper than haversine per pair.
+  const lat0 = samples[0].lat
+  const mPerLat = 111_320
+  const mPerLng = 111_320 * Math.cos((lat0 * Math.PI) / 180)
+  const pts = samples.map((s) => [s.lng * mPerLng, s.lat * mPerLat] as [number, number])
+
+  // O(n^2) is fine to a few thousand; sample a subset beyond that.
+  const step = pts.length > 1500 ? Math.ceil(pts.length / 1500) : 1
+  const nn: number[] = []
+  for (let i = 0; i < pts.length; i += step) {
+    let best = Infinity
+    for (let j = 0; j < pts.length; j++) {
+      if (i === j) continue
+      const dx = pts[i][0] - pts[j][0]
+      const dy = pts[i][1] - pts[j][1]
+      const d2 = dx * dx + dy * dy
+      if (d2 < best) best = d2
+    }
+    if (Number.isFinite(best)) nn.push(Math.sqrt(best))
+  }
+  if (nn.length === 0) return null
+  nn.sort((a, b) => a - b)
+  const mid = nn.length >> 1
+  return nn.length % 2 ? nn[mid] : (nn[mid - 1] + nn[mid]) / 2
+}
+
+/**
+ * How far past the blocks to keep drawing, derived from their spacing.
+ *
+ * The interpolation grid is a rectangle, but a field is not — so without a
+ * limit the corners get filled with colour extrapolated from blocks a long way
+ * off, and a circular pivot renders as a square. Masking cells that have no
+ * block within this distance makes the surface follow the shape actually
+ * sampled, whatever that shape is.
+ *
+ * `looseness` scales it: ~1 hugs the blocks, ~3 reaches well past them.
+ */
+export function autoTrimM(samples: SamplePoint[], looseness = 2): number {
+  const spacing = medianSpacingM(samples)
+  // No spacing to go on (a single block): fall back to something sane rather
+  // than masking everything or nothing.
+  if (spacing == null || !Number.isFinite(spacing) || spacing <= 0) return 150 * looseness
+  // Clamped so pathological spacing can't produce a useless mask either way.
+  return Math.min(600, Math.max(25, spacing * looseness))
+}
+
+/**
  * Whether a grid's corners are real places MapLibre will accept.
  *
  * The ENU projection is LOCAL: accurate over a field, meaningless over a
@@ -404,19 +458,24 @@ export function gridStats(g: ReturnsGrid): GridStats {
 }
 
 /**
- * Colour ramp, low → high. Deliberately NOT red-green: red-green is the single
- * most common form of colour blindness, and "which end is bad" has to survive
- * being printed and photocopied for a grower.
+ * Colour ramp, low → high: red (worst) through yellow to green (best).
+ *
+ * ColorBrewer RdYlGn, the classic QGIS yield ramp — chosen so these maps read
+ * the same way as the ones growers have seen for years.
+ *
+ * Caveat worth knowing: red/green is the commonest form of colour blindness,
+ * so roughly one man in twelve will struggle to separate the two ends. The
+ * legend prints the actual numbers for that reason.
  */
 export const RAMP: Array<[number, number, number]> = [
-  [49, 54, 149], // deep blue — lowest
-  [69, 117, 180],
-  [116, 173, 209],
-  [171, 217, 233],
-  [254, 224, 144],
-  [253, 174, 97],
+  [165, 0, 38], // dark red — worst
+  [215, 48, 39],
   [244, 109, 67],
-  [165, 0, 38], // deep red — highest
+  [253, 174, 97],
+  [254, 224, 139],
+  [217, 239, 139],
+  [145, 207, 96],
+  [26, 152, 80], // dark green — best
 ]
 
 /** Sample the ramp at t ∈ [0,1], linearly between stops. */

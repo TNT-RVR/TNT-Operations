@@ -6,6 +6,8 @@ import {
   gridToCsv,
   cornersValid,
   syntheticField,
+  medianSpacingM,
+  autoTrimM,
   type SamplePoint,
 } from './returnsMap'
 
@@ -144,9 +146,9 @@ describe('gridStats', () => {
 })
 
 describe('rampColor', () => {
-  it('spans low to high and clamps outside [0,1]', () => {
-    expect(rampColor(0)).toEqual([49, 54, 149])
-    expect(rampColor(1)).toEqual([165, 0, 38])
+  it('runs red (worst) to green (best) and clamps outside [0,1]', () => {
+    expect(rampColor(0)).toEqual([165, 0, 38]) // dark red = worst
+    expect(rampColor(1)).toEqual([26, 152, 80]) // dark green = best
     expect(rampColor(-5)).toEqual(rampColor(0))
     expect(rampColor(5)).toEqual(rampColor(1))
   })
@@ -244,5 +246,45 @@ describe('cornersValid', () => {
         [0, 0],
       ]),
     ).toBe(false)
+  })
+})
+
+describe('edge trimming', () => {
+  /** 6×6 blocks on a 50 m lattice. */
+  const lattice: SamplePoint[] = Array.from({ length: 36 }, (_, i) =>
+    at(49.83 + (i % 6) * 0.00045, -111.6 + Math.floor(i / 6) * 0.0007, 5),
+  )
+
+  it('measures typical block spacing', () => {
+    const m = medianSpacingM(lattice)!
+    // ~50 m lattice, so the nearest neighbour should be about that.
+    expect(m).toBeGreaterThan(35)
+    expect(m).toBeLessThan(65)
+  })
+
+  it('is null with fewer than two points', () => {
+    expect(medianSpacingM([at(49.83, -111.6, 5)])).toBeNull()
+  })
+
+  it('derives a trim distance that scales with looseness', () => {
+    const tight = autoTrimM(lattice, 1)
+    const loose = autoTrimM(lattice, 3.5)
+    expect(loose).toBeGreaterThan(tight)
+    expect(tight).toBeGreaterThanOrEqual(25)
+  })
+
+  it('falls back sensibly for a single point', () => {
+    expect(autoTrimM([at(49.83, -111.6, 5)], 2)).toBeGreaterThan(0)
+  })
+
+  it('leaves the far corners empty instead of squaring off the field', () => {
+    // The reported problem: a round field rendered as a square because the
+    // grid's corners were filled by extrapolation from distant blocks.
+    const trimmed = idwGrid(SQUARE, lattice, { cellM: 10, maxDistanceM: autoTrimM(lattice, 1) })!
+    const filled = idwGrid(SQUARE, lattice, { cellM: 10, maxDistanceM: null })!
+    const count = (g: typeof trimmed) => [...g.values].filter((v) => Number.isFinite(v)).length
+    expect(count(trimmed)).toBeLessThan(count(filled))
+    // Still draws the sampled area itself.
+    expect(count(trimmed)).toBeGreaterThan(0)
   })
 })

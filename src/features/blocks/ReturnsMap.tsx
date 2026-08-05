@@ -12,6 +12,7 @@ import {
   syntheticField,
   cornersValid,
   gridExtentM,
+  autoTrimM,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -47,6 +48,8 @@ export default function ReturnsMap() {
   /** Drop points the GPS clearly got wrong before interpolating. */
   const [cleanGps, setCleanGps] = useState(true)
   const [strictness, setStrictness] = useState(5)
+  /** How far past the outermost blocks the surface keeps drawing. */
+  const [looseness, setLooseness] = useState(2)
 
   // Imported spreadsheet (ad-hoc, never written to the database). When present
   // it REPLACES the live samples, so a past season can be checked on its own.
@@ -125,8 +128,11 @@ export default function ReturnsMap() {
       ? syntheticField(active)
       : (field?.geometry as Record<string, unknown> | undefined)
     if (!geom) return null
-    return idwGrid(geom, active, { cellM, power })
-  }, [field, active, imported, cellM, power])
+    // Mask cells with no block nearby, so the surface follows the shape that
+    // was actually sampled rather than filling the bounding rectangle.
+    const maxDistanceM = looseness > 0 ? autoTrimM(active, looseness) : null
+    return idwGrid(geom, active, { cellM, power, maxDistanceM })
+  }, [field, active, imported, cellM, power, looseness])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
@@ -326,7 +332,7 @@ export default function ReturnsMap() {
       />
 
       <div className="space-y-3 p-4 md:p-6">
-        <div className="grid gap-2 md:grid-cols-4">
+        <div className="grid gap-2 md:grid-cols-5">
           <Select value={activeSeason} onChange={(e) => setSeason(Number(e.target.value))}>
             {(seasons.length ? seasons : [activeSeason]).map((s) => (
               <option key={s} value={s}>{s}</option>
@@ -344,6 +350,15 @@ export default function ReturnsMap() {
               <option value={5}>Fine (5 m)</option>
               <option value={10}>Normal (10 m)</option>
               <option value={25}>Coarse (25 m)</option>
+            </Select>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-muted">
+            Edge
+            <Select value={looseness} onChange={(e) => setLooseness(Number(e.target.value))} className="flex-1">
+              <option value={1}>Tight</option>
+              <option value={2}>Normal</option>
+              <option value={3.5}>Loose</option>
+              <option value={0}>Fill field</option>
             </Select>
           </label>
           <label className="flex items-center gap-2 text-sm text-muted">

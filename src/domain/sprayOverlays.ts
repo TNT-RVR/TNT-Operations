@@ -301,17 +301,21 @@ export function sprayerPassLines(field: FieldDict): FeatureCollection<LineString
       })
     }
 
+    // Spans the bounding box by design; the map trims with `clipToField`
+    // (see the note in bayOverlays — clipping here would make the geometry lossy).
+    const out = features
+
     if (!fieldBool(field['sprayer_routes_around_inner'], true)) {
-      return { type: 'FeatureCollection', features }
+      return { type: 'FeatureCollection', features: out }
     }
     const holes = innerExclusionUnion(field)
-    if (!holes) return { type: 'FeatureCollection', features }
+    if (!holes) return { type: 'FeatureCollection', features: out }
     try {
       const clipped: Feature<LineString>[] = []
-      for (const line of features) clipped.push(...clipLineFeature(line, holes))
+      for (const line of out) clipped.push(...clipLineFeature(line, holes))
       return { type: 'FeatureCollection', features: clipped }
     } catch {
-      return { type: 'FeatureCollection', features }
+      return { type: 'FeatureCollection', features: out }
     }
   } catch {
     return emptyFC<LineString>()
@@ -608,6 +612,7 @@ export function tireAndEdgeZones(field: FieldDict): {
         }
       }
     }
+    // Spans the bounding box by design; the map trims with `clipToField`.
     return {
       tire: { type: 'FeatureCollection', features: tire },
       edge: { type: 'FeatureCollection', features: edge },

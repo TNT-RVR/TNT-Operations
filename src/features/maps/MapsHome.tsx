@@ -14,7 +14,7 @@ import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, ty
 import { crewRoute } from '@/domain/crewRoute'
 import { fieldWarnings } from '@/domain/fieldWarnings'
 import { haversineMeters } from '@/domain/geo'
-import { maleBayBands, planterPassLines, alignmentLines } from '@/domain/bayOverlays'
+import { maleBayBands, planterPassLines, planterPassLabels, alignmentLines, clipToField } from '@/domain/bayOverlays'
 import { sprayerPassLines, outerSprayerLimit, tireAndEdgeZones, shelterBufferSquares } from '@/domain/sprayOverlays'
 import { totalGals, mathTrays, totalTrays, trayDistribution } from '@/domain/cost'
 import { MapToolbar, type ToolAction } from './MapToolbar'
@@ -820,7 +820,13 @@ export default function MapsHome() {
       map.addSource('tracks', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85, 'line-dasharray': [2, 2] } })
       map.addSource('corner', { type: 'geojson', data: EMPTY })
-      map.addLayer({ id: 'corner-line', type: 'line', source: 'corner', paint: { 'line-color': TRACK, 'line-width': 2 } })
+      // Corner arms are pivot geometry — dashed to match the wheel tracks.
+      map.addLayer({
+        id: 'corner-line',
+        type: 'line',
+        source: 'corner',
+        paint: { 'line-color': TRACK, 'line-width': 1.5, 'line-opacity': 0.85, 'line-dasharray': [2, 2] },
+      })
       map.addSource('crewroute', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'crewroute-line', type: 'line', source: 'crewroute', paint: { 'line-color': CREW, 'line-width': 3, 'line-opacity': 0.9 } })
 
@@ -838,12 +844,20 @@ export default function MapsHome() {
       map.addLayer({ id: 'edgezone-fill', type: 'fill', source: 'edgezone', paint: { 'fill-color': EDGE, 'fill-opacity': 0.2 } })
       map.addSource('planterlines', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'planterlines-line', type: 'line', source: 'planterlines', paint: { 'line-color': PLANTER_NUM, 'line-width': 1, 'line-opacity': 0.7 } })
+      // Numbers sit at BOTH ENDS of each pass (their own point source), where the
+      // operator actually reads them — a single mid-line label is lost mid-field.
+      map.addSource('planterlabels', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'planterlines-label',
         type: 'symbol',
-        source: 'planterlines',
-        layout: { 'symbol-placement': 'line-center', 'text-field': ['to-string', ['get', 'number']], 'text-size': 11 },
-        paint: { 'text-color': PLANTER_NUM, 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
+        source: 'planterlabels',
+        layout: {
+          'text-field': ['to-string', ['get', 'number']],
+          'text-size': 12,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: { 'text-color': PLANTER_NUM, 'text-halo-color': '#000000', 'text-halo-width': 1.4 },
       })
       map.addSource('alignment', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'alignment-line', type: 'line', source: 'alignment', paint: { 'line-color': ALIGN, 'line-width': 0.8, 'line-opacity': 0.75 } })
@@ -974,15 +988,21 @@ export default function MapsHome() {
 
     // Planter + sprayer overlays (spec §6.3, §6.4) — computed from the SAME
     // frame the placement engine uses, so bays line up with the pins.
-    const tireEdge = visibility.tireEdge ? tireAndEdgeZones(geom) : null
+    const tireEdgeRaw = visibility.tireEdge ? tireAndEdgeZones(geom) : null
+    const tireEdge = tireEdgeRaw
+      ? { tire: clipToField(tireEdgeRaw.tire, geom), edge: clipToField(tireEdgeRaw.edge, geom) }
+      : null
     ;(map.getSource('malebays') as GeoJSONSource | undefined)?.setData(
-      visibility.maleBays ? (maleBayBands(geom) as FeatureCollection) : EMPTY,
+      visibility.maleBays ? (clipToField(maleBayBands(geom), geom) as FeatureCollection) : EMPTY,
     )
     ;(map.getSource('planterlines') as GeoJSONSource | undefined)?.setData(
-      visibility.planterNumbers ? (planterPassLines(geom) as FeatureCollection) : EMPTY,
+      visibility.planterNumbers ? (clipToField(planterPassLines(geom), geom) as FeatureCollection) : EMPTY,
+    )
+    ;(map.getSource('planterlabels') as GeoJSONSource | undefined)?.setData(
+      visibility.planterNumbers ? (planterPassLabels(geom) as FeatureCollection) : EMPTY,
     )
     ;(map.getSource('sprayerpasses') as GeoJSONSource | undefined)?.setData(
-      visibility.sprayerPasses ? (sprayerPassLines(geom) as FeatureCollection) : EMPTY,
+      visibility.sprayerPasses ? (clipToField(sprayerPassLines(geom), geom) as FeatureCollection) : EMPTY,
     )
     ;(map.getSource('sprayerlimit') as GeoJSONSource | undefined)?.setData(
       visibility.sprayerLimit ? (outerSprayerLimit(geom) as FeatureCollection) : EMPTY,

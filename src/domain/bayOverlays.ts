@@ -3,12 +3,16 @@ import type {
   FeatureCollection,
   LineString,
   MultiPolygon,
+  Point,
   Polygon,
   Position,
 } from 'geojson'
 import {
+  booleanPointInPolygon as turfBooleanPointInPolygon,
   difference as turfDifference,
   featureCollection as turfFeatureCollection,
+  intersect as turfIntersect,
+  lineSplit as turfLineSplit,
   polygon as turfPolygon,
   union as turfUnion,
 } from '@turf/turf'
@@ -18,6 +22,7 @@ import {
   frameExtent,
   latAlongToLonLat,
   enuToLatAlong,
+  enuToLonLat,
   type FieldFrame,
 } from './fieldFrame'
 import { maskRuns, baySlotLefts, type FieldDict } from './tentGrid'
@@ -194,6 +199,92 @@ function clipPolygonFeature(
   return []
 }
 
+// ── 0b. Clipping overlays to the FIELD ──────────────────────────────────────
+// Bands and pass lines are generated across the frame's bounding box, which is
+// always bigger than the field itself — so without this they visibly spill past
+// the boundary. Everything drawn on the crop gets clipped to the field outline:
+// the boundary polygon, or the pivot circle on radius-only fields.
+
+/**
+ * The field outline as a turf polygon, or null when the field has no extent.
+ * A drawn boundary wins; otherwise the pivot circle IS the field, so overlays
+ * on a radius-only field still get clipped to something sensible.
+ */
+export function fieldOutline(field: FieldDict): Feature<Polygon> | null {
+  const f = fieldFrame(field)
+  return f ? outlineFromFrame(f) : null
+}
+
+export function outlineFromFrame(f: FieldFrame): Feature<Polygon> | null {
+  try {
+    if (f.boundaryEnu && f.boundaryEnu.length >= 3) {
+      const ring: Position[] = f.boundaryEnu.map(([e, n]) => enuToLonLat(f, e, n))
+      ring.push(ring[0]) // turf requires a closed ring
+      return turfPolygon([ring])
+    }
+    if (f.radius > 0) {
+      const steps = 128
+      const ring: Position[] = []
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * 2 * Math.PI
+        ring.push(enuToLonLat(f, Math.cos(a) * f.radius, Math.sin(a) * f.radius))
+      }
+      return turfPolygon([ring])
+    }
+  } catch {
+    /* degenerate ring — draw unclipped rather than crash */
+  }
+  return null
+}
+
+/** Keep only the part of a polygon inside the field. */
+export function clipPolygonToOutline(feat: Feature<Polygon>, outline: Feature<Polygon>): Feature<Polygon>[] {
+  let hit: Feature<Polygon | MultiPolygon> | null
+  try {
+    hit = turfIntersect(turfFeatureCollection<Polygon>([feat, outline]))
+  } catch {
+    return [feat]
+  }
+  if (!hit || !hit.geometry) return []
+  const piece = (coordinates: Position[][]): Feature<Polygon> => ({
+    type: 'Feature',
+    properties: { ...feat.properties },
+    geometry: { type: 'Polygon', coordinates },
+  })
+  if (hit.geometry.type === 'Polygon') return [piece(hit.geometry.coordinates)]
+  if (hit.geometry.type === 'MultiPolygon') return hit.geometry.coordinates.map(piece)
+  return []
+}
+
+/** Keep only the parts of a line inside the field (a line may become several). */
+export function clipLineToOutline(feat: Feature<LineString>, outline: Feature<Polygon>): Feature<LineString>[] {
+  let pieces: Feature<LineString>[]
+  try {
+    const split = turfLineSplit(feat, outline)
+    pieces = split.features.length > 0 ? (split.features as Feature<LineString>[]) : [feat]
+  } catch {
+    return [feat]
+  }
+  const inside: Feature<LineString>[] = []
+  for (const p of pieces) {
+    const c = p.geometry?.coordinates
+    if (!c || c.length < 2) continue
+    // Midpoint of the middle segment — robust when an endpoint sits exactly on
+    // the boundary, which is the common case right after a split.
+    const i = Math.max(0, Math.floor((c.length - 1) / 2))
+    const mid: Position = [(c[i][0] + c[i + 1][0]) / 2, (c[i][1] + c[i + 1][1]) / 2]
+    if (!Number.isFinite(mid[0]) || !Number.isFinite(mid[1])) continue
+    try {
+      if (turfBooleanPointInPolygon(mid, outline)) {
+        inside.push({ type: 'Feature', properties: { ...feat.properties }, geometry: p.geometry })
+      }
+    } catch {
+      /* skip an unjudgeable piece rather than drawing it outside the field */
+    }
+  }
+  return inside
+}
+
 /**
  * The frame plus its bay tiling, or null when no bay geometry can be drawn
  * (no pivot, blanket-planted, empty mask, zero row spacing, degenerate pass).
@@ -290,18 +381,24 @@ export function maleBayBands(field: FieldDict): FeatureCollection<Polygon> {
     }
   }
 
+  // NOTE: bands are NOT trimmed to the field outline here. That's a display
+  // concern — and clipping a band to a curved boundary narrows it at the edge,
+  // which would break the §5.3 band-width invariant these generators guarantee.
+  // The map applies `clipToField` when it draws.
+  const out = feats
+
   // Spec §6.4 — bays run straight through the inner boundaries only on request.
   if (fieldBool(field['bays_through_inner'], false)) {
-    return { type: 'FeatureCollection', features: feats }
+    return { type: 'FeatureCollection', features: out }
   }
   const holes = innerExclusionUnion(field)
-  if (!holes) return { type: 'FeatureCollection', features: feats }
+  if (!holes) return { type: 'FeatureCollection', features: out }
   try {
     const clipped: Feature<Polygon>[] = []
-    for (const band of feats) clipped.push(...clipPolygonFeature(band, holes))
+    for (const band of out) clipped.push(...clipPolygonFeature(band, holes))
     return { type: 'FeatureCollection', features: clipped }
   } catch {
-    return { type: 'FeatureCollection', features: feats }
+    return { type: 'FeatureCollection', features: out }
   }
 }
 
@@ -368,6 +465,77 @@ export function planterPassLines(field: FieldDict): FeatureCollection<LineString
       properties: { kind: 'planter_pass', number: numberOf(j) },
       geometry: { type: 'LineString', coordinates: [a, b2] },
     })
+  }
+
+  // Spans the bounding box by design; the map trims with `clipToField`.
+  return { type: 'FeatureCollection', features: feats }
+}
+
+/**
+ * Trim an overlay to the field outline — the DISPLAY clip.
+ *
+ * The generators deliberately span the frame's bounding box, because that's
+ * what keeps their geometry exact (a band clipped to a curved boundary is no
+ * longer `nm × row-spacing` wide, and the §5.3 invariant would be untestable).
+ * The map calls this when it draws, so nothing spills past the field.
+ *
+ * Accepts polygons or lines; anything the outline can't judge is passed through
+ * rather than dropped, so a boolean-op failure never blanks a layer.
+ */
+export function clipToField<G extends Polygon | LineString>(
+  fc: FeatureCollection<G>,
+  field: FieldDict,
+): FeatureCollection<G> {
+  const outline = fieldOutline(field)
+  if (!outline || fc.features.length === 0) return fc
+  const out: Feature<G>[] = []
+  for (const f of fc.features) {
+    try {
+      if (f.geometry?.type === 'Polygon') {
+        out.push(...(clipPolygonToOutline(f as Feature<Polygon>, outline) as unknown as Feature<G>[]))
+      } else if (f.geometry?.type === 'LineString') {
+        out.push(...(clipLineToOutline(f as Feature<LineString>, outline) as unknown as Feature<G>[]))
+      } else {
+        out.push(f)
+      }
+    } catch {
+      out.push(f)
+    }
+  }
+  return { type: 'FeatureCollection', features: out }
+}
+
+/**
+ * Pass numbers as POINTS at BOTH ENDS of every pass line (spec §6.4).
+ *
+ * A single label at the line's centre is invisible in the middle of a field —
+ * the operator reads pass numbers at the headland, where they're driving in. So
+ * each clipped pass contributes a label at each end, nudged just inside the
+ * line so it doesn't sit on the boundary itself.
+ */
+export function planterPassLabels(field: FieldDict): FeatureCollection<Point> {
+  // Labels are display-only, so they use the CLIPPED lines — a number belongs at
+  // the headland where the operator drives in, not out on the bounding box.
+  const lines = clipToField(planterPassLines(field), field)
+  const feats: Feature<Point>[] = []
+  for (const line of lines.features) {
+    const c = line.geometry?.coordinates
+    if (!c || c.length < 2) continue
+    const number = (line.properties as { number?: number } | null)?.number
+    if (number === undefined) continue
+    // Pull each label ~4% in from the tip so it reads inside the field.
+    const inset = (from: Position, to: Position): Position => [
+      from[0] + (to[0] - from[0]) * 0.04,
+      from[1] + (to[1] - from[1]) * 0.04,
+    ]
+    for (const p of [inset(c[0], c[1]), inset(c[c.length - 1], c[c.length - 2])]) {
+      if (!finitePair(p)) continue
+      feats.push({
+        type: 'Feature',
+        properties: { kind: 'planter_pass_label', number },
+        geometry: { type: 'Point', coordinates: p },
+      })
+    }
   }
   return { type: 'FeatureCollection', features: feats }
 }

@@ -95,7 +95,9 @@ export default function FieldMode() {
       attributionControl: { compact: true },
     })
     mapRef.current = map
-    map.on('load', () => {
+    // 'style.load' not 'load' — see MapsHome: `load` blocks on the initial
+    // viewport's tiles, which on a phone in the field is the slow part.
+    map.on('style.load', () => {
       map.addSource('boundary', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD_LINE, 'line-width': 2 } })
       map.addSource('tracks', { type: 'geojson', data: EMPTY })

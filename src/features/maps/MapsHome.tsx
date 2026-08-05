@@ -255,6 +255,8 @@ export default function MapsHome() {
    */
   const [vertexEdit, setVertexEdit] = useState<{ target: RingTarget; index: number } | null>(null)
   const vertexMarkersRef = useRef<maplibregl.Marker[]>([])
+  /** False until the map has framed a field once — the first fit jumps. */
+  const didFitRef = useRef(false)
   /** Which tool layer's actions are showing. */
   const [tool, setTool] = useState<LayerGroup>('boundary')
   const [visibility, setVisibility] = useState<LayerVisibility>(loadVisibility)
@@ -802,7 +804,12 @@ export default function MapsHome() {
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    map.on('load', () => {
+    // 'style.load', NOT 'load'. `load` waits for the initial viewport's TILES to
+    // finish downloading — at the wide default view that's ~30 tiles, and until
+    // it fired we couldn't add a layer or move the camera. 'style.load' fires as
+    // soon as the style object is parsed (immediate for our inline style), so
+    // the field is framed and drawn while the imagery is still streaming in.
+    map.on('style.load', () => {
       map.addSource('boundary', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'boundary', paint: { 'fill-color': FIELD, 'fill-opacity': 0.1 } })
       map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD, 'line-width': 2 } })
@@ -1330,6 +1337,14 @@ export default function MapsHome() {
   }, [ready, routeEditing])
 
   // Fit the view when the SELECTED FIELD changes (not on every draft keystroke).
+  //
+  // The FIRST fit JUMPS instead of animating. The map is created at a wide
+  // default view before the field list has loaded, so it starts pulling tiles
+  // for a region nobody asked to see; a 700 ms fly to the field then streams
+  // tiles at every zoom level in between. On a cold load that showed as ~10 s of
+  // blank-then-wrong-place before the field appeared. Jumping abandons the
+  // default view's tiles immediately and loads exactly one set — the field's.
+  // Later field switches still animate, which is useful orientation.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
@@ -1343,8 +1358,9 @@ export default function MapsHome() {
         [minX, minY],
         [maxX, maxY],
       ],
-      { padding: 64, duration: 700, maxZoom: 16 },
+      { padding: 64, duration: didFitRef.current ? 700 : 0, maxZoom: 16 },
     )
+    didFitRef.current = true
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, selectedField])
 

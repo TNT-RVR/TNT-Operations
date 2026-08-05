@@ -190,6 +190,48 @@ export function idwGrid(field: FieldDict, samples: SamplePoint[], opts: IdwOptio
   return { cols, rows, cellM, values, min, max, corners, samplesEnu, originE: minE, originN: maxN, frame }
 }
 
+/**
+ * A stand-in "field" that just covers the sample points, for data imported
+ * from elsewhere. Without this, interpolating anything that isn't inside a
+ * field we already hold geometry for would clip to nothing.
+ *
+ * `bufferM` extends the area past the outermost point. Keep it modest — IDW
+ * beyond the sampled area is extrapolation, and extrapolation is guesswork.
+ */
+export function syntheticField(samples: SamplePoint[], bufferM = 100): FieldDict | null {
+  const usable = samples.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))
+  if (usable.length === 0) return null
+
+  let minLat = Infinity
+  let maxLat = -Infinity
+  let minLng = Infinity
+  let maxLng = -Infinity
+  for (const s of usable) {
+    minLat = Math.min(minLat, s.lat)
+    maxLat = Math.max(maxLat, s.lat)
+    minLng = Math.min(minLng, s.lng)
+    maxLng = Math.max(maxLng, s.lng)
+  }
+  const midLat = (minLat + maxLat) / 2
+  const midLng = (minLng + maxLng) / 2
+
+  // Degrees per metre at this latitude — good enough for a bounding box.
+  const dLat = bufferM / 111_320
+  const dLng = bufferM / (111_320 * Math.max(0.1, Math.cos((midLat * Math.PI) / 180)))
+
+  return {
+    PP_Latitude: String(midLat),
+    PP_Longitude: String(midLng),
+    use_bays: false,
+    boundary_polygon: [
+      [minLat - dLat, minLng - dLng],
+      [maxLat + dLat, minLng - dLng],
+      [maxLat + dLat, maxLng + dLng],
+      [minLat - dLat, maxLng + dLng],
+    ],
+  } as FieldDict
+}
+
 /** Summary stats for the legend and the field comparison table. */
 export interface GridStats {
   /** Cells inside the field that got a value. */

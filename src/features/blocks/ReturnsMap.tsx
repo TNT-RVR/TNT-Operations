@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import { Download, Image as ImageIcon, Info } from 'lucide-react'
+import { Download, Image as ImageIcon, Info, Upload, X } from 'lucide-react'
 import { PageHeader, Select, Button, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { SATELLITE_STYLE } from '@/features/maps/basemap'
@@ -9,9 +9,11 @@ import {
   gridStats,
   rampColor,
   gridToCsv,
+  syntheticField,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
+import { readSheet, guessColumns, toSamples, type SheetTable } from './returnsImport'
 import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
 
 // Block markers sit on satellite imagery and inside exported PNGs, so they are
@@ -36,6 +38,15 @@ export default function ReturnsMap() {
   const [cellM, setCellM] = useState(10)
   const [power, setPower] = useState(2)
   const [showPoints, setShowPoints] = useState(true)
+
+  // Imported spreadsheet (ad-hoc, never written to the database). When present
+  // it REPLACES the live samples, so a past season can be checked on its own.
+  const [sheet, setSheet] = useState<SheetTable | null>(null)
+  const [cols, setCols] = useState<Record<'lat' | 'lng' | 'value' | 'label', number>>({
+    lat: -1, lng: -1, value: -1, label: -1,
+  })
+  const [importErr, setImportErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const mapEl = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -78,12 +89,33 @@ export default function ReturnsMap() {
       }))
   }, [blockPlacements, blocks, fieldId, activeSeason])
 
+  const imported = useMemo(() => (sheet ? toSamples(sheet, cols) : null), [sheet, cols])
+  const active = imported ? imported.samples : samples
+
   const grid: ReturnsGrid | null = useMemo(() => {
-    if (!field?.geometry || samples.length === 0) return null
-    return idwGrid(field.geometry as Record<string, unknown>, samples, { cellM, power })
-  }, [field, samples, cellM, power])
+    if (active.length === 0) return null
+    // Imported points rarely sit inside a field we hold geometry for, so they
+    // get an extent built around themselves instead of being clipped to none.
+    const geom = imported
+      ? syntheticField(active)
+      : (field?.geometry as Record<string, unknown> | undefined)
+    if (!geom) return null
+    return idwGrid(geom, active, { cellM, power })
+  }, [field, active, imported, cellM, power])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
+
+  async function onPickFile(file: File) {
+    setImportErr(null)
+    try {
+      const t = await readSheet(file)
+      if (!t.headers.length) throw new Error('That file has no rows.')
+      setSheet(t)
+      setCols(guessColumns(t.headers))
+    } catch (e) {
+      setImportErr(e instanceof Error ? e.message : 'Could not read that file.')
+    }
+  }
 
   /** Paint the grid to a canvas: one pixel per cell, transparent where empty. */
   const renderCanvas = (g: ReturnsGrid): HTMLCanvasElement => {
@@ -157,7 +189,7 @@ export default function ReturnsMap() {
       map.addLayer({ id: 'returns', type: 'raster', source: 'returns', paint: { 'raster-opacity': 1 } })
 
       if (showPoints) {
-        for (const s of samples) {
+        for (const s of active) {
           const el = document.createElement('div')
           el.style.cssText =
             `width:10px;height:10px;border-radius:9999px;background:${MARKER_FILL};` +
@@ -175,7 +207,7 @@ export default function ReturnsMap() {
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [grid, samples, showPoints])
+  }, [grid, active, showPoints])
 
   function exportPng() {
     const map = mapRef.current
@@ -251,11 +283,97 @@ export default function ReturnsMap() {
           </label>
         </div>
 
+        {/* Ad-hoc spreadsheet import — nothing here touches the database. */}
+        <div className="card">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-semibold text-primary">Test with a spreadsheet</div>
+              <p className="text-xs text-muted">
+                Load past block weights (.csv or .xlsx) to check the map against a result you already trust. Nothing
+                is saved — it only affects what's drawn here.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) void onPickFile(f)
+                  e.target.value = ''
+                }}
+              />
+              <Button variant="ghost" onClick={() => fileRef.current?.click()}>
+                <Upload size={16} className="mr-1 inline" />
+                Load file
+              </Button>
+              {sheet && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setSheet(null)
+                    setImportErr(null)
+                  }}
+                >
+                  <X size={16} className="mr-1 inline" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {importErr && <p className="mt-2 text-sm text-danger">{importErr}</p>}
+
+          {sheet && (
+            <div className="mt-3 space-y-2 border-t border-default pt-3">
+              <p className="text-xs text-muted">
+                Which column is which? Guessed from the headers — correct anything that's wrong.
+              </p>
+              <div className="grid gap-2 md:grid-cols-4">
+                {(
+                  [
+                    ['lat', 'Latitude'],
+                    ['lng', 'Longitude'],
+                    ['value', 'Bee return (lbs)'],
+                    ['label', 'Block label'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="text-xs text-muted">
+                    {label}
+                    <Select
+                      value={cols[key]}
+                      onChange={(e) => setCols((c) => ({ ...c, [key]: Number(e.target.value) }))}
+                    >
+                      <option value={-1}>— none —</option>
+                      {sheet.headers.map((h, i) => (
+                        <option key={i} value={i}>{h || `Column ${i + 1}`}</option>
+                      ))}
+                    </Select>
+                  </label>
+                ))}
+              </div>
+              {imported && (
+                <p className="text-xs">
+                  <span className="font-semibold text-primary">{imported.samples.length}</span> point
+                  {imported.samples.length === 1 ? '' : 's'} loaded
+                  {imported.skipped > 0 && (
+                    <span className="text-danger"> · {imported.skipped} skipped ({imported.reasons.join('; ')})</span>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
         {!grid && (
           <EmptyState>
-            {samples.length === 0
-              ? 'No weighed blocks with a location for this field and season yet. Place blocks, then weigh them full and empty — the map builds itself from that.'
-              : 'This field has no boundary or pivot set, so there’s nothing to interpolate across. Add its geometry on the Shelter Maps tab.'}
+            {sheet
+              ? 'No usable rows in that file yet — check the column choices above.'
+              : samples.length === 0
+                ? 'No weighed blocks with a location for this field and season yet. Place blocks, then weigh them full and empty — the map builds itself from that. Or load a spreadsheet above to test.'
+                : 'This field has no boundary or pivot set, so there’s nothing to interpolate across. Add its geometry on the Shelter Maps tab.'}
           </EmptyState>
         )}
 
@@ -294,7 +412,7 @@ export default function ReturnsMap() {
             <div className="card grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
               <div>
                 <div className="text-muted">Blocks used</div>
-                <div className="text-lg font-bold">{samples.length}</div>
+                <div className="text-lg font-bold">{active.length}</div>
               </div>
               <div>
                 <div className="text-muted">Field average</div>
@@ -314,8 +432,8 @@ export default function ReturnsMap() {
 
             <p className="flex items-start gap-2 text-xs text-faint">
               <Info size={14} className="mt-0.5 shrink-0" />
-              Interpolated by inverse distance weighting from {samples.length} weighed block
-              {samples.length === 1 ? '' : 's'}, clipped to the field boundary. Colour between blocks is an estimate,
+              Interpolated by inverse distance weighting from {active.length} weighed block
+              {active.length === 1 ? '' : 's'}, clipped to the field boundary. Colour between blocks is an estimate,
               not a measurement — with few blocks it shows broad trends rather than detail.
             </p>
           </>

@@ -347,6 +347,23 @@ export default function ReturnsMap() {
 
           {sheet && (
             <div className="mt-3 space-y-2 border-t border-default pt-3">
+              {/* What the reader actually saw. A single column here means the
+                  separator was misread, which is otherwise invisible. */}
+              <p className="text-xs text-faint">
+                Read <span className="font-semibold text-muted">{sheet.sourceRows ?? sheet.rows.length}</span> rows ×{' '}
+                <span className="font-semibold text-muted">{sheet.headers.length}</span> columns
+                {sheet.delimiter
+                  ? ` (separator: ${sheet.delimiter === '\t' ? 'tab' : sheet.delimiter === ',' ? 'comma' : sheet.delimiter})`
+                  : ''}
+                . Columns: {sheet.headers.slice(0, 12).join(' · ') || '(none)'}
+                {sheet.headers.length > 12 ? ' …' : ''}
+              </p>
+              {sheet.headers.length === 1 && (
+                <p className="text-xs text-danger">
+                  Only one column was found — the file's separator wasn't recognised. Re-saving it as a standard CSV,
+                  or as .xlsx, should fix it.
+                </p>
+              )}
               <p className="text-xs text-muted">
                 Which column is which? Guessed from the headers — correct anything that's wrong.
               </p>

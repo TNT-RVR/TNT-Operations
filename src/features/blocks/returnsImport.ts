@@ -9,27 +9,114 @@
  * Column names vary between years and people, so headers are guessed and then
  * shown for correction rather than demanded in a fixed format.
  */
-import { parseCsv, parseNumber, normalizeHeader } from '@/features/incubation/xrayImport'
+import { parseNumber, normalizeHeader } from '@/features/incubation/xrayImport'
 import type { SamplePoint } from '@/domain/returnsMap'
 
 export interface SheetTable {
   headers: string[]
   rows: unknown[][]
+  /** What the reader actually found, surfaced so a bad read is visible. */
+  delimiter?: string
+  sourceRows?: number
+}
+
+/**
+ * Work out a delimited file's separator from its first few lines.
+ *
+ * Exports are not always comma-separated — Excel writes semicolons under many
+ * locales and QGIS will happily emit tabs. Parsing those as commas collapses
+ * everything into one column, which presents as "the file won't load".
+ */
+export function sniffDelimiter(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .slice(0, 5)
+  if (lines.length === 0) return ','
+
+  let best = ','
+  let bestScore = -1
+  for (const d of [',', ';', '\t', '|']) {
+    const counts = lines.map((line) => {
+      // Count only outside quotes, so commas inside a quoted field don't win.
+      let n = 0
+      let inQuotes = false
+      for (const c of line) {
+        if (c === '"') inQuotes = !inQuotes
+        else if (c === d && !inQuotes) n++
+      }
+      return n
+    })
+    // A real delimiter shows up on EVERY line, at least once.
+    const min = Math.min(...counts)
+    if (min >= 1 && min > bestScore) {
+      bestScore = min
+      best = d
+    }
+  }
+  return best
+}
+
+/** Split delimited text, honouring quoted fields and doubled quotes. */
+export function parseDelimited(text: string, delimiter: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let inQuotes = false
+  const s = text.replace(/^﻿/, '') // Excel writes a BOM
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (s[i + 1] === '"') {
+          cell += '"'
+          i++
+        } else inQuotes = false
+      } else cell += c
+    } else if (c === '"') {
+      inQuotes = true
+    } else if (c === delimiter) {
+      row.push(cell)
+      cell = ''
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && s[i + 1] === '\n') i++
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+    } else {
+      cell += c
+    }
+  }
+  if (cell !== '' || row.length) {
+    row.push(cell)
+    rows.push(row)
+  }
+  return rows.filter((r) => r.some((v) => v.trim() !== ''))
 }
 
 /** Read a picked .csv/.xlsx into a raw table. First row is treated as headers. */
 export async function readSheet(file: File): Promise<SheetTable> {
   const isXlsx = /\.xlsx?$/i.test(file.name) || file.type.includes('sheet') || file.type.includes('excel')
   let rows: unknown[][]
+  let delimiter: string | undefined
   if (isXlsx) {
     const { default: readXlsxFile } = await import('read-excel-file/browser')
     rows = (await readXlsxFile(file)) as unknown as unknown[][]
   } else {
-    rows = parseCsv(await file.text())
+    const text = await file.text()
+    delimiter = sniffDelimiter(text)
+    rows = parseDelimited(text, delimiter)
   }
   rows = rows.filter((r) => Array.isArray(r) && r.some((c) => String(c ?? '').trim() !== ''))
-  if (rows.length === 0) return { headers: [], rows: [] }
-  return { headers: rows[0].map((h) => String(h ?? '').trim()), rows: rows.slice(1) }
+  if (rows.length === 0) return { headers: [], rows: [], delimiter, sourceRows: 0 }
+  return {
+    headers: rows[0].map((h) => String(h ?? '').trim()),
+    rows: rows.slice(1),
+    delimiter,
+    sourceRows: rows.length - 1,
+  }
 }
 
 /** The columns we try to identify in an imported sheet. */

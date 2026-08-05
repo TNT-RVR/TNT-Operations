@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { guessColumns, toSamples, groupValues, samplesCentre, type SheetTable } from './returnsImport'
+import {
+  guessColumns,
+  toSamples,
+  groupValues,
+  samplesCentre,
+  sniffDelimiter,
+  parseDelimited,
+  type SheetTable,
+} from './returnsImport'
 
 describe('guessColumns', () => {
   it('finds the obvious names', () => {
@@ -144,5 +152,37 @@ describe('grouping by field', () => {
 
   it('includes every field when no filter is given', () => {
     expect(toSamples(t, cols).samples).toHaveLength(4)
+  })
+})
+
+describe('delimiter handling', () => {
+  it('detects comma, semicolon, tab and pipe', () => {
+    expect(sniffDelimiter('a,b,c\n1,2,3')).toBe(',')
+    expect(sniffDelimiter('a;b;c\n1;2;3')).toBe(';')
+    expect(sniffDelimiter('a\tb\tc\n1\t2\t3')).toBe('\t')
+    expect(sniffDelimiter('a|b|c\n1|2|3')).toBe('|')
+  })
+
+  it('is not fooled by commas inside quoted fields', () => {
+    // A semicolon file whose text fields contain commas — the classic case
+    // where comma-only parsing silently produces one column.
+    const text = 'name;lat;lng\n"Smith, John";49.8;-111.6\n"Doe, Jane";49.9;-111.5'
+    expect(sniffDelimiter(text)).toBe(';')
+  })
+
+  it('falls back to comma when nothing separates', () => {
+    expect(sniffDelimiter('single\nvalues')).toBe(',')
+    expect(sniffDelimiter('')).toBe(',')
+  })
+
+  it('parses quoted fields containing the delimiter and escaped quotes', () => {
+    const rows = parseDelimited('a,b\n"x,y","he said ""hi"""', ',')
+    expect(rows[1]).toEqual(['x,y', 'he said "hi"'])
+  })
+
+  it('reads a semicolon file into real columns', () => {
+    const rows = parseDelimited('field;lat;lng;return\nNorth;49.8;-111.6;5', ';')
+    expect(rows[0]).toEqual(['field', 'lat', 'lng', 'return'])
+    expect(rows[1]).toEqual(['North', '49.8', '-111.6', '5'])
   })
 })

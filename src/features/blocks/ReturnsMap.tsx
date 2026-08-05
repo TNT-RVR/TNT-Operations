@@ -16,6 +16,7 @@ import {
   insideField,
   sampleGrid,
   matchFieldByGeometry,
+  fieldContainment,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -139,7 +140,11 @@ export default function ReturnsMap() {
     () => matchFieldByGeometry(fields, active),
     [fields, active],
   )
+  /** Share of the points each field contains — drives what's worth offering. */
+  const containment = useMemo(() => fieldContainment(fields, active), [fields, active])
   const effectiveClipId = clipFieldId === 'auto' ? (autoMatch?.fieldId ?? '') : clipFieldId
+  /** A chosen field that holds almost none of the points is a mis-click. */
+  const chosenShare = effectiveClipId ? (containment.get(effectiveClipId) ?? 0) : null
 
   /**
    * Outline fitted to the blocks, for when no recorded field matches — a true
@@ -560,10 +565,12 @@ export default function ReturnsMap() {
                   </option>
                   <option value="">Use the shape of the points</option>
                   {fields
-                    .filter((f) => f.geometry)
+                    // Only fields that actually hold some of these points.
+                    // A boundary elsewhere can only ever produce a wrong map.
+                    .filter((f) => f.geometry && ((containment.get(f.id) ?? 0) > 0.05 || f.id === clipFieldId))
                     .map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.name}
+                        {f.name} ({Math.round((containment.get(f.id) ?? 0) * 100)}% of points)
                       </option>
                     ))}
                 </Select>
@@ -571,7 +578,9 @@ export default function ReturnsMap() {
                   {autoMatch && clipFieldId === 'auto'
                     ? `${Math.round(autoMatch.fraction * 100)}% of these points fall inside it — using its recorded boundary.`
                     : effectiveClipId
-                      ? 'Clipped to that field’s recorded boundary.'
+                      ? chosenShare != null && chosenShare < 0.5
+                        ? `Warning: only ${Math.round(chosenShare * 100)}% of these points are inside that field, so the outline won't match the data. Switch back to Automatic.`
+                        : 'Clipped to that field’s recorded boundary.'
                       : fitted
                         ? `No matching field on record, so the outline was fitted to the blocks — a ${fitted.kind === 'circle' ? `circle ${Math.round(fitted.radiusM ?? 0)} m across the radius` : `${fitted.corners}-sided shape with straight edges`}.`
                         : 'Not enough blocks to fit an outline; using the shape of the points.'}

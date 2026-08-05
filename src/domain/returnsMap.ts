@@ -266,6 +266,36 @@ export interface FieldMatch {
  * the points — better to infer the outline from the points than to clip a
  * field's data to the wrong field's boundary and silently lose half of it.
  */
+/**
+ * What share of the samples each candidate field contains, keyed by field id.
+ *
+ * Used to keep irrelevant fields out of the outline picker. Offering a field
+ * on the far side of the county invites clipping a season's data to a
+ * boundary that has nothing to do with it — which produces a confidently
+ * wrong map rather than an error.
+ */
+export function fieldContainment(
+  candidates: Array<{ id: string; geometry?: unknown }>,
+  samples: SamplePoint[],
+): Map<string, number> {
+  const out = new Map<string, number>()
+  if (samples.length === 0) return out
+  for (const c of candidates) {
+    if (!c.geometry) continue
+    const frame = fieldFrame(c.geometry as FieldDict)
+    if (!frame) continue
+    const enu = latlonListToEnu(
+      samples.map((s) => [s.lat, s.lng] as [number, number]),
+      frame.pivotLon,
+      frame.pivotLat,
+    )
+    let inside = 0
+    for (const [e, n] of enu) if (insideField(frame, e, n)) inside++
+    out.set(c.id, inside / samples.length)
+  }
+  return out
+}
+
 export function matchFieldByGeometry(
   candidates: Array<{ id: string; geometry?: unknown }>,
   samples: SamplePoint[],

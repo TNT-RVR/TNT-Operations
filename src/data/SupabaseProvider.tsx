@@ -25,6 +25,7 @@ import type { CostPrefs } from '@/domain/cost'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { summariseWeather, weatherKey, type OpenMeteoDaily } from '@/domain/weather'
 import { useSalesSupabase } from './useSalesSupabase'
+import { useTasksSupabase } from './useTasksSupabase'
 import { supabase } from './supabaseClient'
 
 /** Cached Open-Meteo response, as stored by migration 0014. */
@@ -114,6 +115,20 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
   const [fieldAnalysisLoading, setFieldAnalysisLoading] = useState(false)
   const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
+  /**
+   * The signed-in Supabase user id, for stamping who completed what.
+   * Read here rather than from useSession() so the data layer stays
+   * independent of the auth provider — the seam rule cuts both ways.
+   */
+  const [userId, setUserId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!supabase) return
+    void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
+      setUserId(session?.user?.id ?? null),
+    )
+    return () => sub.subscription.unsubscribe()
+  }, [])
 
   // Keep a ref of readings so the realtime handler appends without re-subscribing.
   /** Oldest timestamp already fetched per incubator, so ranges load once. */
@@ -323,10 +338,12 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   // slice shares no state with anything above it. Nothing is fetched until a
   // Sales screen calls loadSales().
   const sales = useSalesSupabase()
+  const tasks = useTasksSupabase(userId)
 
   const value = useMemo<DataContextValue>(
     () => ({
       ...sales,
+      ...tasks,
       fields,
       incubators,
       inspections,
@@ -1062,6 +1079,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       grants,
       grantTasks,
       sales,
+      tasks,
     ],
   )
 

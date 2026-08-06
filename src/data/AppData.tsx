@@ -21,6 +21,7 @@ import type {
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import { useSalesMock } from './useSalesMock'
+import { useTasksMock } from './useTasksMock'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { weatherKey } from '@/domain/weather'
 import {
@@ -99,10 +100,13 @@ function MockProvider({ children }: { children: ReactNode }) {
   // Sales lives in its own hook — this file is long enough, and the slice has
   // no overlap with anything above it.
   const sales = useSalesMock()
+  // The mock user switcher is the 'current user'; tasks stamp completions with it.
+  const tasks = useTasksMock('u_admin')
 
   const value = useMemo<DataContextValue>(
     () => ({
       ...sales,
+      ...tasks,
       fields,
       incubators,
       inspections,
@@ -403,6 +407,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       fieldAnalysis,
       fieldWeather,
       sales,
+      tasks,
     ],
   )
 

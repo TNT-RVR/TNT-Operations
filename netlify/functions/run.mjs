@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import runGrantsPull from './grants-pull.mjs'
 import runGoveePoll from './poll-govee.mjs'
+import runTasksTick from './tasks-tick.mjs'
 
 /**
  * Manual trigger for the scheduled functions.
@@ -33,6 +34,7 @@ export const config = { background: true }
 const JOBS = {
   'grants-pull': runGrantsPull,
   'poll-govee': runGoveePoll,
+  'tasks-tick': runTasksTick,
 }
 
 const json = (body, status) =>

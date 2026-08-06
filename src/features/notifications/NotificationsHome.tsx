@@ -12,6 +12,9 @@ const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'humidity_out_of_range', label: 'Humidity out of range', hint: 'An incubator leaves its humidity band.' },
   { type: 'milestone', label: 'Milestone due today', hint: 'Vapona in/out, earliest cool, expected release — from the calendar.' },
   { type: 'grant_new', label: 'New grant found', hint: 'The weekly search finds a funding program you could apply for.' },
+  { type: 'task_assigned', label: 'Task assigned to you', hint: 'Someone assigns you a task or a checklist.' },
+  { type: 'task_due_soon', label: 'Task due soon', hint: 'Your lead time before a task is due (set per task).' },
+  { type: 'task_overdue', label: 'Task overdue', hint: 'A due date passed. Fires once on the crossing, not daily.' },
   { type: 'low_stock', label: 'Low stock', hint: 'A finished good drops below its reorder point. Fires on the crossing, not on every shipment.' },
   { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
 ]

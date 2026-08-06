@@ -31,6 +31,10 @@ import type {
   InventoryLevel,
   StockMovement,
   StockReason,
+  Task,
+  TaskStatus,
+  TaskStep,
+  Checklist,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
@@ -54,7 +58,7 @@ export interface NotificationPref {
  *   - SupabaseProvider (src/data/SupabaseProvider) → live backend  [TODO]
  * Selected by VITE_DATA_SOURCE. Any new method MUST be added to BOTH providers.
  */
-export interface DataContextValue extends SalesSlice {
+export interface DataContextValue extends SalesSlice, TasksSlice {
   fields: Field[]
   incubators: Incubator[]
   inspections: Inspection[]
@@ -360,3 +364,58 @@ export function useData(): DataContextValue {
 
 // The provider component itself lives in AppData.tsx (picks mock vs supabase).
 export { DataProvider } from './AppData'
+
+/**
+ * Tasks and checklists (migration 0016).
+ *
+ * A checklist RUN is a task with `checklistId` set, so there is one list of
+ * tasks, not two. Implemented by `useTasksMock` / `useTasksSupabase`.
+ */
+export interface TasksSlice {
+  /** Tasks and checklist runs, newest first. */
+  tasks: Task[]
+  /** Reusable checklist templates, with their steps. */
+  checklists: Checklist[]
+  tasksLoading: boolean
+  /** NOT loaded on mount — only the Tasks section reads it. Idempotent. */
+  loadTasks: () => Promise<void>
+  /**
+   * How many field actions are queued offline and not yet synced. 0 when
+   * everything has landed. Drives the "N not synced" indicator.
+   */
+  pendingSync: number
+
+  createTask: (input: Partial<Task> & { title: string }) => Promise<{ ok: boolean; id?: string; error?: string }>
+  saveTask: (id: string, patch: Partial<Task>) => Promise<SalesResult>
+  deleteTask: (id: string) => Promise<SalesResult>
+  /**
+   * Complete, reopen, or cancel a task.
+   *
+   * Completing a RECURRING task also creates its next occurrence — that is what
+   * makes it recur. Works offline: the change is applied locally and queued.
+   */
+  setTaskStatus: (id: string, status: TaskStatus) => Promise<SalesResult>
+
+  addStep: (taskId: string, title: string) => Promise<SalesResult>
+  saveStep: (stepId: string, patch: Partial<TaskStep>) => Promise<SalesResult>
+  /** Tick or un-tick a step. Works offline — the core field action. */
+  setStepComplete: (stepId: string, complete: boolean) => Promise<SalesResult>
+  deleteStep: (stepId: string) => Promise<SalesResult>
+
+  createChecklist: (
+    input: Partial<Checklist> & { name: string },
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+  saveChecklist: (id: string, patch: Partial<Checklist>) => Promise<SalesResult>
+  deleteChecklist: (id: string) => Promise<SalesResult>
+  /**
+   * Put a checklist to work: creates a task from the template, COPYING its
+   * steps. Editing the template afterwards must not rewrite a run somebody is
+   * partway through.
+   */
+  assignChecklist: (input: {
+    checklistId: string
+    assigneeId: string | null
+    dueDate?: string | null
+    title?: string
+  }) => Promise<{ ok: boolean; id?: string; error?: string }>
+}

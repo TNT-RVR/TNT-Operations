@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { growRegion, fillHoles, traceOutline, distanceFrom } from './imageSegment'
+import { growRegion, fillHoles, traceOutline, distanceFrom, largestComponent } from './imageSegment'
 
 const W = 120
 const H = 120
@@ -215,5 +215,83 @@ describe('measured tolerance', () => {
       expect(r.tolerance).toBeGreaterThanOrEqual(22)
       expect(r.tolerance).toBeLessThanOrEqual(70)
     }
+  })
+})
+
+describe('tracing a realistic, ragged edge', () => {
+  /** A disc with a bumpy rim and a pinch, as real segmentation produces. */
+  const raggedMask = () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const dx = x - W / 2
+        const dy = y - H / 2
+        const ang = Math.atan2(dy, dx)
+        // Wobbling radius plus a deep notch, so the walk meets a pinch point.
+        const r = 40 + 4 * Math.sin(ang * 7) - (Math.abs(ang) < 0.15 ? 14 : 0)
+        if (dx * dx + dy * dy <= r * r) m[y * W + x] = 1
+      }
+    }
+    return m
+  }
+
+  it('walks the whole outline, not just a couple of pixels', () => {
+    // The reported failure: the tracer stopped almost immediately on a real
+    // mask and the detection reported "too small to be a field".
+    const outline = traceOutline(raggedMask(), W, H)
+    // A radius-40 disc has a perimeter over 250 px; anything near zero means
+    // the walk terminated early.
+    expect(outline.length).toBeGreaterThan(200)
+  })
+
+  it('stays on the boundary all the way round', () => {
+    const m = raggedMask()
+    const outline = traceOutline(m, W, H)
+    for (const [x, y] of outline) {
+      expect(m[y * W + x]).toBe(1) // every step is a field pixel
+      // and each touches the outside, i.e. is genuinely on the edge
+      const touchesOutside =
+        !m[y * W + (x - 1)] || !m[y * W + (x + 1)] || !m[(y - 1) * W + x] || !m[(y + 1) * W + x]
+      expect(touchesOutside).toBe(true)
+    }
+  })
+
+  it('covers the shape rather than one lobe of it', () => {
+    const outline = traceOutline(raggedMask(), W, H)
+    const xs = outline.map((p) => p[0])
+    const ys = outline.map((p) => p[1])
+    // The traced points should span most of the shape in both directions.
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(60)
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(60)
+  })
+})
+
+describe('largestComponent', () => {
+  it('keeps the field and discards stray specks', () => {
+    // The actual failure: a block on a track seeds a speck, and because the
+    // tracer starts top-left it traced the speck rather than the field.
+    const m = new Uint8Array(W * H)
+    for (let y = 40; y < 90; y++) for (let x = 40; x < 90; x++) m[y * W + x] = 1 // the field
+    m[5 * W + 5] = 1 // speck, above-left so scan order finds it FIRST
+    m[6 * W + 5] = 1
+
+    expect(traceOutline(m, W, H).length).toBeLessThan(8) // traced the speck
+    const main = largestComponent(m, W, H)
+    expect(main[5 * W + 5]).toBe(0) // speck gone
+    expect(main[60 * W + 60]).toBe(1) // field kept
+    expect(traceOutline(main, W, H).length).toBeGreaterThan(100) // real outline
+  })
+
+  it('handles an empty mask', () => {
+    expect([...largestComponent(new Uint8Array(W * H), W, H)].some(Boolean)).toBe(false)
+  })
+
+  it('picks the bigger of two separate blobs', () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 10; y < 20; y++) for (let x = 10; x < 20; x++) m[y * W + x] = 1 // small
+    for (let y = 60; y < 100; y++) for (let x = 60; x < 100; x++) m[y * W + x] = 1 // big
+    const main = largestComponent(m, W, H)
+    expect(main[15 * W + 15]).toBe(0)
+    expect(main[80 * W + 80]).toBe(1)
   })
 })

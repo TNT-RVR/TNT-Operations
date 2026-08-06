@@ -231,6 +231,64 @@ export function growRegion(
 }
 
 /**
+ * Keep only the biggest connected blob in a mask.
+ *
+ * The grow starts from EVERY block, so a block sitting on a track, a shadow or
+ * a bare patch can seed a speck of its own that never joins the field. That
+ * matters more than it sounds: the outline tracer starts at the first mask
+ * pixel in scan order, so a stray speck above-left of the field gets traced
+ * INSTEAD of the field, and the result reads as "too small to be a field".
+ */
+export function largestComponent(mask: Uint8Array, w: number, h: number): Uint8Array {
+  const label = new Int32Array(w * h).fill(-1)
+  const queue = new Int32Array(w * h)
+  let best = -1
+  let bestSize = 0
+  let next = 0
+
+  for (let start = 0; start < mask.length; start++) {
+    if (!mask[start] || label[start] >= 0) continue
+    const id = next++
+    let head = 0
+    let tail = 0
+    label[start] = id
+    queue[tail++] = start
+    let size = 0
+    while (head < tail) {
+      const idx = queue[head++]
+      size++
+      const x = idx % w
+      const y = (idx / w) | 0
+      if (x > 0 && mask[idx - 1] && label[idx - 1] < 0) {
+        label[idx - 1] = id
+        queue[tail++] = idx - 1
+      }
+      if (x < w - 1 && mask[idx + 1] && label[idx + 1] < 0) {
+        label[idx + 1] = id
+        queue[tail++] = idx + 1
+      }
+      if (y > 0 && mask[idx - w] && label[idx - w] < 0) {
+        label[idx - w] = id
+        queue[tail++] = idx - w
+      }
+      if (y < h - 1 && mask[idx + w] && label[idx + w] < 0) {
+        label[idx + w] = id
+        queue[tail++] = idx + w
+      }
+    }
+    if (size > bestSize) {
+      bestSize = size
+      best = id
+    }
+  }
+
+  const out = new Uint8Array(w * h)
+  if (best < 0) return out
+  for (let i = 0; i < out.length; i++) if (label[i] === best) out[i] = 1
+  return out
+}
+
+/**
  * Fill enclosed holes in a mask — a dugout, a bale stack or a bare patch that
  * the grow refused. They're inside the field even if they don't look like it.
  *
@@ -293,8 +351,8 @@ export function traceOutline(mask: Uint8Array, w: number, h: number): Array<[num
   const sy = (start / w) | 0
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : mask[y * w + x])
 
-  // Clockwise neighbours, starting west.
-  const N = [
+  // The eight neighbours, clockwise from west.
+  const N: Array<[number, number]> = [
     [-1, 0],
     [-1, -1],
     [0, -1],
@@ -304,30 +362,62 @@ export function traceOutline(mask: Uint8Array, w: number, h: number): Array<[num
     [0, 1],
     [-1, 1],
   ]
+  const dirOf = (dx: number, dy: number) => N.findIndex(([ax, ay]) => ax === dx && ay === dy)
+
   const out: Array<[number, number]> = [[sx, sy]]
   let cx = sx
   let cy = sy
-  let dir = 0
+  // Where we came FROM. The start is the first set pixel in scan order, so the
+  // cell to its west is certainly background — a valid place to begin sweeping.
+  let bx = sx - 1
+  let by = sy
+  let firstStep: number | null = null
+
   // A bound rather than `while (true)`: a malformed mask must not hang the tab.
-  const maxSteps = 8 * (w + h) + mask.length
+  const maxSteps = 8 * mask.length
   for (let step = 0; step < maxSteps; step++) {
+    const from = dirOf(bx - cx, by - cy)
     let moved = false
-    // Start looking one step back from where we came in, so the trace hugs
-    // the edge instead of cutting across.
-    for (let k = 0; k < 8; k++) {
-      const d = (dir + 6 + k) % 8
+    // Sweep clockwise starting just past where we came from, tracking the last
+    // background cell as we go — that becomes the next "came from".
+    for (let k = 1; k <= 8; k++) {
+      const d = ((from < 0 ? 0 : from) + k) % 8
       const nx = cx + N[d][0]
       const ny = cy + N[d][1]
-      if (!at(nx, ny)) continue
+      if (!at(nx, ny)) {
+        bx = nx
+        by = ny
+        continue
+      }
       cx = nx
       cy = ny
-      dir = d
       out.push([cx, cy])
       moved = true
       break
     }
-    if (!moved) break // isolated pixel
-    if (cx === sx && cy === sy) break // closed the loop
+    if (!moved) break // isolated pixel: nothing to walk
+
+    if (out.length === 2) {
+      firstStep = cy * w + cx
+      continue
+    }
+    // Jacob's stopping criterion: finish only on re-entering the start pixel
+    // heading the same way as the first step. Stopping merely because the walk
+    // touched the start again cuts the outline short at any pinch in the shape
+    // — which is what reduced a real field edge to a few pixels and reported
+    // "too small to be a field".
+    if (cx === sx && cy === sy && firstStep != null) {
+      const peekFrom = dirOf(bx - cx, by - cy)
+      for (let k = 1; k <= 8; k++) {
+        const d = ((peekFrom < 0 ? 0 : peekFrom) + k) % 8
+        const nx = cx + N[d][0]
+        const ny = cy + N[d][1]
+        if (at(nx, ny)) {
+          if (ny * w + nx === firstStep) return out
+          break
+        }
+      }
+    }
   }
   return out
 }

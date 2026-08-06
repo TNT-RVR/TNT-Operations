@@ -8,7 +8,7 @@
  * The pixel work lives in src/domain/imageSegment.ts and is pure; this file is
  * the messy half: tiles, canvases and Web Mercator.
  */
-import { growRegion, fillHoles, traceOutline } from '@/domain/imageSegment'
+import { growRegion, fillHoles, traceOutline, largestComponent } from '@/domain/imageSegment'
 import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
 import type { SamplePoint } from '@/domain/returnsMap'
 import type { FieldDict } from '@/domain/tentGrid'
@@ -208,7 +208,11 @@ export async function detectFieldFromImagery(
     }
   }
 
-  const filled = fillHoles(grown.mask, W, H)
+  // The field is the biggest blob. Blocks that landed on a track or in shadow
+  // seed specks of their own, and tracing starts at the first mask pixel in
+  // scan order — so without this a stray speck gets traced instead of the field.
+  const main = largestComponent(grown.mask, W, H)
+  const filled = fillHoles(main, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }
 

@@ -156,19 +156,29 @@ export default function ReturnsMap() {
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
-    // Imported points rarely sit inside a field we hold geometry for, so they
-    // get an extent built around themselves instead of being clipped to none.
-    const geom = imported
-      ? syntheticField(active)
-      : (field?.geometry as Record<string, unknown> | undefined)
+
+    // Best outline available, in order:
+    //   1. the matching field's RECORDED geometry — exact, and real
+    //   2. a shape FITTED to the blocks — a true circle or straight sides
+    //   3. a plain bounding box, only when there's too little to fit
+    // syntheticField is the last of those and is a RECTANGLE, so reaching it
+    // by accident draws the whole bounding box — which is exactly what
+    // happened when this branch silently kept using it.
+    const clipField = effectiveClipId ? fields.find((f) => f.id === effectiveClipId) : null
+    const geom =
+      (clipField?.geometry as Record<string, unknown> | undefined) ??
+      (fitted?.field as Record<string, unknown> | undefined) ??
+      (imported ? syntheticField(active) : (field?.geometry as Record<string, unknown> | undefined))
     if (!geom) return null
-    // Mask cells with no block nearby, so the surface follows the shape that
-    // was actually sampled rather than filling the bounding rectangle.
+
+    // A recorded or fitted outline IS the edge, so don't also trim back to the
+    // blocks. Only the bounding-box fallback needs the point-cloud mask.
     // clipDistanceM only MASKS the edge; it must not limit which blocks a cell
     // averages, or every block gets its own flat disc instead of a surface.
-    const clipDistanceM = looseness > 0 ? autoTrimM(active, looseness) : null
+    const haveRealOutline = !!clipField?.geometry || !!fitted
+    const clipDistanceM = haveRealOutline ? null : looseness > 0 ? autoTrimM(active, looseness) : null
     return idwGrid(geom, active, { cellM, power, clipDistanceM })
-  }, [field, active, imported, cellM, power, looseness])
+  }, [field, fields, effectiveClipId, fitted, active, imported, cellM, power, looseness])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
@@ -224,6 +234,26 @@ export default function ReturnsMap() {
    * sub-samples and its opacity is the fraction that landed inside the field,
    * so the rim is smooth rather than jagged.
    */
+  /** Whether any cell touching this position is inside the field's extent. */
+  const maskedNear = (g: ReturnsGrid, e: number, n: number): boolean => {
+    const fx = (e - g.originE) / g.cellM - 0.5
+    const fy = (g.originN - n) / g.cellM - 0.5
+    const x0 = Math.floor(fx)
+    const y0 = Math.floor(fy)
+    for (const [dx, dy] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const x = x0 + dx
+      const y = y0 + dy
+      if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) continue
+      if (g.mask[y * g.cols + x]) return true
+    }
+    return false
+  }
+
   const renderCanvas = (g: ReturnsGrid): HTMLCanvasElement => {
     // Cap the texture so a big field can't produce an enormous canvas.
     const target = Math.min(2048, Math.max(g.cols, g.rows) * 4)
@@ -255,6 +285,10 @@ export default function ReturnsMap() {
             // Boundary decided per pixel; values exist just past the edge so
             // this line can be sharp rather than following the cell grid.
             if (!insideField(g.frame, e, n)) continue
+            // AND inside the grid's own mask. Belt and braces: the mask is the
+            // authoritative extent, so a bad frame can never paint the whole
+            // bounding box the way a mis-set outline once did.
+            if (!maskedNear(g, e, n)) continue
             hits++
             const v = sampleGrid(g, e, n)
             if (Number.isFinite(v)) {

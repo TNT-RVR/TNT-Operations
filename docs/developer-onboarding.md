@@ -46,7 +46,7 @@ touching a real credential.
 2. Clone and run:
 
 ```bash
-git clone https://github.com/tylertorrie/TNT-Operations.git tnt-operations
+git clone https://github.com/TNT-RVR/TNT-Operations.git tnt-operations
 cd tnt-operations
 npm install
 cp .env.example .env      # leave VITE_DATA_SOURCE=mock
@@ -91,7 +91,7 @@ sensors but not user admin · `viewer` = read-only · `pending` = no access.
 Grant each from the service's own dashboard so they get their own login.
 Membership *is* the access — these keys should never travel over chat or email.
 
-- [ ] **GitHub** — collaborator on `tylertorrie/TNT-Operations`.
+- [ ] **GitHub** — collaborator on `TNT-RVR/TNT-Operations`.
 - [ ] **Netlify** — team member on the `tntoperations` site.
 - [ ] **Supabase** — member of project `pmqbkezevsuwkoryxief`.
 

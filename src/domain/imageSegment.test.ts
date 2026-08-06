@@ -69,17 +69,17 @@ describe('growRegion', () => {
     expect(r.fraction).toBeLessThan(0.45)
   })
 
-  it('refuses a result that bled across the whole image', () => {
+  it('refuses a result that bled across the whole image, and says so', () => {
     // Uniform image: everything matches, so the answer is meaningless.
     const flat = image(() => CROP)
-    expect(growRegion(flat, W, H, [[60, 60]], { maxFraction: 0.9 })).toBeNull()
+    expect(growRegion(flat, W, H, [[60, 60]], { maxFraction: 0.9 })!.failure).toBe('bled')
   })
 
-  it('refuses a result that never spread', () => {
+  it('refuses a result that never spread, and says so', () => {
     // Noisy imagery plus a tolerance too tight to cross it: the region stalls
     // at a handful of pixels, which is not an outline.
     const data = discImage(40, 6)
-    expect(growRegion(data, W, H, [[60, 60]], { tolerance: 1, minFraction: 0.01 })).toBeNull()
+    expect(growRegion(data, W, H, [[60, 60]], { tolerance: 1, minFraction: 0.01 })!.failure).toBe('never-spread')
   })
 
   it('handles seeds outside the image, and no seeds', () => {
@@ -182,5 +182,38 @@ describe('distanceFrom', () => {
     // Diagonal, within chamfer error.
     expect(d[70 * W + 70]).toBeGreaterThan(13)
     expect(d[70 * W + 70]).toBeLessThan(15)
+  })
+})
+
+describe('measured tolerance', () => {
+  it('adapts to how much the crop actually varies', () => {
+    // An even field needs little latitude; a patchy one needs more. A single
+    // fixed number cannot serve both, which is why this is measured.
+    const seeds: Array<[number, number]> = [
+      [60, 60],
+      [50, 55],
+      [70, 65],
+      [55, 70],
+      [65, 50],
+    ]
+    const even = growRegion(discImage(40, 0), W, H, seeds)!
+    const patchy = growRegion(discImage(40, 4), W, H, seeds)!
+    expect(patchy.tolerance).toBeGreaterThan(even.tolerance)
+  })
+
+  it('stays within sane bounds whatever the imagery', () => {
+    const seeds: Array<[number, number]> = [
+      [60, 60],
+      [50, 55],
+      [70, 65],
+    ]
+    for (const noise of [0, 2, 8]) {
+      const r = growRegion(discImage(40, noise), W, H, seeds)
+      if (!r) continue
+      // Never so tight it can't cross image noise, never so loose it swallows
+      // the surrounding ground.
+      expect(r.tolerance).toBeGreaterThanOrEqual(22)
+      expect(r.tolerance).toBeLessThanOrEqual(70)
+    }
   })
 })

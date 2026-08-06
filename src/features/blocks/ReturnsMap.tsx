@@ -226,14 +226,13 @@ export default function ReturnsMap() {
     setDetecting(true)
     try {
       const r = await detectFieldFromImagery(active)
-      if (!r) {
-        setDetectErr(
-          "Couldn't read a clear field edge from the imagery — the crop may look like its surroundings, or the picture predates this season. Keeping the fitted outline.",
-        )
+      if (!r.ok) {
+        // Say WHY, not just that it failed — the reason names the fix.
+        setDetectErr(`${r.reason} Keeping the fitted outline.`)
         setDetected(null)
         return
       }
-      setDetected(r)
+      setDetected(r.result)
     } catch (e) {
       console.error('[imagery] detect failed:', e)
       setDetectErr(e instanceof Error ? e.message : 'Could not read the imagery.')
@@ -704,7 +703,7 @@ export default function ReturnsMap() {
                   <div className="font-semibold text-primary">Field outline from the satellite image</div>
                   <p className="mt-1 text-xs text-muted">
                     {detected
-                      ? `Traced from the imagery — ${detected.corners} points around the edge, holding ${Math.round(detected.blocksInside * 100)}% of the blocks. This follows the real field, not a fitted circle.`
+                      ? `Traced from the imagery — ${detected.corners} points around the edge, holding ${Math.round(detected.blocksInside * 100)}% of the blocks (colour tolerance ${detected.tolerance.toFixed(0)}). This follows the real field, not a fitted circle.`
                       : detecting
                         ? 'Reading the imagery…'
                         : 'Reads the satellite picture and follows the actual field edge — the crop circle, the fence line — instead of fitting a shape to the blocks.'}

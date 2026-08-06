@@ -36,8 +36,12 @@ export interface GrowOptions {
   /**
    * How different a pixel may look from the field's colour and still belong,
    * as an RGB distance. Bigger swallows the neighbours; smaller leaves holes.
+   *
+   * 'auto' measures it from the blocks themselves: how much the crop varies
+   * across the pixels the blocks sit on, which is the only honest estimate.
+   * A fixed number can't suit both an even pivot and a patchy dryland field.
    */
-  tolerance?: number
+  tolerance?: number | 'auto'
   /** Refuse a result covering more than this share of the image — it has bled. */
   maxFraction?: number
   /** Refuse a result smaller than this — it failed to spread. */
@@ -97,6 +101,10 @@ export interface GrowResult {
   fraction: number
   /** Median colour of the seeds, for reporting. */
   seedColour: [number, number, number]
+  /** Tolerance actually used — worth reporting when it was measured. */
+  tolerance: number
+  /** Why it gave up, when it did. */
+  failure?: 'bled' | 'never-spread'
 }
 
 /**
@@ -114,7 +122,7 @@ export function growRegion(
   opts: GrowOptions = {},
 ): GrowResult | null {
   const {
-    tolerance = 38,
+    tolerance = 'auto',
     // The image is padded around the blocks, so the field itself should be a
     // minority of it. Anything past half has plainly escaped.
     maxFraction = 0.5,
@@ -145,7 +153,23 @@ export function growRegion(
   const cr = med(rs)
   const cg = med(gs)
   const cb = med(bs)
-  const tol2 = tolerance * tolerance
+
+  // Measured tolerance: how far the block pixels themselves stray from the
+  // field's median colour. Median + 3 robust deviations covers the crop's own
+  // variation without reaching the ground beyond it. Clamped so a field that
+  // happens to be very uniform still tolerates ordinary image noise, and one
+  // that's very patchy can't open the gates completely.
+  let tol = typeof tolerance === 'number' ? tolerance : 40
+  if (tolerance === 'auto') {
+    const ds = valid.map(([sx, sy]) => {
+      const i = (Math.round(sy) * w + Math.round(sx)) * 4
+      return Math.sqrt(colourDist2(data, i, cr, cg, cb))
+    })
+    const dMed = med(ds)
+    const mad = med(ds.map((d) => Math.abs(d - dMed))) * 1.4826
+    tol = Math.min(70, Math.max(22, dMed + 3 * mad))
+  }
+  const tol2 = tol * tol
 
   // Leash: how far each pixel is from the nearest block.
   let reach: Float32Array | null = null
@@ -198,9 +222,12 @@ export function growRegion(
 
   const fraction = claimed / (w * h)
   // Too much means it escaped the field; too little means it never spread.
-  // Either way the answer is worthless, and saying so beats drawing it.
-  if (fraction > maxFraction || fraction < minFraction) return null
-  return { mask, fraction, seedColour: [cr, cg, cb] }
+  // Either way the answer is worthless — but say WHICH, so the next attempt
+  // knows whether to loosen or tighten.
+  const base = { mask, fraction, seedColour: [cr, cg, cb] as [number, number, number], tolerance: tol }
+  if (fraction > maxFraction) return { ...base, failure: 'bled' }
+  if (fraction < minFraction) return { ...base, failure: 'never-spread' }
+  return base
 }
 
 /**

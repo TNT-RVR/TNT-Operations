@@ -35,8 +35,15 @@ function pixelToLngLat(x: number, y: number, z: number): [number, number] {
   return [lng, lat]
 }
 
+/** Either an outline, or a plain statement of why there isn't one. */
+export type DetectOutcome =
+  | { ok: true; result: DetectResult }
+  | { ok: false; reason: string }
+
 export interface DetectResult {
   field: FieldDict
+  /** Colour tolerance used, measured from the blocks. */
+  tolerance: number
   /** Outline vertices, for reporting. */
   corners: number
   /** Share of the fetched image the field claimed. */
@@ -46,8 +53,8 @@ export interface DetectResult {
 }
 
 export interface DetectOptions {
-  /** Colour tolerance for the region grow. */
-  tolerance?: number
+  /** Colour tolerance for the region grow; 'auto' measures it from the blocks. */
+  tolerance?: number | 'auto'
   /**
    * How far past the outermost blocks the field edge may plausibly lie.
    * Blocks are placed IN the field, so its boundary is close to them; this is
@@ -84,9 +91,9 @@ function loadTile(z: number, x: number, y: number): Promise<HTMLImageElement | n
 export async function detectFieldFromImagery(
   samples: SamplePoint[],
   opts: DetectOptions = {},
-): Promise<DetectResult | null> {
-  const { tolerance = 38, pad = 0.3, simplifyM = 12, maxDistanceM = 150 } = opts
-  if (samples.length < 4) return null
+): Promise<DetectOutcome> {
+  const { tolerance = 'auto', pad = 0.3, simplifyM = 12, maxDistanceM = 150 } = opts
+  if (samples.length < 4) return { ok: false, reason: 'Too few blocks to work from.' }
 
   let minLat = Infinity
   let maxLat = -Infinity
@@ -131,7 +138,7 @@ export async function detectFieldFromImagery(
   canvas.width = W
   canvas.height = H
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return null
+  if (!ctx) return { ok: false, reason: 'This browser could not open a drawing canvas.' }
 
   const jobs: Array<Promise<void>> = []
   for (let tx = tx0; tx <= tx1; tx++) {
@@ -151,7 +158,10 @@ export async function detectFieldFromImagery(
   } catch {
     // Tainted canvas: the tile server didn't allow cross-origin reads.
     console.warn('[imagery] cannot read pixels (CORS) — falling back to the fitted shape')
-    return null
+    return {
+      ok: false,
+      reason: "The tile server won't allow the image to be read (CORS), so the picture can't be analysed here.",
+    }
   }
 
   // Blocks → pixels in this image.
@@ -170,7 +180,19 @@ export async function detectFieldFromImagery(
     tolerance,
     maxDistancePx: maxDistanceM / mPerPxNow,
   })
-  if (!grown) return null
+  if (!grown) return { ok: false, reason: 'No usable pixels under the blocks.' }
+  if (grown.failure === 'never-spread') {
+    return {
+      ok: false,
+      reason: `The crop varies too much for a clean edge — the region stopped at ${(grown.fraction * 100).toFixed(1)}% of the picture (colour tolerance ${grown.tolerance.toFixed(0)}). Often means shadow, cloud, or a patchy field.`,
+    }
+  }
+  if (grown.failure === 'bled') {
+    return {
+      ok: false,
+      reason: `The field looks too much like its surroundings — the region spread across ${(grown.fraction * 100).toFixed(0)}% of the picture before stopping (colour tolerance ${grown.tolerance.toFixed(0)}).`,
+    }
+  }
 
   // Area sanity. "All the blocks are inside" is worthless on its own — it's
   // trivially true of a region that swallowed the whole picture, which is
@@ -180,20 +202,20 @@ export async function detectFieldFromImagery(
   const seedArea = Math.abs(polygonArea(seedHull))
   const grownArea = grown.fraction * W * H
   if (seedArea > 0 && grownArea > seedArea * 2.2) {
-    console.warn(
-      `[imagery] region is ${(grownArea / seedArea).toFixed(1)}x the area the blocks cover — treating as bled`,
-    )
-    return null
+    return {
+      ok: false,
+      reason: `The detected area is ${(grownArea / seedArea).toFixed(1)}x the ground the blocks cover, so it has spread past the field.`,
+    }
   }
 
   const filled = fillHoles(grown.mask, W, H)
   const outlinePx = traceOutline(filled, W, H)
-  if (outlinePx.length < 8) return null
+  if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }
 
   // Metres per pixel here, so the simplification tolerance is a real distance.
   const midLat = midLatForScale
   const simplified = simplify(outlinePx, Math.max(1, simplifyM / mPerPxNow))
-  if (simplified.length < 4) return null
+  if (simplified.length < 4) return { ok: false, reason: 'The traced edge simplified away to nothing.' }
 
   // Back to coordinates. fieldFrame wants [lat, lng] pairs.
   const ring = simplified.map(([x, y]) => {
@@ -211,12 +233,18 @@ export async function detectFieldFromImagery(
     if (filled[py * W + px]) inside++
   }
   const blocksInside = inside / seeds.length
-  if (blocksInside < 0.8) return null
+  if (blocksInside < 0.8) {
+    return {
+      ok: false,
+      reason: `The detected shape left ${Math.round((1 - blocksInside) * 100)}% of the blocks outside it, so it isn't this field.`,
+    }
+  }
 
-  return {
+  const result: DetectResult = {
     corners: ring.length,
     fraction: grown.fraction,
     blocksInside,
+    tolerance: grown.tolerance,
     field: {
       PP_Latitude: String(midLat),
       PP_Longitude: String((minLng + maxLng) / 2),
@@ -224,4 +252,5 @@ export async function detectFieldFromImagery(
       boundary_polygon: ring,
     } as FieldDict,
   }
+  return { ok: true, result }
 }

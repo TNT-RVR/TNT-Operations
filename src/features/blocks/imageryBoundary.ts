@@ -8,8 +8,9 @@
  * The pixel work lives in src/domain/imageSegment.ts and is pure; this file is
  * the messy half: tiles, canvases and Web Mercator.
  */
-import { growRegion, fillHoles, traceOutline, largestComponent } from '@/domain/imageSegment'
+import { growRegion, fillHoles, traceOutline, largestComponent, openMask } from '@/domain/imageSegment'
 import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
+import { medianSpacingM } from '@/domain/returnsMap'
 import type { SamplePoint } from '@/domain/returnsMap'
 import type { FieldDict } from '@/domain/tentGrid'
 
@@ -92,7 +93,7 @@ export async function detectFieldFromImagery(
   samples: SamplePoint[],
   opts: DetectOptions = {},
 ): Promise<DetectOutcome> {
-  const { tolerance = 'auto', pad = 0.3, simplifyM = 12, maxDistanceM = 150 } = opts
+  const { tolerance = 'auto', pad = 0.3, simplifyM = 12, maxDistanceM } = opts
   if (samples.length < 4) return { ok: false, reason: 'Too few blocks to work from.' }
 
   let minLat = Infinity
@@ -176,9 +177,17 @@ export async function detectFieldFromImagery(
   const midLatForScale = (minLat + maxLat) / 2
   const mPerPxNow = (156543.03392 * Math.cos((midLatForScale * Math.PI) / 180)) / Math.pow(2, z)
 
+  // Leash derived from how far apart the blocks are, not a flat 150 m. Blocks
+  // are spread through the field, so its edge lies roughly one spacing beyond
+  // the outermost of them; a fixed distance is too short for a sparse field
+  // and far too generous for a dense one (which is how the region reached the
+  // next quarter).
+  const spacing = medianSpacingM(samples) ?? 60
+  const leashM = maxDistanceM ?? Math.min(200, Math.max(50, spacing * 1.8))
+
   const grown = growRegion(data.data, W, H, seeds, {
     tolerance,
-    maxDistancePx: maxDistanceM / mPerPxNow,
+    maxDistancePx: leashM / mPerPxNow,
   })
   if (!grown) return { ok: false, reason: 'No usable pixels under the blocks.' }
   if (grown.failure === 'never-spread') {
@@ -211,7 +220,10 @@ export async function detectFieldFromImagery(
   // The field is the biggest blob. Blocks that landed on a track or in shadow
   // seed specks of their own, and tracing starts at the first mask pixel in
   // scan order — so without this a stray speck gets traced instead of the field.
-  const main = largestComponent(grown.mask, W, H)
+  // Cut the threads first — a track or headland a few metres wide otherwise
+  // ties this field to its neighbour and they count as one blob.
+  const opened = openMask(grown.mask, W, H, Math.max(2, Math.round(12 / mPerPxNow)))
+  const main = largestComponent(opened, W, H)
   const filled = fillHoles(main, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }

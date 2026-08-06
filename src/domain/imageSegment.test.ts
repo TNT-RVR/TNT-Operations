@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { growRegion, fillHoles, traceOutline, distanceFrom, largestComponent } from './imageSegment'
+import { growRegion, fillHoles, traceOutline, distanceFrom, largestComponent, openMask } from './imageSegment'
 
 const W = 120
 const H = 120
@@ -293,5 +293,48 @@ describe('largestComponent', () => {
     const main = largestComponent(m, W, H)
     expect(main[15 * W + 15]).toBe(0)
     expect(main[80 * W + 80]).toBe(1)
+  })
+})
+
+describe('openMask', () => {
+  it('severs a thin bridge between two fields', () => {
+    // Exactly the real failure: a track a few pixels wide ties this field to
+    // the next, so the grow crosses and they count as one blob.
+    const m = new Uint8Array(W * H)
+    const disc = (cx: number, cy: number, r: number) => {
+      for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) m[y * W + x] = 1
+    }
+    disc(35, 60, 25)
+    disc(95, 60, 18)
+    for (let y = 58; y <= 62; y++) for (let x = 35; x <= 95; x++) m[y * W + x] = 1 // the track
+
+    const opened = openMask(m, W, H, 4)
+    // Bridge cut, both bodies survive.
+    expect(opened[60 * W + 65]).toBe(0)
+    expect(opened[60 * W + 35]).toBe(1)
+    expect(opened[60 * W + 95]).toBe(1)
+
+    // ...so the largest-blob step now keeps only the seeded field.
+    const main = largestComponent(opened, W, H)
+    expect(main[60 * W + 35]).toBe(1)
+    expect(main[60 * W + 95]).toBe(0)
+  })
+
+  it('leaves a solid shape essentially intact', () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 30; y < 90; y++) for (let x = 30; x < 90; x++) m[y * W + x] = 1
+    const opened = openMask(m, W, H, 3)
+    expect(opened[60 * W + 60]).toBe(1)
+    const before = [...m].filter(Boolean).length
+    const after = [...opened].filter(Boolean).length
+    expect(after).toBeGreaterThan(before * 0.9)
+  })
+
+  it('never invents pixels outside the original mask', () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 40; y < 80; y++) for (let x = 40; x < 80; x++) m[y * W + x] = 1
+    const opened = openMask(m, W, H, 3)
+    for (let i = 0; i < m.length; i++) if (opened[i]) expect(m[i]).toBe(1)
   })
 })

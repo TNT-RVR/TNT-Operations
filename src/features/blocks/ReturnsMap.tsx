@@ -273,16 +273,17 @@ export default function ReturnsMap() {
     const fy = (g.originN - n) / g.cellM - 0.5
     const x0 = Math.floor(fx)
     const y0 = Math.floor(fy)
-    for (const [dx, dy] of [
-      [0, 0],
-      [1, 0],
-      [0, 1],
-      [1, 1],
-    ]) {
-      const x = x0 + dx
-      const y = y0 + dy
-      if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) continue
-      if (g.mask[y * g.cols + x]) return true
+    // A 3x3 sweep, not the 2x2 the value sampler uses. This is a safety net
+    // against a wrong outline, NOT the boundary itself — checking only the
+    // immediate cells clipped pixels that the per-pixel boundary had rightly
+    // included, and put the stair-steps back on an otherwise clean circle.
+    for (let dy = -1; dy <= 2; dy++) {
+      for (let dx = -1; dx <= 2; dx++) {
+        const x = x0 + dx
+        const y = y0 + dy
+        if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) continue
+        if (g.mask[y * g.cols + x]) return true
+      }
     }
     return false
   }

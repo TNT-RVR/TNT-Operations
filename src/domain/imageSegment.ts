@@ -167,7 +167,11 @@ export function growRegion(
     })
     const dMed = med(ds)
     const mad = med(ds.map((d) => Math.abs(d - dMed))) * 1.4826
-    tol = Math.min(70, Math.max(22, dMed + 3 * mad))
+    // 2.5 deviations, ceiling 52. At 3 deviations and a ceiling of 70 the
+    // measured value simply ran to its limit on real fields and the region
+    // crossed into the neighbouring quarter — a tolerance that always maxes
+    // out is not a measurement, it's a constant with extra steps.
+    tol = Math.min(52, Math.max(22, dMed + 2.5 * mad))
   }
   const tol2 = tol * tol
 
@@ -228,6 +232,32 @@ export function growRegion(
   if (fraction > maxFraction) return { ...base, failure: 'bled' }
   if (fraction < minFraction) return { ...base, failure: 'never-spread' }
   return base
+}
+
+/**
+ * Morphological opening: erode by `r`, then dilate back.
+ *
+ * Severs thin connections while leaving the body of a shape alone. Fields are
+ * joined to their neighbours by tracks, headlands and pivot corners only a few
+ * metres wide, and a region-grow runs straight down them — opening cuts those
+ * threads so the largest-blob step keeps this field and drops the next one.
+ */
+export function openMask(mask: Uint8Array, w: number, h: number, r: number): Uint8Array {
+  if (r <= 0) return mask
+  // Erode: keep pixels at least r from the background.
+  const inverse = new Uint8Array(w * h)
+  for (let i = 0; i < inverse.length; i++) inverse[i] = mask[i] ? 0 : 1
+  const distOut = distanceFrom(inverse, w, h)
+  const eroded = new Uint8Array(w * h)
+  for (let i = 0; i < eroded.length; i++) eroded[i] = distOut[i] > r ? 1 : 0
+
+  // Dilate the survivors back out by the same amount.
+  const distIn = distanceFrom(eroded, w, h)
+  const out = new Uint8Array(w * h)
+  // Only restore pixels that were in the original mask: dilation must not
+  // invent ground the imagery never supported.
+  for (let i = 0; i < out.length; i++) out[i] = mask[i] && distIn[i] <= r ? 1 : 0
+  return out
 }
 
 /**

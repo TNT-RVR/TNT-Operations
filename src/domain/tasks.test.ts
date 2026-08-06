@@ -8,7 +8,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   type RecurRule,
-  addDays,
   addMonths,
   daysBetween,
   daysInMonth,

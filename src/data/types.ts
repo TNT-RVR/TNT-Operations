@@ -688,3 +688,83 @@ export interface StockMovement {
   /** ISO UTC. */
   at: string
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tasks and checklists (migration 0016).
+//
+// A checklist RUN is a task: same row, with `checklistId` set. "Subtask" and
+// "checklist step" are one mechanism — see the migration header.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type TaskPriority = 'low' | 'normal' | 'high'
+export type TaskStatus = 'open' | 'in_progress' | 'done' | 'cancelled'
+
+/** A reusable checklist template. */
+export interface Checklist {
+  id: string
+  name: string
+  description: string
+  /** Free-text grouping: 'Field', 'Shop', 'Season start'. */
+  category: string
+  active: boolean
+  createdBy: string | null
+  steps: ChecklistStep[]
+}
+
+/** A template step. Ordered but not gated — see the migration header. */
+export interface ChecklistStep {
+  id: string
+  title: string
+  notes: string
+  sort: number
+  required: boolean
+}
+
+/** A task, or — when `checklistId` is set — a run of that checklist. */
+export interface Task {
+  id: string
+  title: string
+  notes: string
+  /** Set ⇒ this is a checklist run. */
+  checklistId: string | null
+  assigneeId: string | null
+  createdBy: string | null
+  /** A CALENDAR DATE (`YYYY-MM-DD`), deliberately not an instant. */
+  dueDate: string | null
+  priority: TaskPriority
+  status: TaskStatus
+  /** ISO UTC — completion IS an instant. */
+  completedAt: string | null
+  completedBy: string | null
+
+  /** Null ⇒ one-off. */
+  recurUnit: import('@/domain/tasks').RecurUnit | null
+  recurInterval: number
+  recurAnchor: import('@/domain/tasks').RecurAnchor
+  /** Weekly only, 0 = Sunday. */
+  recurWeekdays: number[]
+  recurUntil: string | null
+  recurParentId: string | null
+
+  /** Lead time for the "due soon" alert. */
+  remindDaysBefore: number
+
+  createdAt: string
+  updatedAt: string
+  steps: TaskStep[]
+}
+
+/** A subtask / checklist step on a live task. */
+export interface TaskStep {
+  id: string
+  taskId: string
+  title: string
+  notes: string
+  sort: number
+  required: boolean
+  /** Optional — a step can belong to someone other than the task's assignee. */
+  assigneeId: string | null
+  completedAt: string | null
+  completedBy: string | null
+  sourceStepId: string | null
+}

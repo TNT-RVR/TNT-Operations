@@ -24,6 +24,7 @@ import type {
 import type { CostPrefs } from '@/domain/cost'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { summariseWeather, weatherKey, type OpenMeteoDaily } from '@/domain/weather'
+import { useSalesSupabase } from './useSalesSupabase'
 import { supabase } from './supabaseClient'
 
 /** Cached Open-Meteo response, as stored by migration 0014. */
@@ -318,8 +319,14 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Sales lives in its own hook — this file is long enough already, and the
+  // slice shares no state with anything above it. Nothing is fetched until a
+  // Sales screen calls loadSales().
+  const sales = useSalesSupabase()
+
   const value = useMemo<DataContextValue>(
     () => ({
+      ...sales,
       fields,
       incubators,
       inspections,
@@ -1054,6 +1061,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       upsertPlacement,
       grants,
       grantTasks,
+      sales,
     ],
   )
 

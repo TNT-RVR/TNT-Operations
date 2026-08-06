@@ -19,6 +19,18 @@ import type {
   GrantTask,
   FieldAnalysis,
   FieldWeather,
+  Product,
+  ItemSpecRow,
+  SalesCustomer,
+  Supplier,
+  SalesOrder,
+  SalesOrderLine,
+  SalesOrderCharge,
+  OrderKind,
+  Shipment,
+  InventoryLevel,
+  StockMovement,
+  StockReason,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 
@@ -42,7 +54,7 @@ export interface NotificationPref {
  *   - SupabaseProvider (src/data/SupabaseProvider) → live backend  [TODO]
  * Selected by VITE_DATA_SOURCE. Any new method MUST be added to BOTH providers.
  */
-export interface DataContextValue {
+export interface DataContextValue extends SalesSlice {
   fields: Field[]
   incubators: Incubator[]
   inspections: Inspection[]
@@ -244,6 +256,98 @@ export interface DataContextValue {
   addGrantTask: (input: Omit<GrantTask, 'id' | 'createdAt'>) => void
   updateGrantTask: (id: string, patch: Partial<GrantTask>) => void
   deleteGrantTask: (id: string) => void
+}
+
+/** What every sales mutation returns. */
+export interface SalesResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Sales: estimates, invoices, shipping paperwork, finished-goods inventory
+ * (migration 0015).
+ *
+ * Kept as its own interface, and implemented by `useSalesMock` /
+ * `useSalesSupabase` rather than inline in the providers — the two provider
+ * files are already ~400 and ~1000 lines, and this slice is self-contained.
+ * Both providers spread the same shape in, so the seam rule still holds.
+ */
+export interface SalesSlice {
+  products: Product[]
+  itemSpecs: ItemSpecRow[]
+  salesCustomers: SalesCustomer[]
+  suppliers: Supplier[]
+  salesOrders: SalesOrder[]
+  shipments: Shipment[]
+  inventory: InventoryLevel[]
+  stockMovements: StockMovement[]
+
+  /** NOT loaded on mount — only the Sales section reads any of it. */
+  salesLoading: boolean
+  /** Fetch the whole sales slice once. Idempotent. */
+  loadSales: () => Promise<void>
+
+  saveProduct: (id: string, patch: Partial<Product>) => Promise<SalesResult>
+  saveSalesCustomer: (id: string, patch: Partial<SalesCustomer>) => Promise<SalesResult>
+  addSalesCustomer: (input: Partial<SalesCustomer>) => Promise<{ ok: boolean; id?: string; error?: string }>
+
+  /** Create an estimate or invoice. Returns the new id so the UI can open it. */
+  createOrder: (
+    input: Partial<SalesOrder> & { kind: OrderKind },
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+  /** Patch an order's header, lines and/or charges. Lines replace wholesale. */
+  saveOrder: (
+    id: string,
+    patch: Partial<SalesOrder>,
+    lines?: SalesOrderLine[],
+    charges?: SalesOrderCharge[],
+  ) => Promise<SalesResult>
+  deleteOrder: (id: string) => Promise<SalesResult>
+
+  /**
+   * Turn an accepted estimate into an invoice.
+   *
+   * Copies the lines with their PRICES AS QUOTED, rather than re-pricing from
+   * the catalogue — the customer accepted a number and that is the number they
+   * get billed, even if a BOM changed in between. The estimate survives,
+   * linked by `fromEstimateId`.
+   *
+   * Reserves stock for every line: see `markShipped` for the other half.
+   */
+  convertEstimateToInvoice: (
+    estimateId: string,
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+
+  /**
+   * Record that an invoice physically shipped, which COMMITS the stock draw.
+   *
+   * Reserved quantity moves out of `onHand`. Packing figures are frozen on the
+   * shipment row so the paperwork keeps matching what went on the truck.
+   */
+  markShipped: (
+    orderId: string,
+    input: {
+      carrier?: string
+      tracking?: string
+      palletCount?: number | null
+      netWeightLbs?: number | null
+      grossWeightLbs?: number | null
+      notes?: string
+    },
+  ) => Promise<SalesResult>
+
+  /** Receive, count, or correct stock. Journalled in `stockMovements`. */
+  adjustStock: (input: {
+    productId: string
+    delta: number
+    reason: StockReason
+    note?: string
+  }) => Promise<SalesResult>
+  /** Set (or clear, with null) the level that triggers a low-stock alert. */
+  setReorderPoint: (productId: string, reorderPoint: number | null) => Promise<SalesResult>
+  /** Add or update a shipping spec — how an item pallets and what it weighs. */
+  saveItemSpec: (item: string, patch: Partial<ItemSpecRow>) => Promise<SalesResult>
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

@@ -1,6 +1,9 @@
 import { Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { Protected } from './components/Protected'
+import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
+import { InventoryHome } from './features/sales/SalesInventory'
+import { CustomersHome, ProductsHome } from './features/sales/SalesCatalogue'
 import Dashboard from './features/dashboard/Dashboard'
 import MapsHome from './features/maps/MapsHome'
 import CostsHome from './features/maps/CostsHome'
@@ -47,6 +50,11 @@ export default function App() {
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
         <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />
         <Route path="sensors" element={<Protected module="sensors"><SensorsHome /></Protected>} />
+        <Route path="sales" element={<Protected module="sales"><EstimatesHome /></Protected>} />
+        <Route path="sales/invoices" element={<Protected module="sales"><InvoicesHome /></Protected>} />
+        <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
+        <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
+        <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />
         <Route path="analysis/fields/:id" element={<Protected module="analysis"><AnalysisFieldDetail /></Protected>} />

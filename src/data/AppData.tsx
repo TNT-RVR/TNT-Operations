@@ -20,6 +20,7 @@ import type {
   FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+import { useSalesMock } from './useSalesMock'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { weatherKey } from '@/domain/weather'
 import {
@@ -95,9 +96,13 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
   const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
   const nowIso = () => new Date().toISOString()
+  // Sales lives in its own hook — this file is long enough, and the slice has
+  // no overlap with anything above it.
+  const sales = useSalesMock()
 
   const value = useMemo<DataContextValue>(
     () => ({
+      ...sales,
       fields,
       incubators,
       inspections,
@@ -397,6 +402,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       grantTasks,
       fieldAnalysis,
       fieldWeather,
+      sales,
     ],
   )
 

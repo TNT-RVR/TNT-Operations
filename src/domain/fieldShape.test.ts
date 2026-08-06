@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inferFieldShape, convexHull, simplify } from './fieldShape'
+import { inferFieldShape, convexHull, simplify, fitCircle } from './fieldShape'
 import type { SamplePoint } from './returnsMap'
 
 const M_PER_LAT = 111_320
@@ -132,5 +132,50 @@ describe('inferFieldShape', () => {
     // A quarter-section with one clipped corner is still a straight-edged field.
     const clipped = square(600).filter((p) => !(p.lat > LAT0 + 0.002 && p.lng > LNG0 + 0.002))
     expect(inferFieldShape(clipped)!.kind).toBe('polygon')
+  })
+})
+
+describe('fitCircle', () => {
+  it('recovers a known circle', () => {
+    const pts: Array<[number, number]> = []
+    for (let a = 0; a < Math.PI * 2; a += 0.3) pts.push([100 + 250 * Math.cos(a), -50 + 250 * Math.sin(a)])
+    const f = fitCircle(pts)!
+    expect(f.cx).toBeCloseTo(100, 3)
+    expect(f.cy).toBeCloseTo(-50, 3)
+    expect(f.r).toBeCloseTo(250, 3)
+  })
+
+  it('returns null for collinear points', () => {
+    expect(
+      fitCircle([
+        [0, 0],
+        [1, 1],
+        [2, 2],
+      ]),
+    ).toBeNull()
+  })
+
+  it('centres on the field even when blocks are lopsided', () => {
+    // Twice as many blocks on the east side. A centroid drifts that way; a
+    // proper fit does not, and the drawn circle stays on the field.
+    const pts: Array<[number, number]> = []
+    for (let a = -1.2; a < 1.2; a += 0.1) pts.push([300 * Math.cos(a), 300 * Math.sin(a)])
+    for (let a = 2; a < 4.2; a += 0.3) pts.push([300 * Math.cos(a), 300 * Math.sin(a)])
+    const f = fitCircle(pts)!
+    expect(Math.hypot(f.cx, f.cy)).toBeLessThan(15)
+    expect(f.r).toBeCloseTo(300, 0)
+  })
+})
+
+describe('fitted circle size', () => {
+  it('is not inflated by one block sitting proud', () => {
+    const clean = disc(400)
+    const withStraggler = [...clean, at(470, 0)]
+    const a = inferFieldShape(clean)!
+    const b = inferFieldShape(withStraggler)!
+    // The straggler may extend the circle, but only to cover it — not by
+    // dragging the centre and the radius together.
+    expect(b.radiusM! - a.radiusM!).toBeLessThan(90)
+    expect(b.kind).toBe('circle')
   })
 })

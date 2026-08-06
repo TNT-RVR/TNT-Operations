@@ -57,6 +57,58 @@ function scaleAt(lat: number): { mPerLat: number; mPerLng: number } {
   return { mPerLat: 111_320, mPerLng: 111_320 * Math.cos((lat * Math.PI) / 180) }
 }
 
+/**
+ * Least-squares circle through a set of points (Kåså's algebraic fit).
+ *
+ * Better than "centre of the hull, radius of the furthest point" on both
+ * counts: the centre stops drifting toward whichever side has more blocks, and
+ * the radius stops being decided by a single outlying fix. For a pivot the
+ * blocks sit on arcs, which is exactly what this fits well.
+ */
+export function fitCircle(pts: Array<[number, number]>): { cx: number; cy: number; r: number } | null {
+  if (pts.length < 3) return null
+  const n = pts.length
+  let sx = 0
+  let sy = 0
+  for (const [x, y] of pts) {
+    sx += x
+    sy += y
+  }
+  // Centre the data first, which keeps the normal equations well conditioned.
+  const mx = sx / n
+  const my = sy / n
+
+  let Suu = 0
+  let Suv = 0
+  let Svv = 0
+  let Suuu = 0
+  let Svvv = 0
+  let Suvv = 0
+  let Svuu = 0
+  for (const [x, y] of pts) {
+    const u = x - mx
+    const v = y - my
+    Suu += u * u
+    Svv += v * v
+    Suv += u * v
+    Suuu += u * u * u
+    Svvv += v * v * v
+    Suvv += u * v * v
+    Svuu += v * u * u
+  }
+  const det = 2 * (Suu * Svv - Suv * Suv)
+  if (Math.abs(det) < 1e-9) return null // collinear: no circle through them
+
+  const uc = (Svv * (Suuu + Suvv) - Suv * (Svvv + Svuu)) / det
+  const vc = (Suu * (Svvv + Svuu) - Suv * (Suuu + Suvv)) / det
+  const cx = mx + uc
+  const cy = my + vc
+
+  let sr = 0
+  for (const [x, y] of pts) sr += Math.hypot(x - cx, y - cy)
+  return { cx, cy, r: sr / n }
+}
+
 /** Signed area of a closed ring (shoelace). */
 export function polygonArea(ring: Array<[number, number]>): number {
   let a = 0
@@ -168,16 +220,26 @@ export function inferFieldShape(samples: SamplePoint[], opts: ShapeOptions = {})
   const centre = { lat: lat0 + cy / mPerLat, lng: lng0 + cx / mPerLng }
 
   if (circularity >= circleTolerance) {
-    // A pivot. Use the outermost block plus the buffer, so nothing sits on or
-    // outside the drawn edge.
-    const radiusM = Math.max(...radii) + bufferM
+    // A pivot. Fit the circle properly rather than taking the hull's centroid
+    // and its furthest point: that pair overshoots whenever one block sits a
+    // little proud, which visibly inflated the drawn circle.
+    const fit = fitCircle(hull)
+    const fitCentre = fit
+      ? { lat: lat0 + fit.cy / mPerLat, lng: lng0 + fit.cx / mPerLng }
+      : centre
+    // Still cover every block: the fitted radius is an average through them,
+    // so take whichever is larger before adding the buffer.
+    const furthest = fit
+      ? Math.max(...hull.map((p) => Math.hypot(p[0] - fit.cx, p[1] - fit.cy)))
+      : Math.max(...radii)
+    const radiusM = Math.max(fit?.r ?? 0, furthest) + bufferM
     return {
       kind: 'circle',
-      centre,
+      centre: fitCentre,
       radiusM,
       field: {
-        PP_Latitude: String(centre.lat),
-        PP_Longitude: String(centre.lng),
+        PP_Latitude: String(fitCentre.lat),
+        PP_Longitude: String(fitCentre.lng),
         Radius: String(radiusM),
         use_bays: false,
       } as FieldDict,

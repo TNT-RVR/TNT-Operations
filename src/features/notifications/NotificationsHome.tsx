@@ -16,6 +16,8 @@ const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'task_due_soon', label: 'Task due soon', hint: 'Your lead time before a task is due (set per task).' },
   { type: 'task_overdue', label: 'Task overdue', hint: 'A due date passed. Fires once on the crossing, not daily.' },
   { type: 'low_stock', label: 'Low stock', hint: 'A finished good drops below its reorder point. Fires on the crossing, not on every shipment.' },
+  { type: 'qbo_sync_failed', label: 'QuickBooks sync failed', hint: 'A push to QuickBooks failed. Deduped to one per reason per hour.' },
+  { type: 'qbo_auth_expired', label: 'QuickBooks disconnected', hint: 'The connection needs re-authorising — invoices stop reaching your books until it is.' },
   { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
 ]
 const DEFAULT_PREF: NotificationPref = { inApp: true, email: false, push: false }

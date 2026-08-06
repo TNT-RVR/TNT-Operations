@@ -10,10 +10,11 @@ import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { OrderKind, SalesOrder, SalesOrderCharge, SalesOrderLine } from '@/data/types'
 import { Badge, Button, EmptyState, Input, Modal, Select, Stat } from '@/components/ui'
-import { FileText, Package, Plus, Trash2, Truck } from 'lucide-react'
+import { BookUp, FileText, Package, Plus, Trash2, Truck } from 'lucide-react'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
 import { lineFromProduct, useOrderComputed } from './useOrderPricing'
 import { DocumentsModal } from './SalesDocuments'
+import { callQboFn } from './QuickBooksHome'
 
 const STATUS_TONE: Record<string, 'neutral' | 'green' | 'amber' | 'red'> = {
   draft: 'neutral',
@@ -346,6 +347,7 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
           <Button variant="ghost" onClick={() => setShowDocs(true)} disabled={order.lines.length === 0}>
             <FileText size={16} /> Paperwork
           </Button>
+          {canEdit && <SendToQuickBooks order={order} />}
           {canEdit && order.kind === 'estimate' && (
             <Button onClick={convert} disabled={order.lines.length === 0 || busy === 'convert'}>
               <Package size={16} /> {busy === 'convert' ? 'Converting…' : 'Convert to invoice'}
@@ -448,6 +450,40 @@ function ChargesEditor({
           </Button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Push one order to QuickBooks.
+ *
+ * The function syncs the customer and any unlinked products first — a
+ * QuickBooks invoice references both by id — so this is one button, not three.
+ * A second press UPDATES the QuickBooks record rather than creating a duplicate.
+ */
+function SendToQuickBooks({ order }: { order: SalesOrder }) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
+  const [error, setError] = useState('')
+
+  const send = async () => {
+    setState('sending')
+    setError('')
+    const r = await callQboFn('qbo-sync', { action: 'order', id: order.id })
+    if (r.ok) {
+      setState('sent')
+    } else {
+      setState('idle')
+      setError(r.error ?? 'Push failed')
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <Button variant="ghost" onClick={send} disabled={state === 'sending' || order.lines.length === 0}>
+        <BookUp size={16} />
+        {state === 'sending' ? 'Sending…' : state === 'sent' ? 'Sent to QuickBooks' : 'Send to QuickBooks'}
+      </Button>
+      {error && <span className="max-w-xs text-xs text-danger">{error}</span>}
     </div>
   )
 }

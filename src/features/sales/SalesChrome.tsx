@@ -16,6 +16,7 @@ const TABS = [
   { to: '/sales/inventory', label: 'Inventory' },
   { to: '/sales/products', label: 'Products' },
   { to: '/sales/customers', label: 'Customers' },
+  { to: '/sales/quickbooks', label: 'QuickBooks' },
 ]
 
 export function SalesChrome({

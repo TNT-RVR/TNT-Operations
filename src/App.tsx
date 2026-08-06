@@ -6,6 +6,7 @@ import ChecklistsHome from './features/tasks/ChecklistsHome'
 import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
 import { InventoryHome } from './features/sales/SalesInventory'
 import { CustomersHome, ProductsHome } from './features/sales/SalesCatalogue'
+import QuickBooksHome from './features/sales/QuickBooksHome'
 import Dashboard from './features/dashboard/Dashboard'
 import MapsHome from './features/maps/MapsHome'
 import CostsHome from './features/maps/CostsHome'
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
         <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
         <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
+        <Route path="sales/quickbooks" element={<Protected module="sales"><QuickBooksHome /></Protected>} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />
         <Route path="analysis/fields/:id" element={<Protected module="analysis"><AnalysisFieldDetail /></Protected>} />

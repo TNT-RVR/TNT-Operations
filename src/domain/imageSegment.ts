@@ -42,6 +42,53 @@ export interface GrowOptions {
   maxFraction?: number
   /** Refuse a result smaller than this — it failed to spread. */
   minFraction?: number
+  /**
+   * Hard leash: how far, in pixels, the region may travel from the nearest
+   * block before it stops.
+   *
+   * This is the constraint that matters. Colour alone is not enough — dry
+   * stubble, a road margin and a bare headland can all resemble the crop, so
+   * an unleashed grow escapes down a track and swallows the next quarter, the
+   * river bank and everything else. But the field's edge is by definition
+   * CLOSE to the blocks placed in it, so anything far away is not this field
+   * whatever colour it happens to be.
+   */
+  maxDistancePx?: number
+}
+
+/**
+ * Distance in pixels from every pixel to the nearest set pixel in `seed`,
+ * by two-pass chamfer. Approximate Euclidean, linear in pixels.
+ */
+export function distanceFrom(seed: Uint8Array, w: number, h: number): Float32Array {
+  const BIG = 1e9
+  const d = new Float32Array(w * h)
+  for (let i = 0; i < d.length; i++) d[i] = seed[i] ? 0 : BIG
+  const D1 = 1
+  const D2 = 1.41421356
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x
+      let v = d[i]
+      if (x > 0) v = Math.min(v, d[i - 1] + D1)
+      if (y > 0) v = Math.min(v, d[i - w] + D1)
+      if (x > 0 && y > 0) v = Math.min(v, d[i - w - 1] + D2)
+      if (x < w - 1 && y > 0) v = Math.min(v, d[i - w + 1] + D2)
+      d[i] = v
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x
+      let v = d[i]
+      if (x < w - 1) v = Math.min(v, d[i + 1] + D1)
+      if (y < h - 1) v = Math.min(v, d[i + w] + D1)
+      if (x < w - 1 && y < h - 1) v = Math.min(v, d[i + w + 1] + D2)
+      if (x > 0 && y < h - 1) v = Math.min(v, d[i + w - 1] + D2)
+      d[i] = v
+    }
+  }
+  return d
 }
 
 export interface GrowResult {
@@ -66,7 +113,14 @@ export function growRegion(
   seeds: Array<[number, number]>,
   opts: GrowOptions = {},
 ): GrowResult | null {
-  const { tolerance = 60, maxFraction = 0.9, minFraction = 0.01 } = opts
+  const {
+    tolerance = 38,
+    // The image is padded around the blocks, so the field itself should be a
+    // minority of it. Anything past half has plainly escaped.
+    maxFraction = 0.5,
+    minFraction = 0.01,
+    maxDistancePx = Infinity,
+  } = opts
   if (w <= 0 || h <= 0 || seeds.length === 0) return null
 
   const inBounds = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h
@@ -92,6 +146,14 @@ export function growRegion(
   const cg = med(gs)
   const cb = med(bs)
   const tol2 = tolerance * tolerance
+
+  // Leash: how far each pixel is from the nearest block.
+  let reach: Float32Array | null = null
+  if (Number.isFinite(maxDistancePx)) {
+    const seedMask = new Uint8Array(w * h)
+    for (const [sx, sy] of valid) seedMask[Math.round(sy) * w + Math.round(sx)] = 1
+    reach = distanceFrom(seedMask, w, h)
+  }
 
   const mask = new Uint8Array(w * h)
   // Flat typed-array queue: a JS array of pairs allocates millions of objects
@@ -125,6 +187,8 @@ export function growRegion(
       if (!inBounds(nx, ny)) continue
       const nIdx = ny * w + nx
       if (mask[nIdx]) continue
+      // Too far from any block to be part of this field, whatever its colour.
+      if (reach && reach[nIdx] > maxDistancePx) continue
       if (colourDist2(data, nIdx * 4, cr, cg, cb) > tol2) continue
       mask[nIdx] = 1
       queue[tail++] = nIdx

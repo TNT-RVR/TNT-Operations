@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { growRegion, fillHoles, traceOutline } from './imageSegment'
+import { growRegion, fillHoles, traceOutline, distanceFrom } from './imageSegment'
 
 const W = 120
 const H = 120
@@ -46,8 +46,10 @@ describe('growRegion', () => {
     expect(r.mask[0]).toBe(0)
   })
 
-  it('copes with noisy imagery', () => {
-    const r = growRegion(discImage(40, 3), W, H, [[60, 60]])!
+  it('copes with noisy imagery when given room for it', () => {
+    // Tolerance stated rather than inherited: this test is about noise, and
+    // the default is deliberately tight to stop the region escaping a field.
+    const r = growRegion(discImage(40, 3), W, H, [[60, 60]], { tolerance: 60 })!
     expect(r.fraction).toBeGreaterThan(0.3)
     expect(r.fraction).toBeLessThan(0.4)
   })
@@ -125,5 +127,60 @@ describe('traceOutline', () => {
     const m = new Uint8Array(W * H)
     m[60 * W + 60] = 1
     expect(traceOutline(m, W, H).length).toBeLessThan(10)
+  })
+})
+
+describe('the distance leash', () => {
+  /**
+   * The real failure: a field beside a look-alike area joined to it. Colour
+   * alone runs straight through and swallows the neighbour.
+   */
+  const twoFields = image((x, y) => {
+    const inLeft = (x - 30) ** 2 + (y - 60) ** 2 <= 22 * 22
+    const inRight = (x - 90) ** 2 + (y - 60) ** 2 <= 22 * 22
+    // A track of the same colour joining them.
+    const inBridge = y >= 57 && y <= 63 && x >= 30 && x <= 90
+    return inLeft || inRight || inBridge ? CROP : SOIL
+  })
+
+  it('escapes into the neighbouring field without a leash', () => {
+    const r = growRegion(twoFields, W, H, [[30, 60]], { maxFraction: 0.9 })!
+    expect(r.mask[60 * W + 90]).toBe(1) // reached the far field
+  })
+
+  it('stays in the seeded field with one', () => {
+    // Blocks only in the left field; 35 px is enough to reach its own edge.
+    const seeds: Array<[number, number]> = [
+      [30, 60],
+      [24, 55],
+      [36, 65],
+    ]
+    const r = growRegion(twoFields, W, H, seeds, { maxDistancePx: 20 })!
+    expect(r.mask[60 * W + 30]).toBe(1) // own field claimed
+    expect(r.mask[60 * W + 90]).toBe(0) // neighbour NOT claimed
+  })
+
+  it('still reaches the whole of its own field', () => {
+    const seeds: Array<[number, number]> = [
+      [30, 60],
+      [24, 55],
+      [36, 65],
+    ]
+    const r = growRegion(twoFields, W, H, seeds, { maxDistancePx: 20 })!
+    // The rim of the left disc, well away from any seed, is still included.
+    expect(r.mask[60 * W + 10]).toBe(1)
+  })
+})
+
+describe('distanceFrom', () => {
+  it('measures distance from the seed pixels', () => {
+    const seed = new Uint8Array(W * H)
+    seed[60 * W + 60] = 1
+    const d = distanceFrom(seed, W, H)
+    expect(d[60 * W + 60]).toBe(0)
+    expect(d[60 * W + 70]).toBeCloseTo(10, 0)
+    // Diagonal, within chamfer error.
+    expect(d[70 * W + 70]).toBeGreaterThan(13)
+    expect(d[70 * W + 70]).toBeLessThan(15)
   })
 })

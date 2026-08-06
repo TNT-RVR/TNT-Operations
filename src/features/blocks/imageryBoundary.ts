@@ -9,7 +9,7 @@
  * the messy half: tiles, canvases and Web Mercator.
  */
 import { growRegion, fillHoles, traceOutline } from '@/domain/imageSegment'
-import { simplify } from '@/domain/fieldShape'
+import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
 import type { SamplePoint } from '@/domain/returnsMap'
 import type { FieldDict } from '@/domain/tentGrid'
 
@@ -48,6 +48,12 @@ export interface DetectResult {
 export interface DetectOptions {
   /** Colour tolerance for the region grow. */
   tolerance?: number
+  /**
+   * How far past the outermost blocks the field edge may plausibly lie.
+   * Blocks are placed IN the field, so its boundary is close to them; this is
+   * what stops the grow escaping down a track into the next quarter.
+   */
+  maxDistanceM?: number
   /** Padding around the blocks, as a fraction of their extent. */
   pad?: number
   /** Outline simplification, in metres. */
@@ -79,7 +85,7 @@ export async function detectFieldFromImagery(
   samples: SamplePoint[],
   opts: DetectOptions = {},
 ): Promise<DetectResult | null> {
-  const { tolerance = 55, pad = 0.35, simplifyM = 12 } = opts
+  const { tolerance = 38, pad = 0.3, simplifyM = 12, maxDistanceM = 150 } = opts
   if (samples.length < 4) return null
 
   let minLat = Infinity
@@ -156,17 +162,37 @@ export async function detectFieldFromImagery(
     return [px - originX, py - originY]
   })
 
-  const grown = growRegion(data.data, W, H, seeds, { tolerance })
+  // Metres per pixel at this latitude and zoom, so the leash is a real distance.
+  const midLatForScale = (minLat + maxLat) / 2
+  const mPerPxNow = (156543.03392 * Math.cos((midLatForScale * Math.PI) / 180)) / Math.pow(2, z)
+
+  const grown = growRegion(data.data, W, H, seeds, {
+    tolerance,
+    maxDistancePx: maxDistanceM / mPerPxNow,
+  })
   if (!grown) return null
+
+  // Area sanity. "All the blocks are inside" is worthless on its own — it's
+  // trivially true of a region that swallowed the whole picture, which is
+  // exactly what happened before this check existed. Compare instead against
+  // the ground the blocks themselves cover.
+  const seedHull = convexHull(seeds)
+  const seedArea = Math.abs(polygonArea(seedHull))
+  const grownArea = grown.fraction * W * H
+  if (seedArea > 0 && grownArea > seedArea * 2.2) {
+    console.warn(
+      `[imagery] region is ${(grownArea / seedArea).toFixed(1)}x the area the blocks cover — treating as bled`,
+    )
+    return null
+  }
 
   const filled = fillHoles(grown.mask, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return null
 
   // Metres per pixel here, so the simplification tolerance is a real distance.
-  const midLat = (minLat + maxLat) / 2
-  const mPerPx = (156543.03392 * Math.cos((midLat * Math.PI) / 180)) / Math.pow(2, z)
-  const simplified = simplify(outlinePx, Math.max(1, simplifyM / mPerPx))
+  const midLat = midLatForScale
+  const simplified = simplify(outlinePx, Math.max(1, simplifyM / mPerPxNow))
   if (simplified.length < 4) return null
 
   // Back to coordinates. fieldFrame wants [lat, lng] pairs.

@@ -184,7 +184,7 @@ describe('customerDisplayName', () => {
 
 describe('buildCustomer', () => {
   it('maps the address and splits the contact name', () => {
-    const { payload, problems } = buildCustomer(customer(), config())
+    const { payload, problems } = buildCustomer(customer())
     expect(payload.DisplayName).toBe('M&S Buckley Farms')
     expect(payload.GivenName).toBe('Alyson')
     expect(payload.FamilyName).toBe('Buckley')
@@ -199,25 +199,25 @@ describe('buildCustomer', () => {
   })
 
   it('handles a multi-word surname', () => {
-    const { payload } = buildCustomer(customer({ contactName: 'Stuart Van Der Berg' }), config())
+    const { payload } = buildCustomer(customer({ contactName: 'Stuart Van Der Berg' }))
     expect(payload.GivenName).toBe('Stuart')
     expect(payload.FamilyName).toBe('Van Der Berg')
   })
 
   it('BLOCKS a customer with no name at all', () => {
-    const { problems } = buildCustomer(customer({ company: '', contactName: '' }), config())
+    const { problems } = buildCustomer(customer({ company: '', contactName: '' }))
     expect(hasBlocker(problems)).toBe(true)
   })
 
   it('warns, but does not block, on a missing email', () => {
-    const { problems } = buildCustomer(customer({ email: '' }), config())
+    const { problems } = buildCustomer(customer({ email: '' }))
     expect(hasBlocker(problems)).toBe(false)
     expect(problems.some((p) => p.field === 'email')).toBe(true)
   })
 
   it('omits an address block entirely when there is nothing to put in it', () => {
     const bare = customer({ addressLines: [], city: '', region: '', postalCode: '', country: '' })
-    expect(buildCustomer(bare, config()).payload.BillAddr).toBeUndefined()
+    expect(buildCustomer(bare).payload.BillAddr).toBeUndefined()
   })
 })
 

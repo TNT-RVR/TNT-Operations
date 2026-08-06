@@ -121,9 +121,18 @@ export interface QboCustomerPayload {
   CurrencyRef?: { value: string }
 }
 
+/**
+ * A customer for QuickBooks.
+ *
+ * Takes no `QboConfig`: nothing about a customer depends on the company's tax
+ * codes or accounts. `CurrencyRef` would — a QBO customer's currency is fixed
+ * at creation and cannot be changed afterwards — but the app has no per-customer
+ * currency to supply, and inferring one from their country is exactly the kind
+ * of guess this module refuses to make. QuickBooks defaults them to the home
+ * currency, which is correctable by a human before it matters.
+ */
 export function buildCustomer(
   c: SalesCustomer,
-  cfg: QboConfig,
   allCustomers: readonly SalesCustomer[] = [],
 ): { payload: QboCustomerPayload; problems: QboProblem[] } {
   const problems: QboProblem[] = []

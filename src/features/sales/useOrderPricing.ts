@@ -13,7 +13,7 @@
  */
 import { useMemo } from 'react'
 import { useData } from '@/data/context'
-import type { ItemSpecRow, Product, SalesOrder, SalesOrderLine } from '@/data/types'
+import type { CompanyDetails, ItemSpecRow, Product, SalesOrder, SalesOrderLine } from '@/data/types'
 import {
   type LinePrice,
   type OrderCharge,
@@ -96,17 +96,29 @@ export interface OrderComputed {
   documents: ReturnType<typeof buildDocuments>
 }
 
-/** TNT as it appears on the paperwork. */
-export const TNT_PARTY: Party = {
-  name: 'TNT Pollination',
-  addressLines: [],
-  city: 'Grassy Lake',
-  region: 'AB',
-  country: 'CA',
+/**
+ * The vendor block, from the company record.
+ *
+ * This used to be a hardcoded constant, which meant the vendor printed on every
+ * commercial invoice and CUSMA certification could not be corrected without a
+ * deploy. It now comes from Users & Settings → Company.
+ */
+export function companyParty(c: CompanyDetails): Party {
+  return {
+    name: c.legalName || 'TNT Pollination',
+    addressLines: c.addressLines ?? [],
+    city: c.city,
+    region: c.region,
+    postalCode: c.postalCode || undefined,
+    country: c.country || 'CA',
+    taxId: c.businessNumber || undefined,
+    email: c.email || undefined,
+    phone: c.phone || undefined,
+  }
 }
 
 export function useOrderComputed(order: SalesOrder | undefined): OrderComputed {
-  const { products, itemSpecs, salesCustomers } = useData()
+  const { products, itemSpecs, salesCustomers, company } = useData()
 
   return useMemo<OrderComputed>(() => {
     const empty: OrderComputed = {
@@ -182,7 +194,7 @@ export function useOrderComputed(order: SalesOrder | undefined): OrderComputed {
       invoiceDate: order.issuedDate,
       dateOfDirectShipment: order.dateOfDirectShipment ?? undefined,
       purchaseOrder: order.poNumber || undefined,
-      vendor: TNT_PARTY,
+      vendor: companyParty(company),
       consignee: customer
         ? {
             name: customer.company || customer.contactName,
@@ -224,8 +236,13 @@ export function useOrderComputed(order: SalesOrder | undefined): OrderComputed {
           : order.producer
             ? { name: order.producer, addressLines: [], country: 'CA' }
             : undefined,
-      signatory: order.signatoryName
-        ? { name: order.signatoryName, title: order.signatoryTitle }
+      // The order may name its own signatory; otherwise fall back to the
+      // company default so it is set once rather than on every document.
+      signatory: (order.signatoryName || company.signatoryName)
+        ? {
+            name: order.signatoryName || company.signatoryName,
+            title: order.signatoryTitle || company.signatoryTitle,
+          }
         : undefined,
       carrier: order.carrier || undefined,
       freightTerms: order.freightTerms ?? undefined,
@@ -234,5 +251,5 @@ export function useOrderComputed(order: SalesOrder | undefined): OrderComputed {
     }
 
     return { totals, packing, warnings, documents: buildDocuments(ctx) }
-  }, [order, products, itemSpecs, salesCustomers])
+  }, [order, products, itemSpecs, salesCustomers, company])
 }

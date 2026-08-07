@@ -103,6 +103,12 @@ export interface SessionValue {
    * needs the service key — so this posts to the invite-user function.
    */
   inviteUser: (input: { email: string; name: string; role: Role }) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Change your OWN password. On the auth seam rather than the data seam,
+   * because it is an identity operation, not a table write — and because the
+   * Account screen would otherwise have to import the Supabase client directly.
+   */
+  changePassword: (password: string) => Promise<{ ok: boolean; error?: string }>
   authMode: AuthMode
 }
 
@@ -142,6 +148,10 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
         setUsers((prev) => prev.filter((u) => u.id !== uid))
       },
       // Mock: no email to send — drop the invitee straight into the roster.
+      changePassword: async () => ({
+        ok: false,
+        error: 'Mock mode has no real login, so there is no password to change.',
+      }),
       inviteUser: async ({ email, name, role }) => {
         if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
           return { ok: false, error: 'That email already has an account.' }
@@ -269,6 +279,11 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, name } : u)))
           })
+      },
+      changePassword: async (password: string) => {
+        if (!supabase) return { ok: false, error: 'Not connected' }
+        const { error } = await supabase.auth.updateUser({ password })
+        return error ? { ok: false, error: error.message } : { ok: true }
       },
       inviteUser: async ({ email, name, role }) => {
         const { data } = await sb.auth.getSession()

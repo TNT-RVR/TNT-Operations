@@ -773,3 +773,94 @@ export interface TaskStep {
   completedBy: string | null
   sourceStepId: string | null
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Settings, company and signatures (migrations 0017–0019)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Company facts that print as the vendor on customs paperwork. */
+export interface CompanyDetails {
+  legalName: string
+  tradeName: string
+  addressLines: string[]
+  city: string
+  region: string
+  postalCode: string
+  country: string
+  /** Business Number. */
+  businessNumber: string
+  gstNumber: string
+  phone: string
+  email: string
+  website: string
+  /** Default CUSMA signatory, used when an order doesn't name its own. */
+  signatoryName: string
+  signatoryTitle: string
+}
+
+/**
+ * A user's own signature image. PRIVATE — RLS on `user_signatures` is
+ * owner-only, so this is only ever your own, never another user's.
+ */
+export interface UserSignature {
+  userId: string
+  /** A data: URL. */
+  image: string
+  title: string
+  updatedAt: string
+}
+
+/**
+ * The record of a signature having been applied to a document.
+ *
+ * Append-only and immutable: a signature is voided, never edited or deleted,
+ * because destroying the record destroys the evidence it happened.
+ */
+export interface DocumentSignature {
+  id: string
+  documentKind: string
+  documentId: string
+  documentRef: string
+  signerId: string | null
+  /** Denormalised at signing time — the record must survive a rename. */
+  signerName: string
+  signerEmail: string
+  signerTitle: string
+  /** ISO UTC, set by the database clock, never the browser's. */
+  signedAt: string
+  /** SHA-256 of the canonical form of what was signed. */
+  contentHash: string
+  attestation: string
+  /** A copy of the image as it looked when applied. */
+  signatureImage: string
+  ipAddress: string | null
+  userAgent: string | null
+  voidedAt: string | null
+  voidReason: string
+}
+
+/** QuickBooks connection state, from the `qbo_status` view. Never the tokens. */
+export interface QboStatus {
+  realmId: string
+  companyName: string
+  environment: string
+  homeCurrency: string
+  multicurrencyEnabled: boolean
+  defaultTaxCodeId: string | null
+  exemptTaxCodeId: string | null
+  shippingItemId: string | null
+  incomeAccountId: string | null
+  connected: boolean
+  expiringSoon: boolean
+  refreshTokenExpiresAt: string
+  lastError: string
+}
+
+/** A person hidden from the app but whose history is kept. */
+export interface ArchivedUser {
+  id: string
+  name: string
+  email: string
+  role: string
+  archivedAt: string
+}

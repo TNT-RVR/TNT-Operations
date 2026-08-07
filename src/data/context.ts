@@ -36,6 +36,7 @@ import type {
   TaskStep,
   Checklist,
 } from './types'
+import type { SettingsSlice } from './useSettings'
 import type { CostPrefs } from '@/domain/cost'
 
 /** A tray examined during an inspection, before it has a parent or an id. */
@@ -58,7 +59,7 @@ export interface NotificationPref {
  *   - SupabaseProvider (src/data/SupabaseProvider) → live backend  [TODO]
  * Selected by VITE_DATA_SOURCE. Any new method MUST be added to BOTH providers.
  */
-export interface DataContextValue extends SalesSlice, TasksSlice {
+export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice {
   fields: Field[]
   incubators: Incubator[]
   inspections: Inspection[]

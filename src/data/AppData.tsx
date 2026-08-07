@@ -22,6 +22,7 @@ import type {
 import type { CostPrefs } from '@/domain/cost'
 import { useSalesMock } from './useSalesMock'
 import { useTasksMock } from './useTasksMock'
+import { useSettings } from './useSettings'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { weatherKey } from '@/domain/weather'
 import {
@@ -111,11 +112,13 @@ function MockProvider({ children }: { children: ReactNode }) {
   const sales = useSalesMock()
   // The mock user switcher is the 'current user'; tasks stamp completions with it.
   const tasks = useTasksMock('u_admin')
+  const settings2 = useSettings('u_admin', false)
 
   const value = useMemo<DataContextValue>(
     () => ({
       ...sales,
       ...tasks,
+      ...settings2,
       fields,
       incubators,
       inspections,
@@ -491,6 +494,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       fieldWeather,
       sales,
       tasks,
+      settings2,
     ],
   )
 

@@ -7,11 +7,20 @@
  * code or a guessed origin is worse than no document, so the UI refuses rather
  * than producing something that looks finished.
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useData } from '@/data/context'
+import { useSession } from '@/auth/session'
 import { Badge, Button, Modal } from '@/components/ui'
-import { AlertTriangle, Printer } from 'lucide-react'
+import { AlertTriangle, PenLine, Printer, ShieldCheck } from 'lucide-react'
 import type { SalesOrder } from '@/data/types'
 import { type BuiltDocument, isReady } from '@/domain/salesDocs'
+import {
+  ATTESTATION,
+  canonicalize,
+  hashContent,
+  provenanceLine,
+  signingBlockers,
+} from '@/domain/signature'
 import type { OrderComputed } from './useOrderPricing'
 
 export function DocumentsModal({
@@ -48,14 +57,14 @@ export function DocumentsModal({
             ))}
           </div>
 
-          {doc && <DocumentView doc={doc} />}
+          {doc && <DocumentView doc={doc} order={order} />}
         </div>
       )}
     </Modal>
   )
 }
 
-function DocumentView({ doc }: { doc: BuiltDocument }) {
+function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder }) {
   const ready = isReady(doc)
   const required = doc.missing.filter((m) => m.severity === 'required')
   const recommended = doc.missing.filter((m) => m.severity === 'recommended')
@@ -134,6 +143,8 @@ function DocumentView({ doc }: { doc: BuiltDocument }) {
         </div>
       )}
 
+      <SignBlock doc={doc} order={order} documentReady={ready} />
+
       <div className="flex items-center gap-3 border-t border-subtle pt-3">
         <Button onClick={() => window.print()} disabled={!ready}>
           <Printer size={16} /> Print
@@ -144,6 +155,136 @@ function DocumentView({ doc }: { doc: BuiltDocument }) {
           <span className="text-xs text-muted">Fill the required fields above to enable printing.</span>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Sign this document, or show the signature already on it.
+ *
+ * The checkbox IS the signature — a deliberate act of assent, which is what
+ * makes it a signature in law rather than an image someone pasted on. The
+ * button stays disabled until it is ticked, and the attestation text sits right
+ * next to it so nobody signs something they have not been shown.
+ *
+ * A hash of the document's exact contents goes with the record, so a later edit
+ * can be detected. Signing an INCOMPLETE document is refused outright: the
+ * attestation says the content is true and complete, and a certification
+ * missing an origin criterion is neither.
+ */
+function SignBlock({
+  doc,
+  order,
+  documentReady,
+}: {
+  doc: BuiltDocument
+  order: SalesOrder
+  documentReady: boolean
+}) {
+  const session = useSession()
+  const { mySignature, documentSignatures, signDocument } = useData()
+  const [agreed, setAgreed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const existing = documentSignatures.find(
+    (x) => x.documentKind === doc.kind && x.documentId === order.id && !x.voidedAt,
+  )
+
+  const blockers = useMemo(
+    () =>
+      signingBlockers({
+        documentReady,
+        hasSignatureImage: !!mySignature?.image,
+        signerTitle: mySignature?.title ?? '',
+        alreadySigned: !!existing,
+      }),
+    [documentReady, mySignature, existing],
+  )
+
+  // ── Already signed ──
+  if (existing) {
+    return (
+      <div className="rounded border border-brand/40 bg-brand/10 p-3">
+        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand">
+          <ShieldCheck size={14} /> Signed
+        </p>
+        {existing.signatureImage && (
+          <img
+            src={existing.signatureImage}
+            alt={`Signature of ${existing.signerName}`}
+            className="mb-2 max-h-20 max-w-full object-contain"
+          />
+        )}
+        <p className="text-xs text-secondary">{provenanceLine(existing)}</p>
+      </div>
+    )
+  }
+
+  const sign = async () => {
+    setBusy(true)
+    setError('')
+    // Hash exactly what is on screen — fields and line rows both, so an edit to
+    // either is detectable afterwards.
+    const fields = [
+      ...doc.fields.map((f) => ({ label: f.label, value: f.value })),
+      ...doc.lines.flatMap((row, i) =>
+        Object.entries(row).map(([k, v]) => ({ label: `line${i}.${k}`, value: String(v ?? '') })),
+      ),
+    ]
+    const hash = await hashContent(canonicalize(doc.kind, order.number, fields))
+    if (!hash) {
+      setBusy(false)
+      return setError('Cannot sign here — secure hashing is unavailable in this browser context.')
+    }
+
+    const r = await signDocument({
+      documentKind: doc.kind,
+      documentId: order.id,
+      documentRef: order.number,
+      contentHash: hash,
+      attestation: ATTESTATION,
+    })
+    setBusy(false)
+    if (!r.ok) setError(r.error ?? 'Could not sign')
+    else setAgreed(false)
+  }
+
+  return (
+    <div className="rounded border border-subtle p-3">
+      <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+        <PenLine size={14} /> Sign this document
+      </p>
+
+      {blockers.length > 0 ? (
+        <ul className="list-disc space-y-1 pl-4 text-xs text-muted">
+          {blockers.map((b, i) => (
+            <li key={i}>{b.message}</li>
+          ))}
+        </ul>
+      ) : (
+        <>
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-secondary">
+            <input
+              type="checkbox"
+              className="mt-0.5 shrink-0"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+            />
+            <span>{ATTESTATION}</span>
+          </label>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button onClick={sign} disabled={!agreed || busy}>
+              <PenLine size={16} /> {busy ? 'Signing…' : `Sign as ${session.user.name}`}
+            </Button>
+            <span className="text-xs text-faint">
+              Records the time from the server, your account, and a fingerprint of this document.
+            </span>
+          </div>
+        </>
+      )}
+
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
     </div>
   )
 }

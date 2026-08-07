@@ -16,19 +16,12 @@
  * Delete destroys the login. Both are offered; archive is the one that isn't
  * destructive, so it comes first and reads as the default.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ASSIGNABLE_ROLES, type Role, useSession } from '@/auth/session'
-import { supabase } from '@/data/supabaseClient'
+import { useData } from '@/data/context'
 import { Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
 import { Archive, Mail, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
-
-/** Sign-in state per user, from `profiles` (mirrored off auth by migration 0018). */
-interface Presence {
-  id: string
-  last_sign_in_at: string | null
-  invited_at: string | null
-}
 
 function roleTone(role: Role): 'brand' | 'blue' | 'amber' | 'neutral' {
   if (role === 'admin') return 'brand'
@@ -40,36 +33,18 @@ function roleTone(role: Role): 'brand' | 'blue' | 'amber' | 'neutral' {
 export default function UsersHome() {
   const s = useSession()
   const canEdit = s.can('users', 'edit')
-  const [presence, setPresence] = useState<Record<string, Presence>>({})
+  const { userPresence, archiveUser } = useData()
   const [inviting, setInviting] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState('')
 
-  const loadPresence = useCallback(async () => {
-    if (!supabase) return
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, last_sign_in_at, invited_at')
-      .is('archived_at', null)
-    if (error) {
-      // Pre-0018 the columns don't exist; the screen still works, it just can't
-      // tell who has signed in.
-      console.warn('[users] presence unavailable:', error.message, '— has migration 0018 been applied?')
-      return
-    }
-    setPresence(Object.fromEntries((data as Presence[]).map((p) => [p.id, p])))
-  }, [])
-
-  useEffect(() => {
-    void loadPresence()
-  }, [loadPresence])
-
-  // An invited account that has never been signed into.
+  // An invited account that has never been signed into. Unknown (mock mode, or
+  // pre-0018) counts as signed in, so nobody is wrongly shown as stuck.
   const neverSignedIn = (id: string) => {
-    const p = presence[id]
-    return p ? p.last_sign_in_at == null : false
+    const p = userPresence[id]
+    return p ? p.lastSignInAt == null : false
   }
 
   const waiting = s.users.filter((u) => neverSignedIn(u.id))
@@ -92,15 +67,10 @@ export default function UsersHome() {
   }
 
   const archive = async (id: string) => {
-    if (!supabase) return
     setBusy(id)
-    const { error } = await supabase
-      .from('profiles')
-      .update({ archived_at: new Date().toISOString(), archived_by: s.user.id })
-      .eq('id', id)
+    const r = await archiveUser(id)
     setBusy('')
-    setNote(error ? error.message : 'Archived. Restore them any time under Archive.')
-    await loadPresence()
+    setNote(r.ok ? 'Archived. Restore them any time under Archive.' : (r.error ?? 'Could not archive'))
   }
 
   const startEdit = (id: string, name: string) => {
@@ -143,8 +113,8 @@ export default function UsersHome() {
                       <div className="font-medium text-primary">{u.name || '—'}</div>
                       <div className="text-xs text-muted">{u.email}</div>
                     </div>
-                    {presence[u.id]?.invited_at && (
-                      <Badge tone="amber">invited {relativeDays(presence[u.id].invited_at)}</Badge>
+                    {userPresence[u.id]?.invitedAt && (
+                      <Badge tone="amber">invited {relativeDays(userPresence[u.id].invitedAt)}</Badge>
                     )}
                     {canEdit && (
                       <Button variant="ghost" onClick={() => void resend(u)} disabled={busy === u.email}>

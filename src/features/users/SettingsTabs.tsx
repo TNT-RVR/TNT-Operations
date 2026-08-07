@@ -5,7 +5,7 @@
  * read a bit of config, let an admin change it, say plainly what the change
  * does. The Users tab stays in UsersHome.tsx — it's the biggest of the six.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ASSIGNABLE_ROLES,
@@ -16,10 +16,10 @@ import {
   setAccessOverrides,
   useSession,
 } from '@/auth/session'
-import { supabase } from '@/data/supabaseClient'
+import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
 import { Badge, Button, EmptyState, Input, Switch } from '@/components/ui'
-import { AlertTriangle, ArchiveRestore, Check, ExternalLink, Lock, Save } from 'lucide-react'
+import { AlertTriangle, ArchiveRestore, Check, ExternalLink, Lock, PenLine, Save, Trash2 } from 'lucide-react'
 import {
   type AccessOverrides,
   type Grant,
@@ -28,6 +28,8 @@ import {
   diffFromBase,
   isLocked,
 } from '@/domain/access'
+import type { CompanyDetails } from '@/data/types'
+import { MAX_SIGNATURE_BYTES, checkSignatureImage } from '@/domain/signature'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 const ALL_ROLES: Role[] = [...ASSIGNABLE_ROLES, 'pending']
@@ -46,30 +48,16 @@ const GRANT_TONE: Record<Grant, string> = {
 export function AccessTab() {
   const s = useSession()
   const canEdit = s.can('users', 'edit')
-  const [grid, setGrid] = useState(() => buildGrid(ALL_ROLES, MATRIX))
+  const { accessOverrides, saveAccessOverrides } = useData()
+  const [grid, setGrid] = useState(() => buildGrid(ALL_ROLES, MATRIX, accessOverrides))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  // Load the stored overrides and layer them on.
+  // Re-layer whenever the stored overrides arrive or change.
   useEffect(() => {
-    if (!supabase) return
-    void supabase
-      .from('app_role_access')
-      .select('role, module, grant_level')
-      .then(({ data, error: e }) => {
-        if (e) {
-          console.error('[access]', e.message, '— has migration 0018 been applied?')
-          return
-        }
-        const o: AccessOverrides = {}
-        for (const r of data ?? []) {
-          const role = r.role as Role
-          o[role] = { ...(o[role] ?? {}), [r.module as Module]: r.grant_level as Grant }
-        }
-        setGrid(buildGrid(ALL_ROLES, MATRIX, o))
-      })
-  }, [])
+    setGrid(buildGrid(ALL_ROLES, MATRIX, accessOverrides))
+  }, [accessOverrides])
 
   const warnings = useMemo(() => accessWarnings(grid), [grid])
   const blocked = warnings.some((w) => w.severity === 'blocker')
@@ -84,31 +72,19 @@ export function AccessTab() {
   }
 
   const save = async () => {
-    if (!supabase || blocked) return
+    if (blocked) return
     setSaving(true)
     setError('')
     const diff = diffFromBase(grid, MATRIX)
-
-    // Replace wholesale: the table is sparse, so anything not in the diff has
-    // gone back to its built-in and its row must disappear.
-    const del = await supabase.from('app_role_access').delete().neq('role', '__none__')
-    if (del.error) {
-      setError(del.error.message)
+    const r = await saveAccessOverrides(diff)
+    if (!r.ok) {
+      setError(r.error ?? 'Could not save')
       setSaving(false)
       return
     }
-    if (diff.length > 0) {
-      const ins = await supabase.from('app_role_access').insert(
-        diff.map((d) => ({ role: d.role, module: d.module, grant_level: d.grant })),
-      )
-      if (ins.error) {
-        setError(ins.error.message)
-        setSaving(false)
-        return
-      }
-    }
 
-    // Apply immediately so the nav updates without a reload.
+    // Push into the module-level store too, so the nav and route guards pick
+    // the change up without a reload.
     const o: AccessOverrides = {}
     for (const d of diff) o[d.role] = { ...(o[d.role] ?? {}), [d.module]: d.grant }
     setAccessOverrides(o)
@@ -207,73 +183,39 @@ export function AccessTab() {
 // Company
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface Company {
-  legal_name: string
-  trade_name: string
-  address_lines: string[]
-  city: string
-  region: string
-  postal_code: string
-  country: string
-  business_number: string
-  gst_number: string
-  phone: string
-  email: string
-  website: string
-  signatory_name: string
-  signatory_title: string
-}
-
-const FIELDS: Array<[keyof Company, string, string?]> = [
-  ['legal_name', 'Legal name'],
-  ['trade_name', 'Trade name (if different)'],
+const FIELDS: Array<[keyof CompanyDetails, string]> = [
+  ['legalName', 'Legal name'],
+  ['tradeName', 'Trade name (if different)'],
   ['city', 'City'],
   ['region', 'Province'],
-  ['postal_code', 'Postal code'],
+  ['postalCode', 'Postal code'],
   ['country', 'Country (ISO 2)'],
-  ['business_number', 'Business Number (BN)'],
-  ['gst_number', 'GST number'],
+  ['businessNumber', 'Business Number (BN)'],
+  ['gstNumber', 'GST number'],
   ['phone', 'Phone'],
   ['email', 'Email'],
   ['website', 'Website'],
-  ['signatory_name', 'Default signatory'],
-  ['signatory_title', 'Signatory title'],
+  ['signatoryName', 'Default signatory (CUSMA)'],
+  ['signatoryTitle', 'Signatory title'],
 ]
 
 export function CompanyTab() {
   const s = useSession()
+  const { company: c, saveCompany } = useData()
   const canEdit = s.user.role === 'admin'
-  const [c, setC] = useState<Company | null>(null)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    if (!supabase) return
-    void supabase
-      .from('app_company')
-      .select('*')
-      .limit(1)
-      .maybeSingle()
-      .then(({ data, error: e }) => {
-        if (e) console.error('[company]', e.message, '— has migration 0018 been applied?')
-        setC((data as Company) ?? null)
-      })
-  }, [])
-
-  const save = async (patch: Partial<Company>) => {
-    if (!supabase || !c) return
-    setC({ ...c, ...patch })
+  const save = async (patch: Partial<CompanyDetails>) => {
     setSaved(false)
-    const { error: e } = await supabase.from('app_company').update(patch).eq('id', true)
-    if (e) setError(e.message)
+    const r = await saveCompany(patch)
+    if (!r.ok) setError(r.error ?? 'Could not save')
     else setSaved(true)
   }
 
   return (
     <SettingsChrome>
-      {!c ? (
-        <EmptyState>Company details aren't set up yet — run migration 0018.</EmptyState>
-      ) : (
+      {(
         <div className="max-w-3xl space-y-4">
           <p className="text-sm text-muted">
             These print on your commercial invoices and CUSMA certifications as the vendor. Until now they were
@@ -290,9 +232,9 @@ export function CompanyTab() {
             <label className="block sm:col-span-2">
               <span className="label">Street address</span>
               <Input
-                value={c.address_lines?.[0] ?? ''}
+                value={c.addressLines?.[0] ?? ''}
                 disabled={!canEdit}
-                onChange={(e) => void save({ address_lines: [e.target.value] })}
+                onChange={(e) => void save({ addressLines: [e.target.value] })}
               />
             </label>
             {FIELDS.map(([key, label]) => (
@@ -301,7 +243,7 @@ export function CompanyTab() {
                 <Input
                   value={String(c[key] ?? '')}
                   disabled={!canEdit}
-                  onChange={(e) => void save({ [key]: e.target.value } as Partial<Company>)}
+                  onChange={(e) => void save({ [key]: e.target.value } as Partial<CompanyDetails>)}
                 />
               </label>
             ))}
@@ -326,24 +268,14 @@ interface IntegrationCard {
 }
 
 export function IntegrationsTab() {
-  const [qbo, setQbo] = useState<{ connected: boolean; company_name: string } | null>(null)
-
-  useEffect(() => {
-    if (!supabase) return
-    void supabase
-      .from('qbo_status')
-      .select('connected, company_name')
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => setQbo(data as { connected: boolean; company_name: string } | null))
-  }, [])
+  const { qboStatus: qbo } = useData()
 
   const cards: IntegrationCard[] = [
     {
       name: 'QuickBooks Online',
       what: 'Push invoices, estimates, customers and products; pull payment status back.',
       status: qbo?.connected ? 'live' : 'configured',
-      detail: qbo?.connected ? `Connected to ${qbo.company_name || 'a company'}` : 'Not connected yet',
+      detail: qbo?.connected ? `Connected to ${qbo.companyName || 'a company'}` : 'Not connected yet',
       to: '/users/integrations/quickbooks',
     },
     {
@@ -428,54 +360,21 @@ export function IntegrationsTab() {
 // Archive
 // ═══════════════════════════════════════════════════════════════════════════
 
-interface ArchivedUser {
-  id: string
-  name: string
-  email: string
-  role: string
-  archived_at: string
-}
-
 export function ArchiveTab() {
   const s = useSession()
+  const { archivedUsers, restoreUser } = useData()
   const canEdit = s.can('users', 'edit')
-  const [rows, setRows] = useState<ArchivedUser[]>([])
   const [error, setError] = useState('')
-
-  const load = useCallback(async () => {
-    if (!supabase) return
-    const { data, error: e } = await supabase
-      .from('profiles')
-      .select('id, name, email, role, archived_at')
-      .not('archived_at', 'is', null)
-      .order('archived_at', { ascending: false })
-    if (e) console.error('[archive]', e.message, '— has migration 0018 been applied?')
-    setRows((data as ArchivedUser[]) ?? [])
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const restore = async (id: string) => {
-    if (!supabase) return
-    const { error: e } = await supabase
-      .from('profiles')
-      .update({ archived_at: null, archived_by: null })
-      .eq('id', id)
-    if (e) setError(e.message)
-    await load()
-  }
 
   return (
     <SettingsChrome>
       <div className="max-w-3xl space-y-3">
         <p className="text-sm text-muted">
           Archived people keep their history — their name still appears on the inspections they logged and the
-          shelters they placed — but they can't sign in and don't show in pickers.
+          shelters they placed — but they cannot sign in and do not show in pickers.
         </p>
         {error && <p className="text-xs text-danger">{error}</p>}
-        {rows.length === 0 ? (
+        {archivedUsers.length === 0 ? (
           <EmptyState>Nobody is archived.</EmptyState>
         ) : (
           <div className="card overflow-x-auto p-0">
@@ -489,14 +388,20 @@ export function ArchiveTab() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((u) => (
+                {archivedUsers.map((u) => (
                   <tr key={u.id} className="border-t border-subtle">
                     <td className="px-3 py-2 text-primary">{u.name || '—'}</td>
                     <td className="px-3 py-2 text-secondary">{u.email}</td>
-                    <td className="px-3 py-2 text-secondary">{relativeDays(u.archived_at)}</td>
+                    <td className="px-3 py-2 text-secondary">{relativeDays(u.archivedAt)}</td>
                     <td className="px-3 py-2 text-right">
                       {canEdit && (
-                        <Button variant="ghost" onClick={() => void restore(u.id)}>
+                        <Button
+                          variant="ghost"
+                          onClick={async () => {
+                            const r = await restoreUser(u.id)
+                            if (!r.ok) setError(r.error ?? 'Could not restore')
+                          }}
+                        >
                           <ArchiveRestore size={15} /> Restore
                         </Button>
                       )}
@@ -525,19 +430,13 @@ export function AccountTab() {
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
-  const saveName = () => {
-    s.updateUserName(s.user.id, name.trim())
-    setMsg('Name saved.')
-  }
-
   const changePassword = async () => {
     setError('')
     setMsg('')
     if (pw.length < 8) return setError('Use at least 8 characters.')
-    if (pw !== pw2) return setError("The two passwords don't match.")
-    if (!supabase) return setError('Not connected.')
-    const { error: e } = await supabase.auth.updateUser({ password: pw })
-    if (e) return setError(e.message)
+    if (pw !== pw2) return setError("The two passwords do not match.")
+    const r = await s.changePassword(pw)
+    if (!r.ok) return setError(r.error ?? 'Could not change the password.')
     setPw('')
     setPw2('')
     setMsg('Password changed.')
@@ -556,16 +455,22 @@ export function AccountTab() {
           </div>
           <label className="block">
             <span className="label">Display name</span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveName} />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={() => s.updateUserName(s.user.id, name.trim())}
+            />
           </label>
         </div>
+
+        <SignatureCard />
 
         <div className="card space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Appearance</h3>
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-primary">Light theme</div>
-              <div className="text-xs text-muted">Dark is the default. This is stored on this device.</div>
+              <div className="text-xs text-muted">Dark is the default. Stored on this device.</div>
             </div>
             <Switch
               checked={theme === 'light'}
@@ -575,7 +480,7 @@ export function AccountTab() {
           </div>
         </div>
 
-        {supabase && (
+        {s.authMode === 'supabase' && (
           <div className="card space-y-3">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Password</h3>
             <label className="block">
@@ -604,5 +509,121 @@ export function AccountTab() {
         </Button>
       </div>
     </SettingsChrome>
+  )
+}
+
+/**
+ * Your signature image and title.
+ *
+ * PRIVATE. RLS on `user_signatures` is owner-only with no admin exception, so
+ * this can only ever be your own — an admin who could read it could sign as
+ * you, which would defeat the point. Other people add their own here; nobody
+ * can pick up yours.
+ */
+function SignatureCard() {
+  const { mySignature, saveMySignature, deleteMySignature } = useData()
+  const [title, setTitle] = useState(mySignature?.title ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    setTitle(mySignature?.title ?? '')
+  }, [mySignature?.title])
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return
+    setError('')
+    setMsg('')
+    const problem = checkSignatureImage(file)
+    if (problem) return setError(problem.message)
+
+    setBusy(true)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Could not read that file'))
+      reader.readAsDataURL(file)
+    }).catch((e) => {
+      setError(e.message)
+      return ''
+    })
+    if (!dataUrl) return setBusy(false)
+
+    const r = await saveMySignature({ image: dataUrl, title })
+    setBusy(false)
+    if (!r.ok) setError(r.error ?? 'Could not save')
+    else setMsg('Signature saved.')
+  }
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Your signature</h3>
+        <p className="mt-1 text-xs text-muted">
+          Only you can see or use this. Other people add their own; nobody can sign as you. Applying it to a
+          document records who signed, when, from where, and a fingerprint of exactly what was signed.
+        </p>
+      </div>
+
+      {mySignature?.image ? (
+        <div className="rounded border border-subtle bg-[color:var(--paper)] p-3">
+          <img src={mySignature.image} alt="Your signature" className="max-h-24 max-w-full object-contain" />
+        </div>
+      ) : (
+        <p className="text-xs text-faint">No signature yet.</p>
+      )}
+
+      <label className="block">
+        <span className="label">Title (prints under the signature)</span>
+        <Input
+          value={title}
+          placeholder="Owner"
+          onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => {
+            if (mySignature?.image && title !== mySignature.title) {
+              void saveMySignature({ image: mySignature.image, title })
+            }
+          }}
+        />
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="btn-ghost cursor-pointer">
+          <PenLine size={15} /> {mySignature ? 'Replace image' : 'Upload image'}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => void onFile(e.target.files?.[0])}
+          />
+        </label>
+        {mySignature && (
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={async () => {
+              const r = await deleteMySignature()
+              if (!r.ok) setError(r.error ?? 'Could not remove')
+            }}
+          >
+            <Trash2 size={15} /> Remove
+          </Button>
+        )}
+      </div>
+
+      <p className="text-xs text-faint">
+        A PNG with a transparent background looks best. Crop it to just the signature — under{' '}
+        {MAX_SIGNATURE_BYTES / 1024} KB. A photo of a signature on white paper works too.
+      </p>
+
+      {busy && <p className="text-xs text-muted">Saving…</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {msg && (
+        <p className="flex items-center gap-1 text-xs text-brand">
+          <Check size={13} /> {msg}
+        </p>
+      )}
+    </div>
   )
 }

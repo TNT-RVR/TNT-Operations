@@ -26,6 +26,7 @@ import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { summariseWeather, weatherKey, type OpenMeteoDaily } from '@/domain/weather'
 import { useSalesSupabase } from './useSalesSupabase'
 import { useTasksSupabase } from './useTasksSupabase'
+import { useSettings } from './useSettings'
 import { supabase } from './supabaseClient'
 
 /** Cached Open-Meteo response, as stored by migration 0014. */
@@ -353,11 +354,13 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   // Sales screen calls loadSales().
   const sales = useSalesSupabase()
   const tasks = useTasksSupabase(userId)
+  const settings2 = useSettings(userId, true)
 
   const value = useMemo<DataContextValue>(
     () => ({
       ...sales,
       ...tasks,
+      ...settings2,
       fields,
       incubators,
       inspections,
@@ -1190,6 +1193,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       grantTasks,
       sales,
       tasks,
+      settings2,
     ],
   )
 

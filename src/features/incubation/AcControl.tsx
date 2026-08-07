@@ -156,7 +156,12 @@ export function AcControl({
 
   /** Link or change the Sensibo device id(s) for this incubator. */
   const deviceEditor = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-1">
+      <p className="text-xs text-faint">
+        The ID is in the Sensibo app, on the unit's settings page. Two heads take both IDs,
+        separated by a comma — they're then controlled together.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
       <input
         value={idInput}
         onChange={(e) => setIdInput(e.target.value)}
@@ -182,22 +187,29 @@ export function AcControl({
             setLinking(false)
           }}
         >
-          Cancel
-        </Button>
-      )}
+            Cancel
+          </Button>
+        )}
+      </div>
     </div>
   )
 
   if (!ids.length) {
+    // No Sensibo linked: the chart is the entire point of the card. Linking is
+    // a once-per-incubator job and stays behind a link rather than sitting
+    // open on a screen people read every day.
     return (
       <div className="card space-y-2">
         <div className="font-semibold text-primary">Heat pump</div>
         {setpoint}
-        <p className="text-xs text-muted">
-          No Sensibo device is linked to this incubator. The ID is in the Sensibo app, on the unit's settings
-          page. An incubator with two heads takes both, separated by a comma — they're then controlled together.
-        </p>
-        {canEdit && deviceEditor}
+        {canEdit &&
+          (linking ? (
+            deviceEditor
+          ) : (
+            <button className="text-xs text-muted underline" onClick={() => setLinking(true)}>
+              Link a Sensibo device
+            </button>
+          ))}
       </div>
     )
   }

@@ -92,6 +92,15 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [blocks, setBlocks] = useState<Block[]>(seedBlocks)
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>(seedBlockPlacements)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  // Mock mirrors the live defaults so the settings screen shows real values.
+  const [settings, setSettings] = useState<Record<string, string>>({
+    goal_temp_incubation: '30',
+    goal_humidity_incubation: '65',
+    goal_temp_holding: '14',
+    goal_humidity_holding: '60',
+    goal_temp_cool_storage: '4',
+    goal_humidity_cool_storage: '50',
+  })
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
@@ -208,6 +217,11 @@ function MockProvider({ children }: { children: ReactNode }) {
       deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
       notificationPrefs,
       saveNotificationPref: (type, pref) => setNotificationPrefs((prev) => ({ ...prev, [type]: pref })),
+      settings,
+      saveSetting: (key, value) => {
+        setSettings((prev) => ({ ...prev, [key]: value }))
+        return Promise.resolve({ ok: true })
+      },
       costPrefsByYear,
       saveCostPrefs: (year, prefs) => setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs })),
       placedShelters,
@@ -244,7 +258,12 @@ function MockProvider({ children }: { children: ReactNode }) {
           setBlockPlacements((prev) =>
             prev.map((p) => (p.id === existing.id ? { ...p, fieldId, lat, lng } : p)),
           )
-          return Promise.resolve({ ok: true, created: isNewBlock })
+          return Promise.resolve({
+            ok: true,
+            created: isNewBlock,
+            movedFromFieldId:
+              existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
+          })
         }
         setBlockPlacements((prev) => [
           {
@@ -294,6 +313,69 @@ function MockProvider({ children }: { children: ReactNode }) {
       saveBlockPlacement: (id, patch) => {
         setBlockPlacements((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
         return Promise.resolve({ ok: true })
+      },
+
+      importBlockPlacements: (rows, season) => {
+        if (rows.length === 0) return Promise.resolve({ created: 0, updated: 0, newBlocks: 0 })
+
+        // Register unknown labels, mirroring the live provider.
+        const known = new Map(blocks.map((b) => [b.label.trim().toLowerCase(), b]))
+        const added: Block[] = []
+        for (const r of rows) {
+          const key = r.label.trim().toLowerCase()
+          if (!key || known.has(key)) continue
+          const b: Block = { id: nextId('blk'), label: r.label.trim(), notes: '', createdAt: nowIso() }
+          known.set(key, b)
+          added.push(b)
+        }
+        if (added.length) {
+          setBlocks((prev) => [...prev, ...added].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        // Upsert on (blockId, season), same identity as the scanner.
+        const alreadyPlaced = new Map(
+          blockPlacements.filter((p) => p.season === season).map((p) => [p.blockId, p]),
+        )
+        let created = 0
+        let updated = 0
+        const updates = new Map<string, Partial<BlockPlacement>>()
+        const inserts: BlockPlacement[] = []
+
+        for (const r of rows) {
+          const block = known.get(r.label.trim().toLowerCase())
+          if (!block) continue
+          const existing = alreadyPlaced.get(block.id)
+          if (existing) {
+            updated++
+            updates.set(existing.id, { fieldId: r.fieldId, lat: r.lat, lng: r.lng })
+          } else {
+            created++
+            inserts.push({
+              id: nextId('bp'),
+              blockId: block.id,
+              season,
+              fieldId: r.fieldId,
+              shelterId: null,
+              lat: r.lat,
+              lng: r.lng,
+              placedAt: r.placedAt ?? nowIso(),
+              placedBy: 'import',
+              retrievedAt: null,
+              grossWeightLbs: null,
+              retrievedBy: '',
+              strippedAt: null,
+              strippedWeightLbs: null,
+              strippedBy: '',
+              notes: '',
+            })
+          }
+        }
+
+        setBlockPlacements((prev) => [
+          ...inserts,
+          ...prev.map((p) => (updates.has(p.id) ? { ...p, ...updates.get(p.id) } : p)),
+        ])
+        return Promise.resolve({ created, updated, newBlocks: added.length })
       },
 
       // ── Season analysis ─────────────────────────────────────────────────
@@ -397,6 +479,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       notifications,
       notificationPrefs,
       costPrefsByYear,
+      settings,
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,

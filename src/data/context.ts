@@ -146,6 +146,14 @@ export interface DataContextValue extends SalesSlice, TasksSlice {
   notificationPrefs: Record<string, NotificationPref>
   saveNotificationPref: (type: string, pref: NotificationPref) => void
 
+  /**
+   * Small key/value app config from the `settings` table — per-mode goal
+   * temperature and humidity, and whatever else the desktop app kept there.
+   * Already populated from the old app; see resolveModeGoals.
+   */
+  settings: Record<string, string>
+  saveSetting: (key: string, value: string) => Promise<{ ok: boolean; error?: string }>
+
   /** Cost-estimator pricing forms, keyed by pricing year (spec Part 8). */
   costPrefsByYear: Record<string, Partial<CostPrefs>>
   saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => void
@@ -186,7 +194,18 @@ export interface DataContextValue extends SalesSlice, TasksSlice {
     lat: number | null
     lng: number | null
     season?: number
-  }) => Promise<{ ok: boolean; created: boolean; error?: string }>
+  }) => Promise<{
+    ok: boolean
+    created: boolean
+    error?: string
+    /**
+     * The field this block was in BEFORE, when a re-scan has just moved it.
+     * Null when nothing moved. Surfaced because a whole field can be walked
+     * with the wrong field selected, and silently reassigning blocks is the
+     * kind of mistake nobody notices until the returns look wrong.
+     */
+    movedFromFieldId?: string | null
+  }>
   /**
    * Scans 2 and 3 — weigh a block full (`retrieve`) then empty (`strip`).
    * Bee return is the difference, computed on read.
@@ -202,6 +221,27 @@ export interface DataContextValue extends SalesSlice, TasksSlice {
   }) => Promise<{ ok: boolean; error?: string }>
   /** Edit a placement directly (fix a weight, move it to the right field…). */
   saveBlockPlacement: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Bulk-import placements from a spreadsheet — blocks already out in the
+   * field, recorded before the app was scanning them.
+   *
+   * Same rules as scanning, because both routes fill the same season: an
+   * unknown label registers a block, and a block already placed this season is
+   * UPDATED rather than duplicated. So re-running an import is safe.
+   *
+   * The caller plans first (see domain/blockImport) and shows that plan; this
+   * only carries it out.
+   */
+  importBlockPlacements: (
+    rows: Array<{
+      label: string
+      fieldId: string | null
+      lat: number
+      lng: number
+      placedAt?: string | null
+    }>,
+    season: number,
+  ) => Promise<{ created: number; updated: number; newBlocks: number; error?: string }>
 
   // ── Season analysis (0014) ───────────────────────────────────────────────
   /**

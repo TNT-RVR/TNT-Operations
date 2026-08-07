@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Check, AlertTriangle, Info, Flashlight, FlashlightOff } from 'lucide-react'
+import { X, Check, AlertTriangle, Info, Flashlight, FlashlightOff, Keyboard } from 'lucide-react'
 
 /** Result of handling a scan, shown over the camera and then faded out. */
 export interface ScanFeedback {
@@ -47,6 +47,10 @@ export function ScannerOverlay({
   const [toast, setToast] = useState<ScanFeedback | null>(null)
   const [torchOn, setTorchOn] = useState(false)
   const [hasTorch, setHasTorch] = useState(false)
+  /** Hand-typed entry, for a damaged label or a camera that won't start. */
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualCode, setManualCode] = useState('')
+  const manualRef = useRef<HTMLInputElement>(null)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
@@ -222,6 +226,18 @@ export function ScannerOverlay({
     }
   }, [open, readerId, stop])
 
+  useEffect(() => {
+    if (manualOpen) manualRef.current?.focus()
+  }, [manualOpen])
+
+  // A fresh scanning session starts closed, not holding the last typed code.
+  useEffect(() => {
+    if (!open) {
+      setManualOpen(false)
+      setManualCode('')
+    }
+  }, [open])
+
   // Flash the parent's result, then clear it.
   useEffect(() => {
     if (!feedback) return
@@ -351,6 +367,49 @@ export function ScannerOverlay({
               </div>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Type a code by hand.
+          Several error messages tell people to "type the number instead", and
+          until now there was nowhere to do it. A label gets torn, muddied or
+          sun-bleached, or the camera simply won't start — the work shouldn't
+          stop for that. Goes through the SAME handler as a decode, so it gets
+          the same checks and the same feedback. */}
+      <div className="bg-surface px-4 py-3">
+        {manualOpen ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const code = manualCode.trim()
+              if (!code) return
+              onScanRef.current(code)
+              setManualCode('')
+            }}
+            className="flex gap-2"
+          >
+            <input
+              ref={manualRef}
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="Type the code on the label…"
+              className="input flex-1"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <button type="submit" className="btn-primary" disabled={!manualCode.trim()}>
+              Enter
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setManualOpen(false)}>
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <button className="btn-ghost w-full" onClick={() => setManualOpen(true)}>
+            <Keyboard size={16} className="mr-1 inline" />
+            Type a code instead
+          </button>
         )}
       </div>
 

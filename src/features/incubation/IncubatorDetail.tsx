@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QrCode } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
+import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
@@ -16,6 +17,7 @@ import {
   DEPTH_POSITIONS,
   expectedStageForDay,
   stageDelta,
+  resolveModeGoals,
   type TempMode,
 } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
@@ -51,7 +53,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, settings } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -74,13 +76,25 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   if (latest && humOut)
     alerts.push(`Humidity ${latest.humidityPct}% is outside ${fmtRange(d.humMin, d.humMax, '%', '')}`)
 
-  // Chart reference = middle of the mode band (tolerance = half-band). An
-  // incubator that's OFF is not being held anywhere, so it has no target at all
-  // — don't fall back to the stored tempTargetC, which would draw a 30°C line
-  // the incubator isn't failing to meet.
+  // Chart reference = the mode's GOAL temperature (Incubation settings), which
+  // is where the mode is actually being held — not the middle of the alert
+  // band, which only happens to coincide when the band is symmetric. Falls back
+  // to the band midpoint for a mode with a band but no goal. An incubator
+  // that's OFF is not being held anywhere, so it has no target at all — don't
+  // fall back to the stored tempTargetC, which would draw a 30°C line the
+  // incubator isn't failing to meet.
   const hasBand = d.tempMin != null && d.tempMax != null
-  const targetC = !d.running ? null : hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC
-  const tolC = hasBand ? (d.tempMax! - d.tempMin!) / 2 : 1.5
+  const goalC = resolveModeGoals(incubator.tempMode ?? 'off', settings).tempC
+  const targetC = !d.running
+    ? null
+    : (goalC ?? (hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC))
+  // Shade out to the NEARER band edge. With an off-centre goal, half the band
+  // would push the shaded 'fine' zone past the point where an alert fires.
+  const tolC = hasBand
+    ? targetC == null
+      ? (d.tempMax! - d.tempMin!) / 2
+      : Math.max(0.5, Math.min(targetC - d.tempMin!, d.tempMax! - targetC))
+    : 1.5
   /** Target text for the current mode; an off incubator shows none. */
   const targetLabel = d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`) : '—'
 
@@ -228,6 +242,17 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
           </p>
         )}
+
+        {/* Manual heat-pump control. Deliberately sits beneath the mode: the
+            two are related but NOT linked, and seeing them together is how a
+            contradiction between them gets noticed. */}
+        <AcControl
+          incubatorId={incubator.id}
+          deviceIdsRaw={incubator.sensiboDeviceId}
+          bandC={[d.tempMin, d.tempMax]}
+          canEdit={canEdit}
+        />
+
         {p && (
           <div>
             <div className="mb-1 flex justify-between text-xs text-muted">

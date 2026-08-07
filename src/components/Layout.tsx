@@ -65,6 +65,7 @@ const NAV: NavItem[] = [
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },
       { to: '/incubation/alerts', label: 'Alerts' },
+      { to: '/incubation/settings', label: 'Settings' },
     ],
   },
   // Top-level like Field Mode: gated by the incubation module, but its own tab.
@@ -78,6 +79,7 @@ const NAV: NavItem[] = [
       { to: '/blocks', label: 'Overview', end: true },
       { to: '/blocks/scan', label: 'Scan' },
       { to: '/blocks/list', label: 'Register' },
+      { to: '/blocks/map', label: 'Returns map' },
     ],
   },
   { to: '/sensors', label: 'Sensors', icon: Thermometer, module: 'sensors' },

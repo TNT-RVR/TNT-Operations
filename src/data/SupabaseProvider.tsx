@@ -110,6 +110,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>([])
   const [blocksLoading, setBlocksLoading] = useState(false)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  const [settings, setSettings] = useState<Record<string, string>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
@@ -205,6 +206,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Small key/value config (per-mode goals and the like). Tiny table, and
+      // the incubation screens need it as soon as they render.
+      const st = await sb.from('settings').select('key,value')
+      if (cancelled) return
+      if (st.error) console.warn('[data] load settings:', st.error.message)
+      else {
+        const map: Record<string, string> = {}
+        for (const row of (st.data as Array<{ key: string; value: string | null }>) ?? []) {
+          map[row.key] = row.value ?? ''
+        }
+        setSettings(map)
+      }
 
       // Incubation alert history (the old app's rules). Newest first, capped —
       // this is a log, so the most recent season is what matters.
@@ -789,30 +803,48 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
 
         const existing = blockPlacements.find((x) => x.blockId === block!.id && x.season === yr)
-        // Upsert on (block_id, season): re-scanning a block already placed this
-        // season CORRECTS its spot; last season's row is a different key and is
-        // left alone.
-        const { data, error } = await supabase
-          .from('block_placements')
-          .upsert(
-            {
-              block_id: block.id,
-              season: yr,
-              field_id: fieldId,
-              lat,
-              lon: lng,
-              placed_at: existing?.placedAt ?? new Date().toISOString(),
-            },
-            { onConflict: 'block_id,season' },
-          )
-          .select()
-          .single()
+
+        // Re-scanning a block already placed this season CORRECTS its spot.
+        // Done as an explicit UPDATE of just the position and field, rather
+        // than an upsert of the whole row: a block re-scanned AFTER it was
+        // weighed must not risk its weights, and an update that names its
+        // columns cannot touch them whatever the API does with the rest.
+        // Last season's row is a different key and is never involved.
+        const { data, error } = existing
+          ? await supabase
+              .from('block_placements')
+              .update({ field_id: fieldId, lat, lon: lng })
+              .eq('id', existing.id)
+              .select()
+              .single()
+          : // New placement. Upsert rather than insert so two people scanning
+            // the same block at once can't collide on the unique key.
+            await supabase
+              .from('block_placements')
+              .upsert(
+                {
+                  block_id: block.id,
+                  season: yr,
+                  field_id: fieldId,
+                  lat,
+                  lon: lng,
+                  placed_at: new Date().toISOString(),
+                },
+                { onConflict: 'block_id,season' },
+              )
+              .select()
+              .single()
         if (error) {
           console.error('[data] placeBlock:', error.message)
           return { ok: false, created: false, error: error.message }
         }
         upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
-        return { ok: true, created: isNewBlock || !existing }
+        return {
+          ok: true,
+          created: isNewBlock || !existing,
+          movedFromFieldId:
+            existing && existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
+        }
       },
 
       weighBlock: async ({ label, stage, weightLbs, season }) => {
@@ -874,6 +906,70 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
         upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
         return { ok: true }
+      },
+
+      importBlockPlacements: async (rows, season) => {
+        if (!supabase) return { created: 0, updated: 0, newBlocks: 0, error: 'No backend connection.' }
+        if (rows.length === 0) return { created: 0, updated: 0, newBlocks: 0 }
+
+        // 1. Register every label not already on record, in ONE upsert.
+        //    onConflict:'label' means a label that IS present comes back as
+        //    itself rather than erroring, so this is safe to re-run.
+        const labels = [...new Set(rows.map((r) => r.label.trim()).filter(Boolean))]
+        const known = new Map(blocks.map((b) => [b.label.trim().toLowerCase(), b]))
+        const missing = labels.filter((l) => !known.has(l.toLowerCase()))
+
+        if (missing.length) {
+          const { data, error } = await supabase
+            .from('blocks')
+            .upsert(
+              missing.map((label) => ({ label })),
+              { onConflict: 'label' },
+            )
+            .select()
+          if (error) {
+            console.error('[data] importBlockPlacements/blocks:', error.message)
+            return { created: 0, updated: 0, newBlocks: 0, error: error.message }
+          }
+          const added = ((data as BlockRow[]) ?? []).map(toBlock)
+          for (const b of added) known.set(b.label.trim().toLowerCase(), b)
+          setBlocks((prev) => [...prev, ...added].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        // 2. Upsert placements on (block_id, season) — the identity the scanner
+        //    uses too, so an imported block and a scanned one are ONE record.
+        const alreadyPlaced = new Set(
+          blockPlacements.filter((p) => p.season === season).map((p) => p.blockId),
+        )
+        let created = 0
+        let updated = 0
+        const payload: Array<Record<string, unknown>> = []
+        for (const r of rows) {
+          const block = known.get(r.label.trim().toLowerCase())
+          if (!block) continue
+          if (alreadyPlaced.has(block.id)) updated++
+          else created++
+          payload.push({
+            block_id: block.id,
+            season,
+            field_id: r.fieldId,
+            lat: r.lat,
+            lon: r.lng,
+            placed_at: r.placedAt ?? new Date().toISOString(),
+          })
+        }
+        if (payload.length === 0) return { created: 0, updated: 0, newBlocks: missing.length }
+
+        const { data, error } = await supabase
+          .from('block_placements')
+          .upsert(payload, { onConflict: 'block_id,season' })
+          .select()
+        if (error) {
+          console.error('[data] importBlockPlacements/placements:', error.message)
+          return { created: 0, updated: 0, newBlocks: missing.length, error: error.message }
+        }
+        for (const p of ((data as BlockPlacementRow[]) ?? []).map(toBlockPlacement)) upsertPlacement(p)
+        return { created, updated, newBlocks: missing.length }
       },
 
       notifications,
@@ -991,6 +1087,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             .then(({ error }) => error && console.error('[data] saveNotificationPref:', error.message))
         })
       },
+      settings,
+      saveSetting: async (key: string, value: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Optimistic: a settings box shouldn't feel laggy, and a failure is
+        // reported rather than silently reverted.
+        setSettings((prev) => ({ ...prev, [key]: value }))
+        const { error } = await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+        if (error) {
+          console.error('[data] saveSetting:', error.message)
+          return { ok: false, error: error.message }
+        }
+        return { ok: true }
+      },
       costPrefsByYear,
       saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => {
         if (!supabase) return
@@ -1069,6 +1178,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       batches,
       alerts,
       costPrefsByYear,
+      settings,
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,

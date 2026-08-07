@@ -313,15 +313,63 @@ export type TempMode = 'off' | 'cool_storage' | 'incubation' | 'holding'
 
 export interface TempModeConfig {
   label: string
+  /** Alert band. Fixed — these decide when a temperature alert fires. */
   min: number | null
   max: number | null
+  /** Where the mode AIMS, as opposed to where it alarms. Overridable. */
+  goalTempC: number | null
+  goalHumidityPct: number | null
 }
 
+/**
+ * The four temperature modes.
+ *
+ * Two different things live here and are easily confused. `min`/`max` is the
+ * ALERT BAND — leave it and you get pushed a warning. `goalTempC` is where the
+ * mode is aiming, shown on the charts and used as the reference line. A run can
+ * sit at 28°C all day: on target-ish, and nowhere near an alert.
+ *
+ * The goals are defaults only; `resolveModeGoals` prefers a saved override.
+ * The bands are not adjustable — the cloud poller carries its own copy for
+ * alerting (netlify/functions/poll-govee.mjs) and the two must not drift apart.
+ */
 export const TEMP_MODES: Record<TempMode, TempModeConfig> = {
-  off: { label: 'Off', min: null, max: null },
-  cool_storage: { label: 'Cool Storage', min: 0.0, max: 12.0 },
-  incubation: { label: 'Incubation', min: 25.0, max: 35.0 },
-  holding: { label: 'Holding Temp', min: 10.0, max: 18.0 },
+  off: { label: 'Off', min: null, max: null, goalTempC: null, goalHumidityPct: null },
+  cool_storage: { label: 'Cool Storage', min: 0.0, max: 12.0, goalTempC: 4.0, goalHumidityPct: 50 },
+  incubation: { label: 'Incubation', min: 25.0, max: 35.0, goalTempC: 30.0, goalHumidityPct: 65 },
+  holding: { label: 'Holding Temp', min: 10.0, max: 18.0, goalTempC: 14.0, goalHumidityPct: 60 },
+}
+
+/** Settings keys the goals are stored under — the desktop app's names, which
+ *  the live `settings` table is already populated with. */
+export const goalTempKey = (mode: string) => `goal_temp_${mode}`
+export const goalHumidityKey = (mode: string) => `goal_humidity_${mode}`
+
+export interface ModeGoals {
+  tempC: number | null
+  humidityPct: number | null
+}
+
+/**
+ * The goals in force for a mode: a saved override if there is one, otherwise
+ * the built-in default. Mirrors the desktop app's `get_mode_goals`.
+ *
+ * A blank or unparseable stored value falls back rather than becoming NaN —
+ * clearing a field in settings means "use the default", which is how the
+ * desktop app behaves and what someone emptying a box expects.
+ */
+export function resolveModeGoals(mode: string, settings: Record<string, string> = {}): ModeGoals {
+  const cfg = (TEMP_MODES as Record<string, TempModeConfig>)[mode] ?? TEMP_MODES.incubation
+  const pick = (key: string, fallback: number | null): number | null => {
+    const raw = settings[key]
+    if (raw == null || String(raw).trim() === '') return fallback
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : fallback
+  }
+  return {
+    tempC: pick(goalTempKey(mode), cfg.goalTempC),
+    humidityPct: pick(goalHumidityKey(mode), cfg.goalHumidityPct),
+  }
 }
 
 /** An incubator as the temp checks read it (the fields they touch). */

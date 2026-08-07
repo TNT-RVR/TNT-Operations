@@ -141,6 +141,101 @@ export function seasonSummary(placements: BlockPlacement[]): SeasonSummary {
   return s
 }
 
+/**
+ * A weight that shouldn't be accepted without a second look.
+ *
+ * `error` is physically impossible and refused. `warn` is merely suspicious —
+ * allowed through on confirmation, because a genuinely odd block is a real
+ * thing and the person holding it knows better than the software.
+ */
+export interface WeightCheck {
+  level: 'error' | 'warn'
+  message: string
+}
+
+/**
+ * Hard limits on a recorded weight, in kg — the unit these are actually
+ * thought about in.
+ *
+ * Set from real seasons rather than guessed: 2025 ran from 0.95 kg to 3.8 kg.
+ * The bounds sit well outside that on both sides, so an exceptional block
+ * passes and a slipped decimal (0.38, 38) does not. Refused rather than
+ * queried: nothing in this range of work produces 40 kg, so accepting it can
+ * only mean recording something false.
+ */
+const MIN_WEIGHT_KG = 0.1
+const MAX_WEIGHT_KG = 15
+
+const MIN_PLAUSIBLE_LBS = MIN_WEIGHT_KG / LBS_PER_KG
+const MAX_PLAUSIBLE_LBS = MAX_WEIGHT_KG / LBS_PER_KG
+
+/**
+ * Check a weight before it's recorded.
+ *
+ * The mistake this exists for is a decimal point: 125 where 12.5 was meant, or
+ * 1.25. Nothing about that is malformed, so nothing else catches it, and it
+ * lands straight in the bee return — where it drags the whole field's map with
+ * it. Compared against the OTHER blocks weighed this season, since what counts
+ * as normal is a property of the season, not a constant.
+ */
+export function checkWeight(
+  lbs: number,
+  stage: 'retrieve' | 'strip',
+  placement: Pick<BlockPlacement, 'grossWeightLbs'> | null,
+  peerWeightsLbs: number[],
+): WeightCheck | null {
+  if (!Number.isFinite(lbs) || lbs <= 0) {
+    return { level: 'error', message: 'Enter a weight greater than zero.' }
+  }
+
+  // Empty can't outweigh full. Physically impossible, so refuse it outright
+  // rather than storing a negative return for someone to find later.
+  if (stage === 'strip' && placement?.grossWeightLbs != null && lbs >= placement.grossWeightLbs) {
+    return {
+      level: 'error',
+      message: `The empty weight (${lbs.toFixed(1)}) can't be as much as the full weight (${placement.grossWeightLbs.toFixed(1)}). Check the scale, or re-weigh it full.`,
+    }
+  }
+
+  // Outside the possible range: refused, not queried. A block does not weigh
+  // 40 kg, so there is nothing to confirm — only a wrong number to correct.
+  if (lbs < MIN_PLAUSIBLE_LBS || lbs > MAX_PLAUSIBLE_LBS) {
+    const kg = lbs * LBS_PER_KG
+    return {
+      level: 'error',
+      message: `${kg.toFixed(2)} kg (${lbs.toFixed(1)} lbs) is outside the possible range of ${MIN_WEIGHT_KG}–${MAX_WEIGHT_KG} kg. Check the decimal point and the units.`,
+    }
+  }
+
+  // Against the season's own blocks. Needs enough of them to have a normal.
+  const peers = peerWeightsLbs.filter((w) => Number.isFinite(w) && w > 0)
+  if (peers.length >= 5) {
+    const sorted = [...peers].sort((a, b) => a - b)
+    const mid = sorted.length >> 1
+    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    if (median > 0) {
+      // A factor of FOUR either way. 2025 spanned 0.95-3.8 kg, a genuine 4x
+      // between the extremes, so a tighter ratio would query real blocks all
+      // season — and a warning people learn to dismiss protects nothing. The
+      // absolute bounds above do the heavy lifting; this catches a slip that
+      // stays inside them.
+      if (lbs > median * 4) {
+        return {
+          level: 'warn',
+          message: `${(lbs * LBS_PER_KG).toFixed(2)} kg is more than four times this season's usual ${(median * LBS_PER_KG).toFixed(2)} kg. Check the decimal point.`,
+        }
+      }
+      if (lbs < median / 4) {
+        return {
+          level: 'warn',
+          message: `${(lbs * LBS_PER_KG).toFixed(2)} kg is less than a quarter of this season's usual ${(median * LBS_PER_KG).toFixed(2)} kg. Check the decimal point.`,
+        }
+      }
+    }
+  }
+  return null
+}
+
 /** Every season a block has been used, newest first — its history. */
 export function blockHistory(placements: BlockPlacement[], blockId: string): BlockPlacement[] {
   return placements.filter((p) => p.blockId === blockId).sort((a, b) => b.season - a.season)

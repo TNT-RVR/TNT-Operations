@@ -8,7 +8,23 @@ const BOW_LON = -111.52
 const BOW_DLAT = 0.0036 // ~ ±400 m
 const BOW_DLON = 0.0056
 
-export const seedFields: Field[] = [
+/**
+ * Real field boundaries, when someone has pulled them down locally.
+ *
+ * `scripts/fetch_local_fields.py` writes src/data/localFields.json from the
+ * live database; that file is git-excluded because it holds real client names
+ * and coordinates. When it is absent — the normal case, and always in CI —
+ * this resolves to nothing and only the demo fields are used.
+ *
+ * Loaded via import.meta.glob precisely BECAUSE it may not exist: a plain
+ * import of a missing module fails the build.
+ */
+const localFieldModules = import.meta.glob<{ default: Field[] }>('./localFields.json', { eager: true })
+const localFields: Field[] = Object.values(localFieldModules)[0]?.default ?? []
+
+/** The two demo fields. Kept alongside any real ones, because the seeded
+ *  blocks below are placed in them — dropping them would orphan that data. */
+const demoFields: Field[] = [
   {
     id: 'f1',
     name: 'Grassy Lake NW Pivot',
@@ -88,6 +104,12 @@ export const seedFields: Field[] = [
   // Summary-only field (no geometry yet) — the map shows an "import needed" state.
   { id: 'f3', name: 'Taber South Pivot', client: 'Demo Seed Co.', region: 'Taber, AB', shapeType: 'pivot', shelterCount: 30, updatedAt: '2026-07-20T13:10:00Z' },
 ]
+
+/**
+ * Demo fields first so the seeded blocks (placed in f1/f2) still resolve, then
+ * any real boundaries pulled down locally.
+ */
+export const seedFields: Field[] = [...demoFields, ...localFields]
 
 export const seedIncubators: Incubator[] = [
   { id: 'i1', name: 'Incubator A', location: 'Shop — north wall', status: 'active', startedAt: '2026-07-10T06:00:00Z', tempTargetC: 30, humidityTargetPct: 55, tempMode: 'incubation', humidityMin: 55, humidityMax: 75, incubationStart: '2026-07-10' },
@@ -343,8 +365,9 @@ export const seedTrayInspections: TrayInspection[] = [
 ]
 
 // ── Nesting blocks (place → retrieve → strip) ────────────────────────────────
-// Six blocks across two fields, deliberately spread over the three stages so
-// the screen shows a season mid-collection rather than a tidy finished one.
+// Positions matter here: these drive the interpolated returns map, so each
+// block sits inside ITS OWN field. Grassy Lake (f1) is a 400 m pivot centred on
+// (49.83, -111.6); Bow Island (f2) is an ~800 m square around (49.86, -111.52).
 
 export const seedBlocks: Block[] = [
   { id: 'blk1', label: 'BLK0101', notes: '', createdAt: '2026-05-01T12:00:00Z' },
@@ -353,14 +376,17 @@ export const seedBlocks: Block[] = [
   { id: 'blk4', label: 'BLK0104', notes: '', createdAt: '2026-05-01T12:00:00Z' },
   { id: 'blk5', label: 'BLK0105', notes: '', createdAt: '2026-05-01T12:00:00Z' },
   { id: 'blk6', label: 'BLK0106', notes: '', createdAt: '2025-05-01T12:00:00Z' },
+  { id: 'blk7', label: 'BLK0107', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk8', label: 'BLK0108', notes: '', createdAt: '2026-05-01T12:00:00Z' },
+  { id: 'blk9', label: 'BLK0109', notes: '', createdAt: '2026-05-01T12:00:00Z' },
 ]
 
 const placement = (over: Partial<BlockPlacement> & { id: string; blockId: string }): BlockPlacement => ({
   season: 2026,
   fieldId: 'f1',
   shelterId: null,
-  lat: BOW_LAT,
-  lng: BOW_LON,
+  lat: 49.83,
+  lng: -111.6,
   placedAt: '2026-06-02T14:00:00Z',
   placedBy: 'demo',
   retrievedAt: null,
@@ -373,34 +399,54 @@ const placement = (over: Partial<BlockPlacement> & { id: string; blockId: string
   ...over,
 })
 
+/** Weighed block: full and empty, so it yields a bee return. */
+const weighed = (
+  id: string,
+  blockId: string,
+  lat: number,
+  lng: number,
+  gross: number,
+  stripped: number,
+  over: Partial<BlockPlacement> = {},
+): BlockPlacement =>
+  placement({
+    id,
+    blockId,
+    lat,
+    lng,
+    retrievedAt: '2026-07-28T15:00:00Z',
+    grossWeightLbs: gross,
+    retrievedBy: 'demo',
+    strippedAt: '2026-08-01T15:00:00Z',
+    strippedWeightLbs: stripped,
+    strippedBy: 'demo',
+    ...over,
+  })
+
 export const seedBlockPlacements: BlockPlacement[] = [
-  // Fully through the cycle: 8.1 lbs and 7.4 lbs of bee material.
-  placement({
-    id: 'bp1', blockId: 'blk1',
-    retrievedAt: '2026-07-28T15:00:00Z', grossWeightLbs: 12.6, retrievedBy: 'demo',
-    strippedAt: '2026-08-01T15:00:00Z', strippedWeightLbs: 4.5, strippedBy: 'demo',
-  }),
-  placement({
-    id: 'bp2', blockId: 'blk2', lat: BOW_LAT + 0.001,
-    retrievedAt: '2026-07-28T15:20:00Z', grossWeightLbs: 11.9, retrievedBy: 'demo',
-    strippedAt: '2026-08-01T15:20:00Z', strippedWeightLbs: 4.5, strippedBy: 'demo',
-  }),
-  // Retrieved and weighed, not yet stripped — so no return figure yet.
-  placement({
-    id: 'bp3', blockId: 'blk3', lat: BOW_LAT - 0.001,
-    retrievedAt: '2026-07-28T15:40:00Z', grossWeightLbs: 13.2, retrievedBy: 'demo',
-  }),
-  // A weaker second field, still out in the field.
-  placement({ id: 'bp4', blockId: 'blk4', fieldId: 'f2', lat: 49.83, lng: -111.6 }),
-  placement({ id: 'bp5', blockId: 'blk5', fieldId: 'f2', lat: 49.831, lng: -111.601 }),
+  // Grassy Lake pivot — six weighed blocks spread across the circle, with the
+  // north-west side deliberately stronger so the map shows a real gradient
+  // rather than uniform colour.
+  weighed('bp1', 'blk1', 49.8318, -111.6032, 12.6, 4.5), // NW  8.1
+  weighed('bp2', 'blk2', 49.8312, -111.5968, 11.9, 4.5), // NE  7.4
+  weighed('bp3', 'blk3', 49.8300, -111.6041, 11.2, 4.5), // W   6.7
+  weighed('bp7', 'blk7', 49.8299, -111.5960, 9.1, 4.5), //  E   4.6
+  weighed('bp8', 'blk8', 49.8283, -111.6028, 8.4, 4.5), //  SW  3.9
+  weighed('bp9', 'blk9', 49.8281, -111.5972, 7.6, 4.5), //  SE  3.1
+
+  // Bow Island square — two blocks still out in the field, so the Register
+  // shows the "in field" stage and this field has no map yet.
+  placement({ id: 'bp4', blockId: 'blk4', fieldId: 'f2', lat: 49.862, lng: -111.524 }),
+  placement({ id: 'bp5', blockId: 'blk5', fieldId: 'f2', lat: 49.8585, lng: -111.516 }),
+
   // Last season's run of a block that is out again this year — proves the
   // history survives reuse.
   placement({
-    id: 'bp6', blockId: 'blk6', season: 2025, placedAt: '2025-06-03T14:00:00Z',
+    id: 'bp6', blockId: 'blk6', season: 2025, lat: 49.8305, lng: -111.6001,
+    placedAt: '2025-06-03T14:00:00Z',
     retrievedAt: '2025-07-29T15:00:00Z', grossWeightLbs: 10.4, retrievedBy: 'demo',
     strippedAt: '2025-08-02T15:00:00Z', strippedWeightLbs: 4.4, strippedBy: 'demo',
   }),
-  placement({ id: 'bp7', blockId: 'blk6' }),
 ]
 
 // ── Season analysis (mock mode) ──────────────────────────────────────────────

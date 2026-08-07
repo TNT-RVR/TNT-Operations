@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Thermometer, Users, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Thermometer, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -121,7 +121,6 @@ const NAV: NavItem[] = [
     ],
   },
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
-  { to: '/users', label: 'Users', icon: Users, module: 'users' },
 ]
 
 function NotifBell() {
@@ -223,7 +222,13 @@ export default function Layout() {
 
       <div className="flex min-h-0 flex-1">
         {/* Sidebar (desktop) */}
-        <nav className="hidden w-56 shrink-0 border-r border-subtle bg-surface p-3 md:block">
+        {/*
+          Sidebar. A flex COLUMN so Users & Settings can be pinned to the
+          bottom: the section list scrolls, the settings link never leaves the
+          viewport. It's the one destination people reach for from anywhere.
+        */}
+        <nav className="hidden w-56 shrink-0 flex-col border-r border-subtle bg-surface p-3 md:flex">
+          <div className="min-h-0 flex-1 overflow-y-auto">
           {items.map((n) => {
             const sectionActive = n.to !== '/' && pathname.startsWith(n.to)
             return (
@@ -250,6 +255,15 @@ export default function Layout() {
               </div>
             )
           })}
+          </div>
+
+          {/* Pinned. Only rendered if the role can reach it — a viewer with no
+              users access shouldn't see a permanent door to a locked room. */}
+          {s.can('users') && (
+            <div className="mt-2 shrink-0 border-t border-subtle pt-2">
+              <NavItemLink item={{ to: '/users', label: 'Users & Settings', icon: SlidersHorizontal, module: 'users' }} />
+            </div>
+          )}
         </nav>
 
         {/* Content — a per-route boundary keeps the nav usable if a screen crashes */}

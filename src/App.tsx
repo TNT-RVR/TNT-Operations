@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { Protected } from './components/Protected'
 import TasksHome from './features/tasks/TasksHome'
@@ -7,6 +7,7 @@ import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
 import { InventoryHome } from './features/sales/SalesInventory'
 import { CustomersHome, ProductsHome } from './features/sales/SalesCatalogue'
 import QuickBooksHome from './features/sales/QuickBooksHome'
+import { AccessTab, AccountTab, ArchiveTab, CompanyTab, IntegrationsTab } from './features/users/SettingsTabs'
 import Dashboard from './features/dashboard/Dashboard'
 import MapsHome from './features/maps/MapsHome'
 import CostsHome from './features/maps/CostsHome'
@@ -60,7 +61,7 @@ export default function App() {
         <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
         <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
         <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
-        <Route path="sales/quickbooks" element={<Protected module="sales"><QuickBooksHome /></Protected>} />
+        <Route path="sales/quickbooks" element={<Navigate to="/users/integrations/quickbooks" replace />} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />
         <Route path="analysis/fields/:id" element={<Protected module="analysis"><AnalysisFieldDetail /></Protected>} />
@@ -71,6 +72,12 @@ export default function App() {
         <Route path="analysis/upload" element={<Protected module="analysis"><AnalysisUpload /></Protected>} />
         <Route path="grants" element={<Protected module="grants"><GrantsHome /></Protected>} />
         <Route path="users" element={<Protected module="users"><UsersHome /></Protected>} />
+        <Route path="users/access" element={<Protected module="users"><AccessTab /></Protected>} />
+        <Route path="users/company" element={<Protected module="users"><CompanyTab /></Protected>} />
+        <Route path="users/integrations" element={<Protected module="users"><IntegrationsTab /></Protected>} />
+        <Route path="users/integrations/quickbooks" element={<Protected module="users"><QuickBooksHome /></Protected>} />
+        <Route path="users/archive" element={<Protected module="users"><ArchiveTab /></Protected>} />
+        <Route path="users/account" element={<Protected module="users"><AccountTab /></Protected>} />
         {/* Notifications are visible to any signed-in user (no module gate). */}
         <Route path="notifications" element={<NotificationsHome />} />
       </Route>

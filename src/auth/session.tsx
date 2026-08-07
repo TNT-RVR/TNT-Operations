@@ -5,6 +5,7 @@ import { PendingApproval } from './PendingApproval'
 import { SetPassword } from './SetPassword'
 import { arrivedNeedingPassword, initialAuthType } from './authLink'
 import { BeeMark } from '@/components/BeeMark'
+import { type AccessOverrides, allows } from '@/domain/access'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
 export const MODULES = ['dashboard', 'maps', 'incubation', 'blocks', 'sensors', 'analysis', 'sales', 'tasks', 'grants', 'users'] as const
@@ -24,7 +25,7 @@ export interface User {
 }
 
 /** Role → what it can do. `edit` implies `view`. */
-const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
+export const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Full access — highest grant wins.
   admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
   developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', sensors: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
@@ -38,11 +39,33 @@ const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
 }
 
 /** Whether `role` may perform `action` on `module`. Exported for the matrix test. */
+/**
+ * Per-role overrides from `app_role_access`, loaded once by the session
+ * provider.
+ *
+ * Module-level rather than React state because `grants()` is called from
+ * non-component code (route guards, the nav filter) and threading a context
+ * through all of it would be a far larger change. The provider bumps a version
+ * counter when this loads so `can()` is rebuilt and the UI re-renders.
+ *
+ * Before it loads this is empty, which means the built-in matrix applies —
+ * the safe direction: a brief window of DEFAULT permissions, never a window of
+ * elevated ones.
+ */
+let ACCESS_OVERRIDES: AccessOverrides = {}
+
+export function setAccessOverrides(o: AccessOverrides): void {
+  ACCESS_OVERRIDES = o
+}
+
+export function getAccessOverrides(): AccessOverrides {
+  return ACCESS_OVERRIDES
+}
+
 export function grants(role: Role, module: Module, action: Action): boolean {
-  const have = MATRIX[role][module]
-  if (!have) return false
-  if (action === 'view') return true // edit or view both satisfy view
-  return have === 'edit'
+  // Delegates to the domain layer, which applies the admin/users lock — see
+  // src/domain/access.ts. That lock is what makes editable permissions safe.
+  return allows(role, module, action, MATRIX, ACCESS_OVERRIDES)
 }
 
 /** Seed users for mock mode. Real users come from Supabase `profiles` in supabase mode. */
@@ -319,10 +342,61 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
  * configured, else the mock user switcher. Keeping the two seams aligned means
  * `supabase` mode always pairs a real session with the RLS-guarded data.
  */
+/**
+ * Loads the stored permission overrides once, before anything renders.
+ *
+ * Gating render on this matters: without it the app paints with the built-in
+ * matrix and then re-paints when the overrides land, so a role that has had a
+ * section REMOVED would see it flash up and disappear. Worse, a route guard
+ * could admit them in that window.
+ *
+ * A failure here is deliberately silent — the built-in matrix applies, which is
+ * the safe direction. Users see default permissions, never elevated ones.
+ */
+function AccessGate({ children }: { children: ReactNode }) {
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    if (!supabase) {
+      setReady(true)
+      return
+    }
+    let cancelled = false
+    void supabase
+      .from('app_role_access')
+      .select('role, module, grant_level')
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          // Pre-0018 the table doesn't exist. Built-ins apply.
+          console.warn('[auth] access overrides unavailable:', error.message)
+        } else {
+          const o: AccessOverrides = {}
+          for (const r of data ?? []) {
+            const role = r.role as Role
+            o[role] = { ...(o[role] ?? {}), [r.module as Module]: r.grant_level }
+          }
+          setAccessOverrides(o)
+        }
+        setReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!ready) return null
+  return <>{children}</>
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const source = import.meta.env.VITE_DATA_SOURCE ?? 'mock'
   if (source === 'supabase' && isSupabaseConfigured) {
-    return <SupabaseSessionProvider>{children}</SupabaseSessionProvider>
+    return (
+      <AccessGate>
+        <SupabaseSessionProvider>{children}</SupabaseSessionProvider>
+      </AccessGate>
+    )
   }
   return <MockSessionProvider>{children}</MockSessionProvider>
 }

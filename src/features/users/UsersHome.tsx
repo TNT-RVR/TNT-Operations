@@ -1,273 +1,330 @@
-import { useState } from 'react'
-import { Moon, Sun, Pencil, Trash2, Check, X, UserPlus } from 'lucide-react'
-import { PageHeader, Badge, Card, Switch, IconButton, Modal } from '@/components/ui'
-import { useSession, ASSIGNABLE_ROLES, type Role } from '@/auth/session'
-import { useTheme } from '@/styles/theme'
+/**
+ * The Users tab: who has access, who was invited and never showed up.
+ *
+ * ── Why "Waiting on setup" is its own panel ──────────────────────────────────
+ *
+ * An invited user who never signed in has a profile and a role but cannot do
+ * anything, and from the roster they are indistinguishable from an active
+ * account. Two of TNT's invites had been sitting unaccepted for 26 days without
+ * anyone noticing. Splitting them out — with how long it's been and a resend
+ * button — turns an invisible failure into an obvious one.
+ *
+ * ── Archive vs delete ────────────────────────────────────────────────────────
+ *
+ * Archive is the normal exit: they lose access and disappear from pickers, but
+ * their name stays on the inspections they logged and the shelters they placed.
+ * Delete destroys the login. Both are offered; archive is the one that isn't
+ * destructive, so it comes first and reads as the default.
+ */
+import { useCallback, useEffect, useState } from 'react'
+import { ASSIGNABLE_ROLES, type Role, useSession } from '@/auth/session'
+import { supabase } from '@/data/supabaseClient'
+import { Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
+import { Archive, Mail, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { SettingsChrome, relativeDays } from './SettingsChrome'
 
-/** Invite-by-email dialog. The invitee arrives with the role chosen here. */
+/** Sign-in state per user, from `profiles` (mirrored off auth by migration 0018). */
+interface Presence {
+  id: string
+  last_sign_in_at: string | null
+  invited_at: string | null
+}
+
+function roleTone(role: Role): 'brand' | 'blue' | 'amber' | 'neutral' {
+  if (role === 'admin') return 'brand'
+  if (role === 'developer') return 'blue'
+  if (role === 'pending') return 'amber'
+  return 'neutral'
+}
+
+export default function UsersHome() {
+  const s = useSession()
+  const canEdit = s.can('users', 'edit')
+  const [presence, setPresence] = useState<Record<string, Presence>>({})
+  const [inviting, setInviting] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [busy, setBusy] = useState('')
+  const [note, setNote] = useState('')
+
+  const loadPresence = useCallback(async () => {
+    if (!supabase) return
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, last_sign_in_at, invited_at')
+      .is('archived_at', null)
+    if (error) {
+      // Pre-0018 the columns don't exist; the screen still works, it just can't
+      // tell who has signed in.
+      console.warn('[users] presence unavailable:', error.message, '— has migration 0018 been applied?')
+      return
+    }
+    setPresence(Object.fromEntries((data as Presence[]).map((p) => [p.id, p])))
+  }, [])
+
+  useEffect(() => {
+    void loadPresence()
+  }, [loadPresence])
+
+  // An invited account that has never been signed into.
+  const neverSignedIn = (id: string) => {
+    const p = presence[id]
+    return p ? p.last_sign_in_at == null : false
+  }
+
+  const waiting = s.users.filter((u) => neverSignedIn(u.id))
+  const active = s.users.filter((u) => !neverSignedIn(u.id))
+
+  const resend = async (u: { email: string; name: string; role: Role }) => {
+    setBusy(u.email)
+    setNote('')
+    const r = await s.inviteUser({ email: u.email, name: u.name, role: u.role })
+    setBusy('')
+    // "Already registered" is the expected answer for a resend — the account
+    // exists, it's the sign-in that hasn't happened. Say something useful.
+    setNote(
+      r.ok
+        ? `Invite re-sent to ${u.email}.`
+        : /already/i.test(r.error ?? '')
+          ? `${u.email} already has an account — send them a password-reset link instead.`
+          : (r.error ?? 'Could not resend.'),
+    )
+  }
+
+  const archive = async (id: string) => {
+    if (!supabase) return
+    setBusy(id)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ archived_at: new Date().toISOString(), archived_by: s.user.id })
+      .eq('id', id)
+    setBusy('')
+    setNote(error ? error.message : 'Archived. Restore them any time under Archive.')
+    await loadPresence()
+  }
+
+  const startEdit = (id: string, name: string) => {
+    setEditing(id)
+    setDraftName(name)
+  }
+  const commitEdit = () => {
+    if (editing) s.updateUserName(editing, draftName.trim())
+    setEditing(null)
+  }
+
+  return (
+    <SettingsChrome
+      actions={
+        canEdit ? (
+          <Button onClick={() => setInviting(true)}>
+            <Plus size={16} /> Add user
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="space-y-6">
+        {note && <p className="rounded border border-subtle bg-overlay p-2 text-xs text-secondary">{note}</p>}
+
+        {/* ── Waiting on setup ── */}
+        {waiting.length > 0 && (
+          <section>
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-warn">
+              <Mail size={15} /> Waiting on setup · {waiting.length}
+            </h2>
+            <div className="rounded-lg border border-warn/40 bg-warn/10 p-3">
+              <p className="mb-3 text-xs text-secondary">
+                These people were invited but haven't signed in yet, so they can't use the app. Re-send their link
+                if it got buried or went to junk.
+              </p>
+              <ul className="space-y-2">
+                {waiting.map((u) => (
+                  <li key={u.id} className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-primary">{u.name || '—'}</div>
+                      <div className="text-xs text-muted">{u.email}</div>
+                    </div>
+                    {presence[u.id]?.invited_at && (
+                      <Badge tone="amber">invited {relativeDays(presence[u.id].invited_at)}</Badge>
+                    )}
+                    {canEdit && (
+                      <Button variant="ghost" onClick={() => void resend(u)} disabled={busy === u.email}>
+                        <Send size={15} /> {busy === u.email ? 'Sending…' : 'Resend invite'}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
+
+        {/* ── Active accounts ── */}
+        <section>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+            Active accounts · {active.length}
+          </h2>
+          {active.length === 0 ? (
+            <EmptyState>No active accounts.</EmptyState>
+          ) : (
+            <div className="card overflow-x-auto p-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="th text-left">Name</th>
+                    <th className="th text-left">Email</th>
+                    <th className="th text-left">Role</th>
+                    <th className="th text-left">Status</th>
+                    {canEdit && <th className="th text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {active.map((u) => {
+                    const isYou = u.id === s.user.id
+                    return (
+                      <tr key={u.id} className="border-t border-subtle">
+                        <td className="px-3 py-2">
+                          {editing === u.id ? (
+                            <Input
+                              autoFocus
+                              value={draftName}
+                              onChange={(e) => setDraftName(e.target.value)}
+                              onBlur={commitEdit}
+                              onKeyDown={(e) => e.key === 'Enter' && commitEdit()}
+                            />
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <span className="font-medium text-primary">{u.name || '—'}</span>
+                              {isYou && <Badge tone="neutral">you</Badge>}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-secondary">{u.email}</td>
+                        <td className="px-3 py-2">
+                          {canEdit && !isYou ? (
+                            <Select
+                              value={u.role}
+                              onChange={(e) => s.updateUserRole(u.id, e.target.value as Role)}
+                              className="w-32"
+                            >
+                              {ASSIGNABLE_ROLES.map((r) => (
+                                <option key={r} value={r}>
+                                  {r}
+                                </option>
+                              ))}
+                              {u.role === 'pending' && <option value="pending">pending</option>}
+                            </Select>
+                          ) : (
+                            <Badge tone={roleTone(u.role)}>{u.role}</Badge>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {u.role === 'pending' ? (
+                            <Badge tone="amber">Awaiting approval</Badge>
+                          ) : (
+                            <Badge tone="green">Active</Badge>
+                          )}
+                        </td>
+                        {canEdit && (
+                          <td className="px-3 py-2">
+                            <div className="flex justify-end gap-1">
+                              <IconButton label="Edit name" onClick={() => startEdit(u.id, u.name)}>
+                                <Pencil size={15} />
+                              </IconButton>
+                              {!isYou && (
+                                <>
+                                  <IconButton label="Archive" onClick={() => void archive(u.id)}>
+                                    <Archive size={15} />
+                                  </IconButton>
+                                  <IconButton label="Delete" onClick={() => s.deleteUser(u.id)}>
+                                    <Trash2 size={15} />
+                                  </IconButton>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-faint">
+            Edit sets their name. Archive hides them and signs them out — restore any time under Archive. Delete
+            removes their login permanently. You can't archive or delete yourself.
+          </p>
+        </section>
+      </div>
+
+      {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+    </SettingsChrome>
+  )
+}
+
 function InviteDialog({ onClose }: { onClose: () => void }) {
   const s = useSession()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [role, setRole] = useState<Role>('operator')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState(false)
+  const [error, setError] = useState('')
 
-  async function submit(e: React.FormEvent) {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
-    setError(null)
-    const res = await s.inviteUser({ email: email.trim(), name: name.trim(), role })
+    setError('')
+    const r = await s.inviteUser({ email: email.trim(), name: name.trim(), role })
     setBusy(false)
-    if (res.ok) setSent(true)
-    else setError(res.error ?? 'Invite failed')
+    if (r.ok) setSent(true)
+    else setError(r.error ?? 'Invite failed')
   }
 
   return (
     <Modal title="Invite a user" onClose={onClose}>
       {sent ? (
-        <div className="space-y-4">
-          <p
-            className="rounded-md px-3 py-2 text-sm"
-            style={{ background: 'var(--ok-bg)', border: '1px solid var(--ok-bd)', color: 'var(--ok-fg)' }}
-          >
-            Invite sent to <strong>{email}</strong>. They'll get an email with a link to set a password, and arrive
-            with the <strong>{role}</strong> role — no approval needed.
+        <div className="space-y-3">
+          <p className="text-sm text-secondary">
+            Invite sent to <strong className="text-primary">{email}</strong>. They'll get an email with a link to
+            set a password and arrive as <strong className="text-primary">{role}</strong>.
           </p>
-          <button className="btn-primary w-full" onClick={onClose}>
-            Done
-          </button>
+          <p className="text-xs text-muted">
+            Until they sign in they'll show under "Waiting on setup" — check back if it's been a few days.
+          </p>
+          <Button onClick={onClose}>Done</Button>
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-3">
           <label className="block">
             <span className="label">Email</span>
-            <input
-              className="input"
-              type="email"
-              required
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
-            />
+            <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </label>
           <label className="block">
-            <span className="label">Name (optional)</span>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Their name" />
+            <span className="label">Name</span>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="block">
             <span className="label">Role</span>
-            <select className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+            <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
               {ASSIGNABLE_ROLES.map((r) => (
                 <option key={r} value={r}>
                   {r}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
-          <p className="text-xs text-muted">
-            They get an email, click the link, and are asked to choose their own password. You never handle it.
-          </p>
-          {error && (
-            <p
-              className="rounded-md px-3 py-2 text-sm"
-              style={{ background: 'var(--danger-bg)', border: '1px solid var(--danger-bd)', color: 'var(--danger-fg)' }}
-            >
-              {error}
-            </p>
-          )}
-          <div className="flex gap-2 pt-1">
-            <button type="button" className="btn-ghost flex-1" onClick={onClose}>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" type="button" onClick={onClose}>
               Cancel
-            </button>
-            <button type="submit" className="btn-primary flex-1" disabled={busy || !email.trim()}>
-              {busy ? 'Sending…' : 'Send invite'}
-            </button>
+            </Button>
+            <Button type="submit" disabled={busy || !email.trim()}>
+              <Send size={16} /> {busy ? 'Sending…' : 'Send invite'}
+            </Button>
           </div>
         </form>
       )}
     </Modal>
-  )
-}
-
-function roleTone(role: Role): 'brand' | 'blue' | 'amber' {
-  if (role === 'admin' || role === 'developer') return 'brand'
-  if (role === 'pending') return 'amber'
-  return 'blue'
-}
-
-export default function UsersHome() {
-  const s = useSession()
-  const canEdit = s.can('users', 'edit')
-  const pendingCount = s.users.filter((u) => u.role === 'pending').length
-  const { theme, setTheme } = useTheme()
-  const light = theme === 'light'
-
-  // Inline rename state.
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  // Two-step delete confirmation.
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [inviting, setInviting] = useState(false)
-
-  function startEdit(id: string, name: string) {
-    setEditingId(id)
-    setEditName(name)
-    setConfirmDeleteId(null)
-  }
-  function commitEdit() {
-    if (editingId && editName.trim()) s.updateUserName(editingId, editName.trim())
-    setEditingId(null)
-  }
-
-  return (
-    <div>
-      <PageHeader
-        title="Users & Settings"
-        subtitle="Roles and access (admin only)"
-        actions={
-          <div className="flex items-center gap-2">
-            {pendingCount > 0 && <Badge tone="amber">{pendingCount} awaiting approval</Badge>}
-            {canEdit && (
-              <button className="btn-primary min-h-0 px-3 py-1.5 text-sm" onClick={() => setInviting(true)}>
-                <UserPlus size={15} /> Invite user
-              </button>
-            )}
-          </div>
-        }
-      />
-      <div className="space-y-6 p-4 md:p-6">
-        {/* Appearance — personal, saved per device */}
-        <Card className="max-w-md">
-          <div className="label mb-1">Appearance</div>
-          <h2 className="font-display font-semibold text-primary">Theme</h2>
-          <p className="mt-0.5 text-sm text-muted">Dark is the default. Your choice is saved on this device.</p>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm text-secondary">
-              {light ? <Sun size={16} /> : <Moon size={16} />}
-              {light ? 'Light' : 'Dark'} theme
-            </span>
-            <Switch checked={light} onChange={(v) => setTheme(v ? 'light' : 'dark')} label="Toggle light theme" />
-          </div>
-        </Card>
-
-        <div className="overflow-x-auto rounded-lg border border-subtle">
-          <table className="w-full border-collapse bg-raised text-sm">
-            <thead>
-              <tr>
-                <th className="th">Name</th>
-                <th className="th">Email</th>
-                <th className="th">Role</th>
-                {canEdit && <th className="th w-24"></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {s.users.map((u) => {
-                const isSelf = u.id === s.user.id
-                const editing = editingId === u.id
-                const confirming = confirmDeleteId === u.id
-                return (
-                  <tr
-                    key={u.id}
-                    className="border-t border-subtle"
-                    style={u.role === 'pending' ? { background: 'var(--warn-bg)', color: 'var(--warn-fg)' } : undefined}
-                  >
-                    <td className="px-3 py-2 font-medium">
-                      {editing ? (
-                        <span className="flex items-center gap-1.5">
-                          <input
-                            className="input min-h-0 w-44 px-2 py-1 text-sm"
-                            value={editName}
-                            autoFocus
-                            onChange={(e) => setEditName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitEdit()
-                              if (e.key === 'Escape') setEditingId(null)
-                            }}
-                          />
-                          <IconButton label="Save name" onClick={commitEdit}>
-                            <Check size={15} />
-                          </IconButton>
-                          <IconButton label="Cancel" onClick={() => setEditingId(null)}>
-                            <X size={15} />
-                          </IconButton>
-                        </span>
-                      ) : (
-                        u.name || <span className="text-faint">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-secondary">{u.email}</td>
-                    <td className="px-3 py-2">
-                      {canEdit ? (
-                        <select
-                          className="rounded-lg border border-default bg-raised px-2 py-1.5 text-sm disabled:bg-overlay disabled:text-faint"
-                          value={u.role}
-                          disabled={isSelf}
-                          title={isSelf ? "You can't change your own role" : undefined}
-                          onChange={(e) => s.updateUserRole(u.id, e.target.value as Role)}
-                        >
-                          {u.role === 'pending' && (
-                            <option value="pending" disabled>
-                              Pending — assign a role…
-                            </option>
-                          )}
-                          {ASSIGNABLE_ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <Badge tone={roleTone(u.role)}>{u.role}</Badge>
-                      )}
-                    </td>
-                    {canEdit && (
-                      <td className="px-3 py-2">
-                        {confirming ? (
-                          <span className="flex items-center gap-1.5">
-                            <button
-                              className="rounded-sm px-2 py-1 text-xs font-semibold"
-                              style={{ background: 'var(--red-500)', color: 'var(--white)' }}
-                              onClick={() => {
-                                s.deleteUser(u.id)
-                                setConfirmDeleteId(null)
-                              }}
-                            >
-                              Remove
-                            </button>
-                            <IconButton label="Cancel" onClick={() => setConfirmDeleteId(null)}>
-                              <X size={15} />
-                            </IconButton>
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1">
-                            <IconButton label="Edit name" onClick={() => startEdit(u.id, u.name)}>
-                              <Pencil size={15} />
-                            </IconButton>
-                            {!isSelf && (
-                              <IconButton label="Remove user" onClick={() => setConfirmDeleteId(u.id)}>
-                                <Trash2 size={15} />
-                              </IconButton>
-                            )}
-                          </span>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-4 text-sm text-muted">
-          {s.authMode === 'supabase'
-            ? 'People sign up at the app and land here as "pending." Assign them a role to grant access. Removing a user revokes access — if they sign in again they re-appear as pending.'
-            : 'Mock mode uses seeded users. In the Supabase backend, new sign-ups appear here for approval.'}
-        </p>
-      </div>
-      {inviting && <InviteDialog onClose={() => setInviting(false)} />}
-    </div>
   )
 }

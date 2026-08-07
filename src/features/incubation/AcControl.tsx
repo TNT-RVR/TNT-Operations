@@ -128,49 +128,19 @@ export function AcControl({
 
 
   /**
-   * What to set the pump to. This is the point of the card for most people:
-   * they are standing at the incubator wanting to know the number, not
-   * reading a chart.
+   * What to set the pump to for the current mode. One line — the number is
+   * the whole point, and this card already carries plenty.
    */
   const pump = heatPumpSetting(tempMode || 'off')
-  const setpoint = (
-    <div className="rounded-sm border border-default bg-inset p-3">
-      <div className="label">Set the heat pump to</div>
-      {pump.targetF != null ? (
-        <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-3xl font-semibold text-primary">{pump.targetF}°F</span>
-          <span className="text-sm text-muted">
-            ({pump.goalC}°C · {TEMP_MODES[(tempMode || 'off') as TempMode]?.label ?? tempMode})
-          </span>
-        </div>
-      ) : (
-        <p className="mt-1 text-sm text-muted">{pump.note}</p>
-      )}
-      <details className="mt-2">
-        <summary className="cursor-pointer text-xs text-muted">All modes</summary>
-        <table className="mt-2 text-xs">
-          <tbody>
-            {(Object.keys(TEMP_MODES) as TempMode[])
-              .filter((m) => m !== 'off')
-              .map((m) => {
-                const p = heatPumpSetting(m)
-                return (
-                  <tr key={m}>
-                    <td className="pr-3 py-0.5 text-secondary">{TEMP_MODES[m].label}</td>
-                    <td className="pr-3 py-0.5 font-medium text-primary">
-                      {p.targetF != null ? `${p.targetF}°F` : '—'}
-                    </td>
-                    <td className="py-0.5 text-faint">
-                      {p.targetF != null ? `hold ${p.goalC}°C` : 'cooled, not heated'}
-                    </td>
-                  </tr>
-                )
-              })}
-          </tbody>
-        </table>
-      </details>
-    </div>
-  )
+  const setpoint =
+    pump.targetF != null ? (
+      <p className="text-sm text-secondary">
+        Set to <span className="text-base font-semibold text-primary">{pump.targetF}°F</span>{' '}
+        <span className="text-faint">for {TEMP_MODES[(tempMode || 'off') as TempMode]?.label ?? tempMode}</span>
+      </p>
+    ) : pump.goalC != null ? (
+      <p className="text-sm text-muted">{pump.note}</p>
+    ) : null
 
   /** Link or change the Sensibo device id(s) for this incubator. */
   const deviceEditor = (

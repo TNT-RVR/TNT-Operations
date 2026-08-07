@@ -128,19 +128,31 @@ export function AcControl({
 
 
   /**
-   * What to set the pump to for the current mode. One line — the number is
-   * the whole point, and this card already carries plenty.
+   * Every mode and the temperature to dial in — a reference chart, not a
+   * readout. Three rows; the current mode is highlighted so the one that
+   * matters right now is findable without reading the others.
    */
-  const pump = heatPumpSetting(tempMode || 'off')
-  const setpoint =
-    pump.targetF != null ? (
-      <p className="text-sm text-secondary">
-        Set to <span className="text-base font-semibold text-primary">{pump.targetF}°F</span>{' '}
-        <span className="text-faint">for {TEMP_MODES[(tempMode || 'off') as TempMode]?.label ?? tempMode}</span>
-      </p>
-    ) : pump.goalC != null ? (
-      <p className="text-sm text-muted">{pump.note}</p>
-    ) : null
+  const setpoint = (
+    <table className="w-full text-sm">
+      <tbody>
+        {(Object.keys(TEMP_MODES) as TempMode[])
+          .filter((m) => m !== 'off')
+          .map((m) => {
+            const p = heatPumpSetting(m)
+            const current = m === tempMode
+            return (
+              <tr key={m} className={current ? 'font-semibold text-primary' : 'text-secondary'}>
+                <td className="py-0.5 pr-4">{TEMP_MODES[m].label}</td>
+                <td className="py-0.5 pr-2 text-right tabular-nums">
+                  {p.targetF != null ? `${p.targetF}°F` : '—'}
+                </td>
+                <td className="py-0.5 text-right tabular-nums text-faint">{p.goalC}°C</td>
+              </tr>
+            )
+          })}
+      </tbody>
+    </table>
+  )
 
   /** Link or change the Sensibo device id(s) for this incubator. */
   const deviceEditor = (

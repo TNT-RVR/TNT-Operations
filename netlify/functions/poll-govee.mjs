@@ -106,7 +106,8 @@ function parseV2(caps = []) {
   return { temp, hum }
 }
 
-async function pollDevice(key, device, sku) {
+// Exported for poll-now.mjs, the on-demand single-incubator read.
+export async function pollDevice(key, device, sku) {
   // Platform API v2 (gateway sensors)
   try {
     const r = await fetch(V2_STATE, {

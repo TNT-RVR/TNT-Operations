@@ -85,6 +85,60 @@ async function getState(apiKey, deviceId) {
   return { deviceId, state }
 }
 
+
+/**
+ * Remembered state, so the buttons show what someone last SET.
+ *
+ * These pumps don't report an acState back, so without this the UI resets to
+ * "off / auto" on every load no matter what was done to them. Stored server
+ * side in the existing `settings` table rather than in a browser, because the
+ * question is "what did anyone last set this to", not "what did I set it to on
+ * this phone".
+ *
+ * It is a memory of a command, NOT a reading — the pump could have been
+ * changed at the wall. Responses mark it `remembered: true` so the UI can say
+ * so rather than presenting it as truth.
+ */
+const memoryKey = (deviceId) => `sensibo_last_state_${deviceId}`
+
+async function readMemory(deviceId) {
+  const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const SB_KEY = process.env.SUPABASE_SERVICE_ROLE
+  if (!SB_URL || !SB_KEY) return null
+  try {
+    const rows = await fetch(
+      `${SB_URL}/rest/v1/settings?key=eq.${encodeURIComponent(memoryKey(deviceId))}&select=value`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } },
+    ).then((r) => (r.ok ? r.json() : null))
+    const raw = Array.isArray(rows) ? rows[0]?.value : null
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    // A missing memory is normal and must never break reading the AC.
+    return null
+  }
+}
+
+async function writeMemory(deviceId, state) {
+  const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const SB_KEY = process.env.SUPABASE_SERVICE_ROLE
+  if (!SB_URL || !SB_KEY) return
+  try {
+    await fetch(`${SB_URL}/rest/v1/settings?on_conflict=key`, {
+      method: 'POST',
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({ key: memoryKey(deviceId), value: JSON.stringify(state) }),
+    })
+  } catch (e) {
+    // Failing to remember is not a reason to fail the command that worked.
+    console.warn(`[sensibo] could not remember ${deviceId}:`, e?.message ?? e)
+  }
+}
+
 export default async (req) => {
   const apiKey = process.env.SENSIBO_API_KEY
   if (!apiKey) {
@@ -111,7 +165,14 @@ export default async (req) => {
   if (req.method === 'GET') {
     const ids = parseIds(new URL(req.url).searchParams.get('deviceIds'))
     if (!ids.length) return json({ error: 'No device ids given' }, 400)
-    const devices = await Promise.all(ids.map((id) => getState(apiKey, id)))
+    const devices = await Promise.all(
+      ids.map(async (id) => {
+        const live = await getState(apiKey, id)
+        if (live.state) return live
+        const remembered = await readMemory(id)
+        return remembered ? { ...live, state: remembered, remembered: true } : live
+      }),
+    )
     return json({ devices, canControl: who.canControl })
   }
 
@@ -144,7 +205,9 @@ export default async (req) => {
   const results = await Promise.all(
     ids.map(async (deviceId) => {
       const current = await getState(apiKey, deviceId)
-      const base = current.state ?? {
+      // Build on what was last SET when the unit reports nothing, so changing
+      // the fan doesn't silently reset a target someone dialled in earlier.
+      const base = current.state ?? (await readMemory(deviceId)) ?? {
         on: false,
         mode: mode ?? 'heat',
         targetTemperature: targetTemperature ?? 72,
@@ -175,6 +238,7 @@ export default async (req) => {
         // model-specific; report it rather than pretending it worked.
         return { deviceId, ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
       }
+      await writeMemory(deviceId, next)
       return { deviceId, ok: true, state: next }
     }),
   )

@@ -147,14 +147,6 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   notificationPrefs: Record<string, NotificationPref>
   saveNotificationPref: (type: string, pref: NotificationPref) => void
 
-  /**
-   * Small key/value app config from the `settings` table — per-mode goal
-   * temperature and humidity, and whatever else the desktop app kept there.
-   * Already populated from the old app; see resolveModeGoals.
-   */
-  settings: Record<string, string>
-  saveSetting: (key: string, value: string) => Promise<{ ok: boolean; error?: string }>
-
   /** Cost-estimator pricing forms, keyed by pricing year (spec Part 8). */
   costPrefsByYear: Record<string, Partial<CostPrefs>>
   saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => void

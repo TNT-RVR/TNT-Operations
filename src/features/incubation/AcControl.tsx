@@ -15,10 +15,13 @@ import {
   MAX_TEMP_F,
   type AcState,
 } from '@/domain/sensibo'
+import { heatPumpSetting, TEMP_MODES, type TempMode } from '@/domain/incubation'
 
 interface DeviceState {
   deviceId: string
   state?: AcState | null
+  /** State is what someone last SET, not something the unit reported. */
+  remembered?: boolean
   error?: string
 }
 
@@ -37,10 +40,13 @@ export function AcControl({
   incubatorId,
   deviceIdsRaw,
   bandC,
+  tempMode,
   canEdit,
 }: {
   incubatorId: string
   deviceIdsRaw: string | null | undefined
+  /** The incubator's current temperature mode, for the setpoint reference. */
+  tempMode: string | null | undefined
   /** The incubation mode's target band, for spotting a contradictory AC target. */
   bandC: [number | null, number | null]
   canEdit: boolean
@@ -122,9 +128,42 @@ export function AcControl({
     }
   }
 
+
+  /**
+   * Every mode and the temperature to dial in — a reference chart, not a
+   * readout. Three rows; the current mode is highlighted so the one that
+   * matters right now is findable without reading the others.
+   */
+  const setpoint = (
+    <table className="text-sm">
+      <tbody>
+        {(Object.keys(TEMP_MODES) as TempMode[])
+          .filter((m) => m !== 'off')
+          .map((m) => {
+            const p = heatPumpSetting(m)
+            const current = m === tempMode
+            return (
+              <tr key={m} className={current ? 'font-semibold text-primary' : 'text-secondary'}>
+                <td className="py-0.5 pr-4">{TEMP_MODES[m].label}</td>
+                <td className="py-0.5 pr-2 text-right tabular-nums">
+                  {p.targetF != null ? `${p.targetF}°F` : '—'}
+                </td>
+                <td className="py-0.5 text-right tabular-nums text-faint">{p.goalC}°C</td>
+              </tr>
+            )
+          })}
+      </tbody>
+    </table>
+  )
+
   /** Link or change the Sensibo device id(s) for this incubator. */
   const deviceEditor = (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-1">
+      <p className="text-xs text-faint">
+        The ID is in the Sensibo app, on the unit's settings page. Two heads take both IDs,
+        separated by a comma — they're then controlled together.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
       <input
         value={idInput}
         onChange={(e) => setIdInput(e.target.value)}
@@ -150,26 +189,38 @@ export function AcControl({
             setLinking(false)
           }}
         >
-          Cancel
-        </Button>
-      )}
+            Cancel
+          </Button>
+        )}
+      </div>
     </div>
   )
 
   if (!ids.length) {
+    // No Sensibo linked: the chart is the entire point of the card. Linking is
+    // a once-per-incubator job and stays behind a link rather than sitting
+    // open on a screen people read every day.
     return (
-      <div className="card space-y-2">
-        <div className="font-semibold text-primary">Heat pump</div>
-        <p className="text-xs text-muted">
-          No Sensibo device is linked to this incubator. The ID is in the Sensibo app, on the unit's settings
-          page. An incubator with two heads takes both, separated by a comma — they're then controlled together.
-        </p>
-        {canEdit && deviceEditor}
+      // Tighter padding than a normal card and the link on the title row: with
+      // no device attached there are only four lines here, and card-standard
+      // spacing left more empty space than content.
+      <div className="card p-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-semibold text-primary">Heat pump</span>
+          {canEdit && !linking && (
+            <button className="text-xs text-muted underline" onClick={() => setLinking(true)}>
+              Link a Sensibo device
+            </button>
+          )}
+        </div>
+        <div className="mt-1">{setpoint}</div>
+        {canEdit && linking && <div className="mt-2">{deviceEditor}</div>}
       </div>
     )
   }
 
   const first = devices?.[0]?.state ?? null
+  const remembered = !!devices?.[0]?.remembered
   const anyOn = (devices ?? []).some((d) => d.state?.on)
   const disagreement = targetDisagreesWith(first, bandC)
   const readErrors = (devices ?? []).filter((d) => d.error)
@@ -181,20 +232,27 @@ export function AcControl({
           <div className="font-semibold text-primary">
             Heat pump{ids.length > 1 ? `s (${ids.length}, controlled together)` : ''}
           </div>
-          <p className="mt-1 text-sm text-muted">
-            {loading ? 'Reading…' : describeAcState(first)}
-            {first?.targetTemperature != null && first.on !== false && (
-              <span className="text-faint">
-                {' '}
-                ({fToC(first.targetTemperature).toFixed(0)}°C)
-              </span>
-            )}
-          </p>
+          {/* Shown when there is something to show — either the unit reported,
+              or we remember what someone last set it to. A pump that has never
+              been touched through the app has neither, and gets no line. */}
+          {first && (
+            <p className="mt-1 text-sm text-muted">
+              {loading ? 'Reading…' : describeAcState(first)}
+              {first.targetTemperature != null && first.on !== false && (
+                <span className="text-faint"> ({fToC(first.targetTemperature).toFixed(0)}°C)</span>
+              )}
+              {/* Never dress a remembered command up as a reading: the pump
+                  can be changed at the wall and this would not know. */}
+              {remembered && <span className="text-faint"> · last set here, not confirmed by the unit</span>}
+            </p>
+          )}
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
-          <RefreshCw size={14} className="mr-1 inline" />
-          Refresh
-        </Button>
+        {first && (
+          <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
+            <RefreshCw size={14} className="mr-1 inline" />
+            Refresh
+          </Button>
+        )}
       </div>
 
       {/* An AC fighting the incubation mode is worth seeing before the bees
@@ -207,8 +265,13 @@ export function AcControl({
         </p>
       )}
 
-      {canEdit && (
-        <div className="space-y-2 border-t border-default pt-3">
+      {/* Controls left, reference chart right — the chart is looked at WHILE
+          setting the temperature, so side by side beats stacked. Wraps back to
+          one column on a phone. */}
+      <div className="flex flex-wrap items-start gap-4 border-t border-default pt-3">
+        <div className="min-w-[20rem] flex-1 space-y-2">
+          {canEdit && (
+            <>
           {/* Power. Turning heat OFF on a running incubator is confirmed:
               it's a physical act on live bees and easy to hit by accident. */}
           {confirmOff ? (
@@ -294,8 +357,11 @@ export function AcControl({
               {ids.length > 1 ? `${ids.length} devices linked` : `Device ${ids[0]}`} — change
             </button>
           )}
+            </>
+          )}
         </div>
-      )}
+        <div className="shrink-0">{setpoint}</div>
+      </div>
     </div>
   )
 }

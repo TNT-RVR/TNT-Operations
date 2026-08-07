@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { QrCode } from 'lucide-react'
+import { QrCode, RefreshCw } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
 import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
+import { supabase } from '@/data/supabaseClient'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
 import {
@@ -17,7 +18,6 @@ import {
   DEPTH_POSITIONS,
   expectedStageForDay,
   stageDelta,
-  resolveModeGoals,
   type TempMode,
 } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
@@ -53,13 +53,42 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, settings } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
   const mine = inspections.filter((i) => i.incubatorId === incubator.id).sort((a, b) => b.at.localeCompare(a.at))
   const myReadings = readings.filter((r) => r.incubatorId === incubator.id)
   const latest = latestReading(incubator.id)
+
+  // On-demand sensor read. The scheduled poller runs every 15 minutes, which is
+  // no help to someone standing at the incubator wanting to know NOW.
+  const [polling, setPolling] = useState(false)
+  const [pollError, setPollError] = useState<string | null>(null)
+  async function pollNow() {
+    setPolling(true)
+    setPollError(null)
+    try {
+      const { data } = (await supabase?.auth.getSession()) ?? { data: { session: null } }
+      const token = data.session?.access_token
+      if (!token) throw new Error('Sign in first.')
+      const res = await fetch('/.netlify/functions/poll-now', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ incubatorId: incubator.id }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? `Could not read the sensor (${res.status}).`)
+      if (body.stored === false) setPollError('Read the sensor but could not save the reading.')
+      // Re-fetch so the new row arrives through the data layer rather than
+      // being pasted into local state — one source of truth for the chart.
+      await loadReadings(incubator.id, new Date(Date.now() - 3600_000).toISOString())
+    } catch (e) {
+      setPollError(e instanceof Error ? e.message : 'Could not read the sensor.')
+    } finally {
+      setPolling(false)
+    }
+  }
 
   const d = incubatorDisplay(incubator)
   const showProgress = incubator.tempMode === 'incubation' && !!incubator.incubationStart
@@ -76,25 +105,13 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   if (latest && humOut)
     alerts.push(`Humidity ${latest.humidityPct}% is outside ${fmtRange(d.humMin, d.humMax, '%', '')}`)
 
-  // Chart reference = the mode's GOAL temperature (Incubation settings), which
-  // is where the mode is actually being held — not the middle of the alert
-  // band, which only happens to coincide when the band is symmetric. Falls back
-  // to the band midpoint for a mode with a band but no goal. An incubator
-  // that's OFF is not being held anywhere, so it has no target at all — don't
-  // fall back to the stored tempTargetC, which would draw a 30°C line the
-  // incubator isn't failing to meet.
+  // Chart reference = middle of the mode band (tolerance = half-band). An
+  // incubator that's OFF is not being held anywhere, so it has no target at all
+  // — don't fall back to the stored tempTargetC, which would draw a 30°C line
+  // the incubator isn't failing to meet.
   const hasBand = d.tempMin != null && d.tempMax != null
-  const goalC = resolveModeGoals(incubator.tempMode ?? 'off', settings).tempC
-  const targetC = !d.running
-    ? null
-    : (goalC ?? (hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC))
-  // Shade out to the NEARER band edge. With an off-centre goal, half the band
-  // would push the shaded 'fine' zone past the point where an alert fires.
-  const tolC = hasBand
-    ? targetC == null
-      ? (d.tempMax! - d.tempMin!) / 2
-      : Math.max(0.5, Math.min(targetC - d.tempMin!, d.tempMax! - targetC))
-    : 1.5
+  const targetC = !d.running ? null : hasBand ? (d.tempMin! + d.tempMax!) / 2 : incubator.tempTargetC
+  const tolC = hasBand ? (d.tempMax! - d.tempMin!) / 2 : 1.5
   /** Target text for the current mode; an off incubator shows none. */
   const targetLabel = d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`) : '—'
 
@@ -250,6 +267,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           incubatorId={incubator.id}
           deviceIdsRaw={incubator.sensiboDeviceId}
           bandC={[d.tempMin, d.tempMax]}
+          tempMode={incubator.tempMode}
           canEdit={canEdit}
         />
 
@@ -278,6 +296,14 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
         <section>
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="font-semibold">Temperature</h3>
+            <button
+              className="text-xs text-muted underline disabled:opacity-50"
+              onClick={() => void pollNow()}
+              disabled={polling}
+            >
+              <RefreshCw size={12} className={`mr-1 inline ${polling ? 'animate-spin' : ''}`} />
+              {polling ? 'Reading…' : 'Read now'}
+            </button>
             {latest && (
               <span className="text-sm text-muted">
                 latest {fmtWhen(latest.at)} ·{' '}
@@ -290,6 +316,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               </span>
             )}
           </div>
+          {pollError && <p className="mb-2 text-sm text-danger">{pollError}</p>}
           <ReadingsChart readings={myReadings} incubatorId={incubator.id} targetC={targetC} tolerance={tolC} />
         </section>
 

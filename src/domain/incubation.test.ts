@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
+  resolveModeGoals,
+  goalTempKey,
+  goalHumidityKey,
+  TEMP_MODES,
   incubationProgress,
   DEFAULT_INCUBATION_DAYS,
   INCUBATION_MILESTONES,
@@ -504,5 +508,43 @@ describe('developmental stages', () => {
   it('returns no delta for an unknown stage or unknown day', () => {
     expect(stageDelta('Day 13 — Male dark eye / Female red eye', null)).toBeNull()
     expect(stageDelta('made up stage', 13)).toBeNull()
+  })
+})
+
+describe('resolveModeGoals', () => {
+  it('falls back to the built-in defaults with no settings saved', () => {
+    expect(resolveModeGoals('incubation')).toEqual({ tempC: 30, humidityPct: 65 })
+    expect(resolveModeGoals('holding')).toEqual({ tempC: 14, humidityPct: 60 })
+    expect(resolveModeGoals('cool_storage')).toEqual({ tempC: 4, humidityPct: 50 })
+  })
+
+  it('prefers a saved override', () => {
+    const settings = { [goalTempKey('incubation')]: '31.5', [goalHumidityKey('incubation')]: '70' }
+    expect(resolveModeGoals('incubation', settings)).toEqual({ tempC: 31.5, humidityPct: 70 })
+  })
+
+  it('overrides one goal without disturbing the other', () => {
+    expect(resolveModeGoals('holding', { [goalTempKey('holding')]: '16' })).toEqual({
+      tempC: 16,
+      humidityPct: 60,
+    })
+  })
+
+  it('treats a blank or unparseable value as "use the default"', () => {
+    // Emptying the box in settings must not become NaN on the chart.
+    for (const raw of ['', '   ', 'abc']) {
+      expect(resolveModeGoals('incubation', { [goalTempKey('incubation')]: raw }).tempC).toBe(30)
+    }
+  })
+
+  it('has no goal for Off', () => {
+    expect(resolveModeGoals('off')).toEqual({ tempC: null, humidityPct: null })
+  })
+
+  it('leaves the alert bands alone — goals aim, bands alarm', () => {
+    // The cloud poller carries its own copy of the bands; a goal override here
+    // must never look like it moved the alerting thresholds.
+    expect(TEMP_MODES.incubation.min).toBe(25)
+    expect(TEMP_MODES.incubation.max).toBe(35)
   })
 })

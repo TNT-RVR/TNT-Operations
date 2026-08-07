@@ -16,6 +16,7 @@ import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
 import LineageHome from './features/incubation/LineageHome'
 import AlertsHome from './features/incubation/AlertsHome'
+import IncubationSettings from './features/incubation/SettingsHome'
 import ScanHome from './features/incubation/ScanHome'
 import CalendarHome from './features/incubation/CalendarHome'
 import BlocksHome from './features/blocks/BlocksHome'
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="incubation/trays" element={<Protected module="incubation"><TraysHome /></Protected>} />
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
+        <Route path="incubation/settings" element={<Protected module="incubation"><IncubationSettings /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
         <Route path="blocks" element={<Protected module="blocks"><BlocksHome /></Protected>} />
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />

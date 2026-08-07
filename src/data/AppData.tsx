@@ -92,6 +92,15 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [blocks, setBlocks] = useState<Block[]>(seedBlocks)
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>(seedBlockPlacements)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  // Mock mirrors the live defaults so the settings screen shows real values.
+  const [settings, setSettings] = useState<Record<string, string>>({
+    goal_temp_incubation: '30',
+    goal_humidity_incubation: '65',
+    goal_temp_holding: '14',
+    goal_humidity_holding: '60',
+    goal_temp_cool_storage: '4',
+    goal_humidity_cool_storage: '50',
+  })
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
@@ -208,6 +217,11 @@ function MockProvider({ children }: { children: ReactNode }) {
       deleteNotification: (id) => setNotifications((prev) => prev.filter((n) => n.id !== id)),
       notificationPrefs,
       saveNotificationPref: (type, pref) => setNotificationPrefs((prev) => ({ ...prev, [type]: pref })),
+      settings,
+      saveSetting: (key, value) => {
+        setSettings((prev) => ({ ...prev, [key]: value }))
+        return Promise.resolve({ ok: true })
+      },
       costPrefsByYear,
       saveCostPrefs: (year, prefs) => setCostPrefsByYear((prev) => ({ ...prev, [year]: prefs })),
       placedShelters,
@@ -465,6 +479,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       notifications,
       notificationPrefs,
       costPrefsByYear,
+      settings,
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,

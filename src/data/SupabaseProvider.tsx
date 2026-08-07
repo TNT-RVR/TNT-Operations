@@ -110,6 +110,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>([])
   const [blocksLoading, setBlocksLoading] = useState(false)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  const [settings, setSettings] = useState<Record<string, string>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
@@ -205,6 +206,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Small key/value config (per-mode goals and the like). Tiny table, and
+      // the incubation screens need it as soon as they render.
+      const st = await sb.from('settings').select('key,value')
+      if (cancelled) return
+      if (st.error) console.warn('[data] load settings:', st.error.message)
+      else {
+        const map: Record<string, string> = {}
+        for (const row of (st.data as Array<{ key: string; value: string | null }>) ?? []) {
+          map[row.key] = row.value ?? ''
+        }
+        setSettings(map)
+      }
 
       // Incubation alert history (the old app's rules). Newest first, capped —
       // this is a log, so the most recent season is what matters.
@@ -1073,6 +1087,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             .then(({ error }) => error && console.error('[data] saveNotificationPref:', error.message))
         })
       },
+      settings,
+      saveSetting: async (key: string, value: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Optimistic: a settings box shouldn't feel laggy, and a failure is
+        // reported rather than silently reverted.
+        setSettings((prev) => ({ ...prev, [key]: value }))
+        const { error } = await supabase.from('settings').upsert({ key, value }, { onConflict: 'key' })
+        if (error) {
+          console.error('[data] saveSetting:', error.message)
+          return { ok: false, error: error.message }
+        }
+        return { ok: true }
+      },
       costPrefsByYear,
       saveCostPrefs: (year: string, prefs: Partial<CostPrefs>) => {
         if (!supabase) return
@@ -1151,6 +1178,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       batches,
       alerts,
       costPrefsByYear,
+      settings,
       placedShelters,
       shelterTrayLinks,
       nestingBlocks,

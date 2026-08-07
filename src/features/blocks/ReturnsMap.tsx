@@ -704,7 +704,7 @@ export default function ReturnsMap() {
                   <div className="font-semibold text-primary">Field outline from the satellite image</div>
                   <p className="mt-1 text-xs text-muted">
                     {detected
-                      ? `Traced from the imagery — ${detected.corners} points around the edge, holding ${Math.round(detected.blocksInside * 100)}% of the blocks (colour tolerance ${detected.tolerance.toFixed(0)}). This follows the real field, not a fitted circle.`
+                      ? `Traced from the imagery — ${detected.corners} points around the edge, holding ${Math.round(detected.blocksInside * 100)}% of the blocks (edge threshold ${Math.round(detected.edgePercentile * 100)}%). This follows the real field, not a fitted circle.`
                       : detecting
                         ? 'Reading the imagery…'
                         : 'Reads the satellite picture and follows the actual field edge — the crop circle, the fence line — instead of fitting a shape to the blocks.'}

@@ -8,7 +8,8 @@
  * The pixel work lives in src/domain/imageSegment.ts and is pure; this file is
  * the messy half: tiles, canvases and Web Mercator.
  */
-import { growRegion, fillHoles, traceOutline, seedComponents, openMask, distanceFrom } from '@/domain/imageSegment'
+import { fillHoles, traceOutline, seedComponents, distanceFrom } from '@/domain/imageSegment'
+import { blurLuma, gradientMagnitude, edgeMask, thickenEdges, fillWithinEdges, reachEdges } from '@/domain/edgeFill'
 import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
 import { medianSpacingM } from '@/domain/returnsMap'
 import type { SamplePoint } from '@/domain/returnsMap'
@@ -43,8 +44,8 @@ export type DetectOutcome =
 
 export interface DetectResult {
   field: FieldDict
-  /** Colour tolerance used, measured from the blocks. */
-  tolerance: number
+  /** Gradient percentile used to call something a boundary. */
+  edgePercentile: number
   /** Outline vertices, for reporting. */
   corners: number
   /** Share of the fetched image the field claimed. */
@@ -54,8 +55,11 @@ export interface DetectResult {
 }
 
 export interface DetectOptions {
-  /** Colour tolerance for the region grow; 'auto' measures it from the blocks. */
-  tolerance?: number | 'auto'
+  /**
+   * How strong a gradient counts as a field boundary, as a percentile of the
+   * picture's own gradients. Higher marks fewer, stronger lines.
+   */
+  edgePercentile?: number
   /**
    * How far past the outermost blocks the field edge may plausibly lie.
    * Blocks are placed IN the field, so its boundary is close to them; this is
@@ -93,7 +97,7 @@ export async function detectFieldFromImagery(
   samples: SamplePoint[],
   opts: DetectOptions = {},
 ): Promise<DetectOutcome> {
-  const { tolerance = 'auto', pad = 0.3, simplifyM = 12, maxDistanceM } = opts
+  const { edgePercentile = 0.9, pad = 0.3, simplifyM = 12, maxDistanceM } = opts
   if (samples.length < 4) return { ok: false, reason: 'Too few blocks to work from.' }
 
   let minLat = Infinity
@@ -177,69 +181,61 @@ export async function detectFieldFromImagery(
   const midLatForScale = (minLat + maxLat) / 2
   const mPerPxNow = (156543.03392 * Math.cos((midLatForScale * Math.PI) / 180)) / Math.pow(2, z)
 
-  // Leash derived from how far apart the blocks are, not a flat 150 m. Blocks
-  // are spread through the field, so its edge lies roughly one spacing beyond
-  // the outermost of them; a fixed distance is too short for a sparse field
-  // and far too generous for a dense one (which is how the region reached the
-  // next quarter).
+  // Leash derived from how far apart the blocks are. Blocks are spread through
+  // the field, so its edge lies roughly one spacing beyond the outermost.
   const spacing = medianSpacingM(samples) ?? 60
-  const leashM = maxDistanceM ?? Math.min(200, Math.max(50, spacing * 1.8))
+  const leashM = maxDistanceM ?? Math.min(250, Math.max(60, spacing * 2.2))
 
-  const grown = growRegion(data.data, W, H, seeds, {
-    tolerance,
+  const seedMask = new Uint8Array(W * H)
+  for (const [sx, sy] of seeds) {
+    const x = Math.round(sx)
+    const y = Math.round(sy)
+    if (x >= 0 && y >= 0 && x < W && y < H) seedMask[y * W + x] = 1
+  }
+  const reach = distanceFrom(seedMask, W, H)
+
+  // ── Find the lines, then fill between them ────────────────────────────────
+  // Blur first so crop rows and wheel marks stop registering as boundaries,
+  // then take the gradient, keep the strongest as edges, and bridge one-pixel
+  // gaps so the fill can't escape through a gateway.
+  const luma = blurLuma(data.data, W, H, 1)
+  const grad = gradientMagnitude(luma, W, H)
+  const edges = thickenEdges(edgeMask(grad, edgePercentile), W, H, 1)
+
+  const flood = fillWithinEdges(edges, W, H, seeds, {
+    reach,
     maxDistancePx: leashM / mPerPxNow,
   })
-  if (!grown) return { ok: false, reason: 'No usable pixels under the blocks.' }
-  if (grown.failure === 'never-spread') {
+  if (!flood) return { ok: false, reason: 'No usable pixels under the blocks.' }
+  if (flood.failure === 'escaped') {
     return {
       ok: false,
-      reason: `The crop varies too much for a clean edge — the region stopped at ${(grown.fraction * 100).toFixed(1)}% of the picture (colour tolerance ${grown.tolerance.toFixed(0)}). Often means shadow, cloud, or a patchy field.`,
+      reason: `The field's outline has a gap in it — the fill ran out and covered ${(flood.fraction * 100).toFixed(0)}% of the picture.`,
     }
   }
-  if (grown.failure === 'bled') {
+  if (flood.failure === 'stuck') {
     return {
       ok: false,
-      reason: `The field looks too much like its surroundings — the region spread across ${(grown.fraction * 100).toFixed(0)}% of the picture before stopping (colour tolerance ${grown.tolerance.toFixed(0)}).`,
+      reason: `The fill couldn't spread — it reached only ${(flood.fraction * 100).toFixed(1)}% of the picture. The picture may be too busy for a clean outline here.`,
     }
   }
 
-  // Area sanity. "All the blocks are inside" is worthless on its own — it's
-  // trivially true of a region that swallowed the whole picture, which is
-  // exactly what happened before this check existed. Compare instead against
-  // the ground the blocks themselves cover.
+  // The fill halts one pixel short of the boundary it hit, so nudge it back
+  // out to the line itself; otherwise the outline creeps inward each time.
+  const reached = reachEdges(flood.mask, W, H, 2)
+  const main = seedComponents(reached, W, H, seeds)
+
+  // Area sanity against the ground the blocks cover, not the picture.
   const seedHull = convexHull(seeds)
   const seedArea = Math.abs(polygonArea(seedHull))
-  const grownArea = grown.fraction * W * H
-  if (seedArea > 0 && grownArea > seedArea * 2.2) {
+  const grownArea = [...main].reduce((a, v) => a + v, 0)
+  if (seedArea > 0 && grownArea > seedArea * 2.5) {
     return {
       ok: false,
-      reason: `The detected area is ${(grownArea / seedArea).toFixed(1)}x the ground the blocks cover, so it has spread past the field.`,
+      reason: `The filled area is ${(grownArea / seedArea).toFixed(1)}x the ground the blocks cover, so it has spread past the field.`,
     }
   }
 
-  // The field is the biggest blob. Blocks that landed on a track or in shadow
-  // seed specks of their own, and tracing starts at the first mask pixel in
-  // scan order — so without this a stray speck gets traced instead of the field.
-  // Keep the pieces of the grown region that actually hold blocks.
-  const seeded = seedComponents(grown.mask, W, H, seeds)
-
-  // Sever threads: a track or headland a few metres wide otherwise ties this
-  // field to its neighbour and they count as one piece. Radius cuts anything
-  // up to ~12 m across.
-  const rPx = Math.max(2, Math.round(6 / mPerPxNow))
-  const opened = openMask(seeded, W, H, rPx)
-  const openedSeeded = seedComponents(opened, W, H, seeds)
-
-  // Then grow those survivors back out INSIDE the original region.
-  //
-  // Opening alone was wrong: eroding by r before deciding membership deleted
-  // the field's own margin along with any block standing in it, which is how
-  // half the blocks ended up "outside the detected shape". Reconstruction
-  // keeps the cut without keeping the shrinkage — the severed neighbour is
-  // far from any survivor, so it does not come back.
-  const near = distanceFrom(openedSeeded, W, H)
-  const main = new Uint8Array(W * H)
-  for (let i = 0; i < main.length; i++) main[i] = seeded[i] && near[i] <= rPx + 1 ? 1 : 0
   const filled = fillHoles(main, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }
@@ -274,9 +270,9 @@ export async function detectFieldFromImagery(
 
   const result: DetectResult = {
     corners: ring.length,
-    fraction: grown.fraction,
+    fraction: flood.fraction,
     blocksInside,
-    tolerance: grown.tolerance,
+    edgePercentile,
     field: {
       PP_Latitude: String(midLat),
       PP_Longitude: String((minLng + maxLng) / 2),

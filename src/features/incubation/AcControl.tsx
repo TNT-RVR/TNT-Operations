@@ -199,17 +199,20 @@ export function AcControl({
     // a once-per-incubator job and stays behind a link rather than sitting
     // open on a screen people read every day.
     return (
-      <div className="card space-y-2">
-        <div className="font-semibold text-primary">Heat pump</div>
-        {setpoint}
-        {canEdit &&
-          (linking ? (
-            deviceEditor
-          ) : (
+      // Tighter padding than a normal card and the link on the title row: with
+      // no device attached there are only four lines here, and card-standard
+      // spacing left more empty space than content.
+      <div className="card p-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="font-semibold text-primary">Heat pump</span>
+          {canEdit && !linking && (
             <button className="text-xs text-muted underline" onClick={() => setLinking(true)}>
               Link a Sensibo device
             </button>
-          ))}
+          )}
+        </div>
+        <div className="mt-1">{setpoint}</div>
+        {canEdit && linking && <div className="mt-2">{deviceEditor}</div>}
       </div>
     )
   }

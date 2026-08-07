@@ -133,7 +133,7 @@ export function AcControl({
    * matters right now is findable without reading the others.
    */
   const setpoint = (
-    <table className="w-full text-sm">
+    <table className="text-sm">
       <tbody>
         {(Object.keys(TEMP_MODES) as TempMode[])
           .filter((m) => m !== 'off')
@@ -245,8 +245,6 @@ export function AcControl({
         </Button>
       </div>
 
-      {setpoint}
-
       {/* An AC fighting the incubation mode is worth seeing before the bees
           find out. Advisory only — nothing here changes on its own. */}
       {disagreement && <p className="text-sm text-danger">{disagreement}</p>}
@@ -257,8 +255,13 @@ export function AcControl({
         </p>
       )}
 
-      {canEdit && (
-        <div className="space-y-2 border-t border-default pt-3">
+      {/* Controls left, reference chart right — the chart is looked at WHILE
+          setting the temperature, so side by side beats stacked. Wraps back to
+          one column on a phone. */}
+      <div className="flex flex-wrap items-start gap-4 border-t border-default pt-3">
+        <div className="min-w-[20rem] flex-1 space-y-2">
+          {canEdit && (
+            <>
           {/* Power. Turning heat OFF on a running incubator is confirmed:
               it's a physical act on live bees and easy to hit by accident. */}
           {confirmOff ? (
@@ -344,8 +347,11 @@ export function AcControl({
               {ids.length > 1 ? `${ids.length} devices linked` : `Device ${ids[0]}`} — change
             </button>
           )}
+            </>
+          )}
         </div>
-      )}
+        <div className="shrink-0">{setpoint}</div>
+      </div>
     </div>
   )
 }

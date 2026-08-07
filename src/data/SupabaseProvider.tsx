@@ -876,6 +876,70 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         return { ok: true }
       },
 
+      importBlockPlacements: async (rows, season) => {
+        if (!supabase) return { created: 0, updated: 0, newBlocks: 0, error: 'No backend connection.' }
+        if (rows.length === 0) return { created: 0, updated: 0, newBlocks: 0 }
+
+        // 1. Register every label not already on record, in ONE upsert.
+        //    onConflict:'label' means a label that IS present comes back as
+        //    itself rather than erroring, so this is safe to re-run.
+        const labels = [...new Set(rows.map((r) => r.label.trim()).filter(Boolean))]
+        const known = new Map(blocks.map((b) => [b.label.trim().toLowerCase(), b]))
+        const missing = labels.filter((l) => !known.has(l.toLowerCase()))
+
+        if (missing.length) {
+          const { data, error } = await supabase
+            .from('blocks')
+            .upsert(
+              missing.map((label) => ({ label })),
+              { onConflict: 'label' },
+            )
+            .select()
+          if (error) {
+            console.error('[data] importBlockPlacements/blocks:', error.message)
+            return { created: 0, updated: 0, newBlocks: 0, error: error.message }
+          }
+          const added = ((data as BlockRow[]) ?? []).map(toBlock)
+          for (const b of added) known.set(b.label.trim().toLowerCase(), b)
+          setBlocks((prev) => [...prev, ...added].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        // 2. Upsert placements on (block_id, season) — the identity the scanner
+        //    uses too, so an imported block and a scanned one are ONE record.
+        const alreadyPlaced = new Set(
+          blockPlacements.filter((p) => p.season === season).map((p) => p.blockId),
+        )
+        let created = 0
+        let updated = 0
+        const payload: Array<Record<string, unknown>> = []
+        for (const r of rows) {
+          const block = known.get(r.label.trim().toLowerCase())
+          if (!block) continue
+          if (alreadyPlaced.has(block.id)) updated++
+          else created++
+          payload.push({
+            block_id: block.id,
+            season,
+            field_id: r.fieldId,
+            lat: r.lat,
+            lon: r.lng,
+            placed_at: r.placedAt ?? new Date().toISOString(),
+          })
+        }
+        if (payload.length === 0) return { created: 0, updated: 0, newBlocks: missing.length }
+
+        const { data, error } = await supabase
+          .from('block_placements')
+          .upsert(payload, { onConflict: 'block_id,season' })
+          .select()
+        if (error) {
+          console.error('[data] importBlockPlacements/placements:', error.message)
+          return { created: 0, updated: 0, newBlocks: missing.length, error: error.message }
+        }
+        for (const p of ((data as BlockPlacementRow[]) ?? []).map(toBlockPlacement)) upsertPlacement(p)
+        return { created, updated, newBlocks: missing.length }
+      },
+
       notifications,
       markNotificationsRead: (ids: string[]) => {
         if (!supabase || ids.length === 0) return

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, History, AlertTriangle } from 'lucide-react'
+import { Download, History, AlertTriangle, Upload } from 'lucide-react'
 import { PageHeader, SearchBar, Select, Badge, EmptyState, Modal, Button, matchesQuery } from '@/components/ui'
 import { useData } from '@/data/context'
 import type { BlockPlacement } from '@/data/types'
@@ -13,6 +13,7 @@ import {
   STAGE_LABEL,
 } from '@/domain/blocks'
 import { TrayScanButton } from '@/features/incubation/TrayScanButton'
+import { BlockImport } from './BlockImport'
 
 const num = (v: number | null, unit = '') => (v == null ? '—' : `${v.toFixed(1)}${unit}`)
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—')
@@ -28,6 +29,7 @@ export default function BlockList() {
   const [stage, setStage] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'label', dir: 1 })
   const [historyFor, setHistoryFor] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     void loadBlocks()
@@ -131,6 +133,10 @@ export default function BlockList() {
                 return b ? { ok: true, title: b.label } : { ok: false, title: label, detail: 'No block on record.' }
               }}
             />
+            <Button variant="ghost" onClick={() => setImporting(true)}>
+              <Upload size={16} className="mr-1 inline" />
+              Import
+            </Button>
             <Button variant="ghost" onClick={exportCsv}>
               <Download size={16} className="mr-1 inline" />
               CSV
@@ -223,6 +229,13 @@ export default function BlockList() {
           </div>
         )}
       </div>
+
+      {importing && (
+        <BlockImport
+          season={season ? Number(season) : new Date().getFullYear()}
+          onClose={() => setImporting(false)}
+        />
+      )}
 
       {historyFor && (
         <Modal title={`${labelOf(historyFor)} — history`} onClose={() => setHistoryFor(null)}>

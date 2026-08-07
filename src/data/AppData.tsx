@@ -296,6 +296,69 @@ function MockProvider({ children }: { children: ReactNode }) {
         return Promise.resolve({ ok: true })
       },
 
+      importBlockPlacements: (rows, season) => {
+        if (rows.length === 0) return Promise.resolve({ created: 0, updated: 0, newBlocks: 0 })
+
+        // Register unknown labels, mirroring the live provider.
+        const known = new Map(blocks.map((b) => [b.label.trim().toLowerCase(), b]))
+        const added: Block[] = []
+        for (const r of rows) {
+          const key = r.label.trim().toLowerCase()
+          if (!key || known.has(key)) continue
+          const b: Block = { id: nextId('blk'), label: r.label.trim(), notes: '', createdAt: nowIso() }
+          known.set(key, b)
+          added.push(b)
+        }
+        if (added.length) {
+          setBlocks((prev) => [...prev, ...added].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        // Upsert on (blockId, season), same identity as the scanner.
+        const alreadyPlaced = new Map(
+          blockPlacements.filter((p) => p.season === season).map((p) => [p.blockId, p]),
+        )
+        let created = 0
+        let updated = 0
+        const updates = new Map<string, Partial<BlockPlacement>>()
+        const inserts: BlockPlacement[] = []
+
+        for (const r of rows) {
+          const block = known.get(r.label.trim().toLowerCase())
+          if (!block) continue
+          const existing = alreadyPlaced.get(block.id)
+          if (existing) {
+            updated++
+            updates.set(existing.id, { fieldId: r.fieldId, lat: r.lat, lng: r.lng })
+          } else {
+            created++
+            inserts.push({
+              id: nextId('bp'),
+              blockId: block.id,
+              season,
+              fieldId: r.fieldId,
+              shelterId: null,
+              lat: r.lat,
+              lng: r.lng,
+              placedAt: r.placedAt ?? nowIso(),
+              placedBy: 'import',
+              retrievedAt: null,
+              grossWeightLbs: null,
+              retrievedBy: '',
+              strippedAt: null,
+              strippedWeightLbs: null,
+              strippedBy: '',
+              notes: '',
+            })
+          }
+        }
+
+        setBlockPlacements((prev) => [
+          ...inserts,
+          ...prev.map((p) => (updates.has(p.id) ? { ...p, ...updates.get(p.id) } : p)),
+        ])
+        return Promise.resolve({ created, updated, newBlocks: added.length })
+      },
+
       // ── Season analysis ─────────────────────────────────────────────────
       fieldAnalysis,
       fieldAnalysisLoading: false,

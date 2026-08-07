@@ -202,6 +202,27 @@ export interface DataContextValue extends SalesSlice, TasksSlice {
   }) => Promise<{ ok: boolean; error?: string }>
   /** Edit a placement directly (fix a weight, move it to the right field…). */
   saveBlockPlacement: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Bulk-import placements from a spreadsheet — blocks already out in the
+   * field, recorded before the app was scanning them.
+   *
+   * Same rules as scanning, because both routes fill the same season: an
+   * unknown label registers a block, and a block already placed this season is
+   * UPDATED rather than duplicated. So re-running an import is safe.
+   *
+   * The caller plans first (see domain/blockImport) and shows that plan; this
+   * only carries it out.
+   */
+  importBlockPlacements: (
+    rows: Array<{
+      label: string
+      fieldId: string | null
+      lat: number
+      lng: number
+      placedAt?: string | null
+    }>,
+    season: number,
+  ) => Promise<{ created: number; updated: number; newBlocks: number; error?: string }>
 
   // ── Season analysis (0014) ───────────────────────────────────────────────
   /**

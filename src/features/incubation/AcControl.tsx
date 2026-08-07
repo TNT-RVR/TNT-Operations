@@ -15,6 +15,7 @@ import {
   MAX_TEMP_F,
   type AcState,
 } from '@/domain/sensibo'
+import { heatPumpSetting, TEMP_MODES, type TempMode } from '@/domain/incubation'
 
 interface DeviceState {
   deviceId: string
@@ -37,10 +38,13 @@ export function AcControl({
   incubatorId,
   deviceIdsRaw,
   bandC,
+  tempMode,
   canEdit,
 }: {
   incubatorId: string
   deviceIdsRaw: string | null | undefined
+  /** The incubator's current temperature mode, for the setpoint reference. */
+  tempMode: string | null | undefined
   /** The incubation mode's target band, for spotting a contradictory AC target. */
   bandC: [number | null, number | null]
   canEdit: boolean
@@ -122,6 +126,52 @@ export function AcControl({
     }
   }
 
+
+  /**
+   * What to set the pump to. This is the point of the card for most people:
+   * they are standing at the incubator wanting to know the number, not
+   * reading a chart.
+   */
+  const pump = heatPumpSetting(tempMode || 'off')
+  const setpoint = (
+    <div className="rounded-sm border border-default bg-inset p-3">
+      <div className="label">Set the heat pump to</div>
+      {pump.targetF != null ? (
+        <div className="mt-1 flex items-baseline gap-2">
+          <span className="text-3xl font-semibold text-primary">{pump.targetF}°F</span>
+          <span className="text-sm text-muted">
+            ({pump.goalC}°C · {TEMP_MODES[(tempMode || 'off') as TempMode]?.label ?? tempMode})
+          </span>
+        </div>
+      ) : (
+        <p className="mt-1 text-sm text-muted">{pump.note}</p>
+      )}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs text-muted">All modes</summary>
+        <table className="mt-2 text-xs">
+          <tbody>
+            {(Object.keys(TEMP_MODES) as TempMode[])
+              .filter((m) => m !== 'off')
+              .map((m) => {
+                const p = heatPumpSetting(m)
+                return (
+                  <tr key={m}>
+                    <td className="pr-3 py-0.5 text-secondary">{TEMP_MODES[m].label}</td>
+                    <td className="pr-3 py-0.5 font-medium text-primary">
+                      {p.targetF != null ? `${p.targetF}°F` : '—'}
+                    </td>
+                    <td className="py-0.5 text-faint">
+                      {p.targetF != null ? `hold ${p.goalC}°C` : 'cooled, not heated'}
+                    </td>
+                  </tr>
+                )
+              })}
+          </tbody>
+        </table>
+      </details>
+    </div>
+  )
+
   /** Link or change the Sensibo device id(s) for this incubator. */
   const deviceEditor = (
     <div className="flex flex-wrap items-center gap-2">
@@ -160,6 +210,7 @@ export function AcControl({
     return (
       <div className="card space-y-2">
         <div className="font-semibold text-primary">Heat pump</div>
+        {setpoint}
         <p className="text-xs text-muted">
           No Sensibo device is linked to this incubator. The ID is in the Sensibo app, on the unit's settings
           page. An incubator with two heads takes both, separated by a comma — they're then controlled together.
@@ -196,6 +247,8 @@ export function AcControl({
           Refresh
         </Button>
       </div>
+
+      {setpoint}
 
       {/* An AC fighting the incubation mode is worth seeing before the bees
           find out. Advisory only — nothing here changes on its own. */}

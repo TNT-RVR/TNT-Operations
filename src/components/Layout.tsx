@@ -65,7 +65,6 @@ const NAV: NavItem[] = [
       { to: '/incubation/trays', label: 'Trays' },
       { to: '/incubation/lineage', label: 'Lineage' },
       { to: '/incubation/alerts', label: 'Alerts' },
-      { to: '/incubation/settings', label: 'Settings' },
     ],
   },
   // Top-level like Field Mode: gated by the incubation module, but its own tab.

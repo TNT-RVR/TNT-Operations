@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  resolveModeGoals,
-  goalTempKey,
-  goalHumidityKey,
-  TEMP_MODES,
+  heatPumpSetting,
   incubationProgress,
   DEFAULT_INCUBATION_DAYS,
   INCUBATION_MILESTONES,
@@ -511,40 +508,24 @@ describe('developmental stages', () => {
   })
 })
 
-describe('resolveModeGoals', () => {
-  it('falls back to the built-in defaults with no settings saved', () => {
-    expect(resolveModeGoals('incubation')).toEqual({ tempC: 30, humidityPct: 65 })
-    expect(resolveModeGoals('holding')).toEqual({ tempC: 14, humidityPct: 60 })
-    expect(resolveModeGoals('cool_storage')).toEqual({ tempC: 4, humidityPct: 50 })
+describe('heatPumpSetting', () => {
+  it('gives Incubation a whole-degree °F target', () => {
+    // 30°C is 86°F, which is also the units' maximum.
+    expect(heatPumpSetting('incubation')).toEqual({ targetF: 86, goalC: 30, note: null })
   })
 
-  it('prefers a saved override', () => {
-    const settings = { [goalTempKey('incubation')]: '31.5', [goalHumidityKey('incubation')]: '70' }
-    expect(resolveModeGoals('incubation', settings)).toEqual({ tempC: 31.5, humidityPct: 70 })
-  })
-
-  it('overrides one goal without disturbing the other', () => {
-    expect(resolveModeGoals('holding', { [goalTempKey('holding')]: '16' })).toEqual({
-      tempC: 16,
-      humidityPct: 60,
-    })
-  })
-
-  it('treats a blank or unparseable value as "use the default"', () => {
-    // Emptying the box in settings must not become NaN on the chart.
-    for (const raw of ['', '   ', 'abc']) {
-      expect(resolveModeGoals('incubation', { [goalTempKey('incubation')]: raw }).tempC).toBe(30)
+  it('gives no number for modes the pump cannot reach', () => {
+    // 14°C = 57°F and 4°C = 39°F, both under the 62°F floor. A number here
+    // would send someone to set a pump that can't do it.
+    for (const mode of ['holding', 'cool_storage']) {
+      const r = heatPumpSetting(mode)
+      expect(r.targetF).toBeNull()
+      expect(r.note).toMatch(/below the 62°F minimum/)
     }
   })
 
-  it('has no goal for Off', () => {
-    expect(resolveModeGoals('off')).toEqual({ tempC: null, humidityPct: null })
-  })
-
-  it('leaves the alert bands alone — goals aim, bands alarm', () => {
-    // The cloud poller carries its own copy of the bands; a goal override here
-    // must never look like it moved the alerting thresholds.
-    expect(TEMP_MODES.incubation.min).toBe(25)
-    expect(TEMP_MODES.incubation.max).toBe(35)
+  it('has nothing to set when the incubator is off or the mode is unknown', () => {
+    expect(heatPumpSetting('off').targetF).toBeNull()
+    expect(heatPumpSetting('nonsense').targetF).toBeNull()
   })
 })

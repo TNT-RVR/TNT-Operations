@@ -229,20 +229,25 @@ export function AcControl({
           <div className="font-semibold text-primary">
             Heat pump{ids.length > 1 ? `s (${ids.length}, controlled together)` : ''}
           </div>
-          <p className="mt-1 text-sm text-muted">
-            {loading ? 'Reading…' : describeAcState(first)}
-            {first?.targetTemperature != null && first.on !== false && (
-              <span className="text-faint">
-                {' '}
-                ({fToC(first.targetTemperature).toFixed(0)}°C)
-              </span>
-            )}
-          </p>
+          {/* The readout and Refresh appear only when a unit actually reports
+              its state. These pumps don't, and a permanent "No reading" line
+              with a button that can't change it is just noise. Kept for units
+              that do report rather than deleted — the code path is the same. */}
+          {first && (
+            <p className="mt-1 text-sm text-muted">
+              {loading ? 'Reading…' : describeAcState(first)}
+              {first.targetTemperature != null && first.on !== false && (
+                <span className="text-faint"> ({fToC(first.targetTemperature).toFixed(0)}°C)</span>
+              )}
+            </p>
+          )}
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
-          <RefreshCw size={14} className="mr-1 inline" />
-          Refresh
-        </Button>
+        {first && (
+          <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
+            <RefreshCw size={14} className="mr-1 inline" />
+            Refresh
+          </Button>
+        )}
       </div>
 
       {/* An AC fighting the incubation mode is worth seeing before the bees

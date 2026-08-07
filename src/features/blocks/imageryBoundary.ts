@@ -8,7 +8,7 @@
  * The pixel work lives in src/domain/imageSegment.ts and is pure; this file is
  * the messy half: tiles, canvases and Web Mercator.
  */
-import { growRegion, fillHoles, traceOutline, seedComponents, openMask } from '@/domain/imageSegment'
+import { growRegion, fillHoles, traceOutline, seedComponents, openMask, distanceFrom } from '@/domain/imageSegment'
 import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
 import { medianSpacingM } from '@/domain/returnsMap'
 import type { SamplePoint } from '@/domain/returnsMap'
@@ -220,14 +220,26 @@ export async function detectFieldFromImagery(
   // The field is the biggest blob. Blocks that landed on a track or in shadow
   // seed specks of their own, and tracing starts at the first mask pixel in
   // scan order — so without this a stray speck gets traced instead of the field.
-  // Cut the threads first — a track or headland a few metres wide otherwise
-  // ties this field to its neighbour and they count as one blob.
-  const opened = openMask(grown.mask, W, H, Math.max(2, Math.round(12 / mPerPxNow)))
-  // Then keep every piece holding a block. NOT just the largest: a field split
-  // by a track or a change in crop stage loses its smaller halves that way,
-  // taking their blocks with it — which reported as "left 25% of the blocks
-  // outside". A neighbouring field has no blocks in it, so it still goes.
-  const main = seedComponents(opened, W, H, seeds)
+  // Keep the pieces of the grown region that actually hold blocks.
+  const seeded = seedComponents(grown.mask, W, H, seeds)
+
+  // Sever threads: a track or headland a few metres wide otherwise ties this
+  // field to its neighbour and they count as one piece. Radius cuts anything
+  // up to ~12 m across.
+  const rPx = Math.max(2, Math.round(6 / mPerPxNow))
+  const opened = openMask(seeded, W, H, rPx)
+  const openedSeeded = seedComponents(opened, W, H, seeds)
+
+  // Then grow those survivors back out INSIDE the original region.
+  //
+  // Opening alone was wrong: eroding by r before deciding membership deleted
+  // the field's own margin along with any block standing in it, which is how
+  // half the blocks ended up "outside the detected shape". Reconstruction
+  // keeps the cut without keeping the shrinkage — the severed neighbour is
+  // far from any survivor, so it does not come back.
+  const near = distanceFrom(openedSeeded, W, H)
+  const main = new Uint8Array(W * H)
+  for (let i = 0; i < main.length; i++) main[i] = seeded[i] && near[i] <= rPx + 1 ? 1 : 0
   const filled = fillHoles(main, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }

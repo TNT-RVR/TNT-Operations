@@ -385,3 +385,61 @@ describe('seedComponents', () => {
     expect([...seedComponents(split(), W, H, [[5, 5]])].some(Boolean)).toBe(false)
   })
 })
+
+describe('opening then reconstructing', () => {
+  /** A field joined to its neighbour by a narrow track. */
+  const joined = () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 25; y < 95; y++) for (let x = 15; x < 65; x++) m[y * W + x] = 1 // this field
+    for (let y = 35; y < 85; y++) for (let x = 85; x < 115; x++) m[y * W + x] = 1 // neighbour
+    for (let y = 58; y <= 62; y++) for (let x = 65; x < 85; x++) m[y * W + x] = 1 // the track
+    return m
+  }
+
+  /** The pipeline as imageryBoundary runs it. */
+  const pipeline = (mask: Uint8Array, seeds: Array<[number, number]>, r: number) => {
+    const seeded = seedComponents(mask, W, H, seeds)
+    const opened = openMask(seeded, W, H, r)
+    const openedSeeded = seedComponents(opened, W, H, seeds)
+    const near = distanceFrom(openedSeeded, W, H)
+    const out = new Uint8Array(W * H)
+    for (let i = 0; i < out.length; i++) out[i] = seeded[i] && near[i] <= r + 1 ? 1 : 0
+    return out
+  }
+
+  // Blocks throughout the field, including right at its edge.
+  const seeds: Array<[number, number]> = [
+    [30, 60],
+    [20, 30],
+    [60, 90],
+    [16, 26], // hard against the corner
+  ]
+
+  it('keeps blocks at the very edge of the field', () => {
+    // Opening ALONE erodes the margin away, taking edge blocks with it — that
+    // is what reported "51% of the blocks outside".
+    const openedOnly = seedComponents(openMask(joined(), W, H, 6), W, H, seeds)
+    expect(openedOnly[26 * W + 16]).toBe(0) // edge block lost
+
+    const reconstructed = pipeline(joined(), seeds, 6)
+    expect(reconstructed[26 * W + 16]).toBe(1) // edge block kept
+  })
+
+  it('holds on to every block it was seeded with', () => {
+    const out = pipeline(joined(), seeds, 6)
+    for (const [x, y] of seeds) expect(out[Math.round(y) * W + Math.round(x)]).toBe(1)
+  })
+
+  it('still drops the neighbour across the track', () => {
+    const out = pipeline(joined(), seeds, 6)
+    expect(out[60 * W + 100]).toBe(0)
+  })
+
+  it('restores the field body, not just the survivors', () => {
+    const out = pipeline(joined(), seeds, 6)
+    let kept = 0
+    for (let y = 25; y < 95; y++) for (let x = 15; x < 65; x++) if (out[y * W + x]) kept++
+    // Nearly the whole 50x70 field, rather than an eroded core.
+    expect(kept).toBeGreaterThan(50 * 70 * 0.95)
+  })
+})

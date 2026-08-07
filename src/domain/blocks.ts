@@ -141,6 +141,84 @@ export function seasonSummary(placements: BlockPlacement[]): SeasonSummary {
   return s
 }
 
+/**
+ * A weight that shouldn't be accepted without a second look.
+ *
+ * `error` is physically impossible and refused. `warn` is merely suspicious —
+ * allowed through on confirmation, because a genuinely odd block is a real
+ * thing and the person holding it knows better than the software.
+ */
+export interface WeightCheck {
+  level: 'error' | 'warn'
+  message: string
+}
+
+/** Below this, someone has typed a fraction of what they meant. */
+const MIN_PLAUSIBLE_LBS = 0.5
+/** Above this, someone has typed a scale reading in the wrong unit, or slipped. */
+const MAX_PLAUSIBLE_LBS = 300
+
+/**
+ * Check a weight before it's recorded.
+ *
+ * The mistake this exists for is a decimal point: 125 where 12.5 was meant, or
+ * 1.25. Nothing about that is malformed, so nothing else catches it, and it
+ * lands straight in the bee return — where it drags the whole field's map with
+ * it. Compared against the OTHER blocks weighed this season, since what counts
+ * as normal is a property of the season, not a constant.
+ */
+export function checkWeight(
+  lbs: number,
+  stage: 'retrieve' | 'strip',
+  placement: Pick<BlockPlacement, 'grossWeightLbs'> | null,
+  peerWeightsLbs: number[],
+): WeightCheck | null {
+  if (!Number.isFinite(lbs) || lbs <= 0) {
+    return { level: 'error', message: 'Enter a weight greater than zero.' }
+  }
+
+  // Empty can't outweigh full. Physically impossible, so refuse it outright
+  // rather than storing a negative return for someone to find later.
+  if (stage === 'strip' && placement?.grossWeightLbs != null && lbs >= placement.grossWeightLbs) {
+    return {
+      level: 'error',
+      message: `The empty weight (${lbs.toFixed(1)}) can't be as much as the full weight (${placement.grossWeightLbs.toFixed(1)}). Check the scale, or re-weigh it full.`,
+    }
+  }
+
+  if (lbs < MIN_PLAUSIBLE_LBS) {
+    return { level: 'warn', message: `${lbs} lbs is very light for a block. Is that right?` }
+  }
+  if (lbs > MAX_PLAUSIBLE_LBS) {
+    return { level: 'warn', message: `${lbs} lbs is very heavy for a block. Is that right?` }
+  }
+
+  // Against the season's own blocks. Needs enough of them to have a normal.
+  const peers = peerWeightsLbs.filter((w) => Number.isFinite(w) && w > 0)
+  if (peers.length >= 5) {
+    const sorted = [...peers].sort((a, b) => a - b)
+    const mid = sorted.length >> 1
+    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    if (median > 0) {
+      // A factor of three either way. Wide enough that ordinary variation
+      // passes silently, narrow enough to catch a slipped decimal point.
+      if (lbs > median * 3) {
+        return {
+          level: 'warn',
+          message: `${lbs} lbs is more than three times the usual ${median.toFixed(1)} for this season. Check the decimal point.`,
+        }
+      }
+      if (lbs < median / 3) {
+        return {
+          level: 'warn',
+          message: `${lbs} lbs is less than a third of the usual ${median.toFixed(1)} for this season. Check the decimal point.`,
+        }
+      }
+    }
+  }
+  return null
+}
+
 /** Every season a block has been used, newest first — its history. */
 export function blockHistory(placements: BlockPlacement[], blockId: string): BlockPlacement[] {
   return placements.filter((p) => p.blockId === blockId).sort((a, b) => b.season - a.season)

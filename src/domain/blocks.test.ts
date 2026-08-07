@@ -11,6 +11,7 @@ import {
   seasonsOf,
   findBlock,
   lbsToKgWeight,
+  checkWeight,
 } from './blocks'
 import type { Block, BlockPlacement } from '@/data/types'
 
@@ -177,5 +178,56 @@ describe('lbsToKgWeight', () => {
   it('converts, and passes null through', () => {
     expect(lbsToKgWeight(10)).toBeCloseTo(4.5359237, 6)
     expect(lbsToKgWeight(null)).toBeNull()
+  })
+})
+
+describe('checkWeight', () => {
+  const peers = [12.4, 12.8, 12.1, 13.0, 12.6, 12.9] // a normal season
+
+  it('accepts an ordinary weight without comment', () => {
+    expect(checkWeight(12.5, 'retrieve', null, peers)).toBeNull()
+  })
+
+  it('refuses zero or nonsense', () => {
+    expect(checkWeight(0, 'retrieve', null, peers)?.level).toBe('error')
+    expect(checkWeight(-3, 'retrieve', null, peers)?.level).toBe('error')
+    expect(checkWeight(NaN, 'retrieve', null, peers)?.level).toBe('error')
+  })
+
+  it('refuses an empty weight at or above the full weight', () => {
+    // Physically impossible, and it would store a negative bee return.
+    const p = { grossWeightLbs: 12.5 }
+    expect(checkWeight(12.5, 'strip', p, peers)?.level).toBe('error')
+    expect(checkWeight(14, 'strip', p, peers)?.level).toBe('error')
+    expect(checkWeight(4.5, 'strip', p, peers)).toBeNull()
+  })
+
+  it('catches a slipped decimal point against the season', () => {
+    // 125 for 12.5 — the mistake this exists for. Nothing else would catch it:
+    // it's a valid number in a valid field.
+    expect(checkWeight(125, 'retrieve', null, peers)?.level).toBe('warn')
+    expect(checkWeight(1.25, 'retrieve', null, peers)?.level).toBe('warn')
+  })
+
+  it('says nothing about a merely unusual block', () => {
+    // Twice the usual is a real block having a good year, not a typo.
+    expect(checkWeight(24, 'retrieve', null, peers)).toBeNull()
+  })
+
+  it('holds off judgement until the season has a normal', () => {
+    // With four blocks weighed there is no "usual" yet, so only the absolute
+    // bounds apply — better silent than crying wolf on the first day.
+    expect(checkWeight(125, 'retrieve', null, [12, 13])).toBeNull()
+    expect(checkWeight(500, 'retrieve', null, [12, 13])?.level).toBe('warn')
+  })
+
+  it('flags absolute nonsense whatever the season looks like', () => {
+    expect(checkWeight(0.2, 'retrieve', null, [])?.level).toBe('warn')
+    expect(checkWeight(900, 'retrieve', null, [])?.level).toBe('warn')
+  })
+
+  it('warns rather than refuses, so an odd block can still be recorded', () => {
+    // The person holding the block knows more than the software does.
+    expect(checkWeight(125, 'retrieve', null, peers)?.level).toBe('warn')
   })
 })

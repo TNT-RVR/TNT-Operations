@@ -4,7 +4,7 @@ import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
-import { findBlock, blockStage, kgToLbsWeight } from '@/domain/blocks'
+import { findBlock, blockStage, kgToLbsWeight, checkWeight } from '@/domain/blocks'
 import { useGps } from './useGps'
 
 type Mode = 'place' | 'retrieve' | 'strip'
@@ -36,6 +36,8 @@ export default function BlockScan() {
   const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs')
   const [saving, setSaving] = useState(false)
   const [weighError, setWeighError] = useState<string | null>(null)
+  /** A suspicious weight, held back until it's confirmed. */
+  const [weighWarn, setWeighWarn] = useState<string | null>(null)
   const weightRef = useRef<HTMLInputElement>(null)
 
   const seqRef = useRef(0)
@@ -113,11 +115,33 @@ export default function BlockScan() {
     setOpen(false)
   }
 
-  async function saveWeight() {
+  async function saveWeight(confirmed = false) {
     if (!pending) return
     const raw = Number(weight)
-    if (!Number.isFinite(raw) || raw <= 0) return setWeighError('Enter a weight.')
     const lbs = unit === 'kg' ? (kgToLbsWeight(raw) ?? raw) : raw
+
+    // Sanity-check before writing. The mistake being guarded against is a
+    // decimal point — a valid number in a valid field that quietly ruins the
+    // return — so it's checked against what this season's other blocks weigh.
+    const block = findBlock(blocks, pending.label)
+    const placement = block
+      ? (blockPlacements.find((p) => p.blockId === block.id && p.season === season) ?? null)
+      : null
+    const peers = blockPlacements
+      .filter((p) => p.season === season)
+      .map((p) => (mode === 'strip' ? p.strippedWeightLbs : p.grossWeightLbs))
+      .filter((w): w is number => w != null)
+
+    const check = checkWeight(lbs, mode as 'retrieve' | 'strip', placement, peers)
+    if (check?.level === 'error') {
+      setWeighWarn(null)
+      return setWeighError(check.message)
+    }
+    if (check?.level === 'warn' && !confirmed) {
+      // Stop once, show the number back, and make saving it deliberate.
+      setWeighError(null)
+      return setWeighWarn(check.message)
+    }
 
     setSaving(true)
     const r = await weighBlock({ label: pending.label, stage: mode as 'retrieve' | 'strip', weightLbs: lbs, season })
@@ -127,6 +151,7 @@ export default function BlockScan() {
     note(pending.label, `${raw.toFixed(2)} ${unit} recorded`, true)
     setPending(null)
     setWeight('')
+    setWeighWarn(null)
     // Straight back to the camera — this is a repetitive station job.
     setOpen(true)
   }
@@ -136,6 +161,14 @@ export default function BlockScan() {
   }, [pending])
 
   const fieldName = useMemo(() => fields.find((f) => f.id === fieldId)?.name ?? '', [fields, fieldId])
+
+  /** What the block being stripped weighed full — shown so the pair can be eyeballed. */
+  const pendingGross = useMemo(() => {
+    if (!pending) return null
+    const b = findBlock(blocks, pending.label)
+    if (!b) return null
+    return blockPlacements.find((p) => p.blockId === b.id && p.season === season)?.grossWeightLbs ?? null
+  }, [pending, blocks, blockPlacements, season])
 
   return (
     <div>
@@ -193,7 +226,12 @@ export default function BlockScan() {
                 step="0.01"
                 placeholder="0.00"
                 value={weight}
-                onChange={(e) => setWeight(e.target.value)}
+                onChange={(e) => {
+                  setWeight(e.target.value)
+                  // A new number deserves a fresh judgement.
+                  setWeighWarn(null)
+                  setWeighError(null)
+                }}
                 onKeyDown={(e) => e.key === 'Enter' && void saveWeight()}
                 className="flex-1 text-lg"
               />
@@ -203,10 +241,33 @@ export default function BlockScan() {
               </Select>
             </div>
             {weighError && <p className="text-sm text-danger">{weighError}</p>}
+            {weighWarn && (
+              <div className="rounded-sm border border-danger p-2">
+                <p className="text-sm text-danger">{weighWarn}</p>
+                <p className="mt-1 text-xs text-muted">
+                  Correct it above, or save anyway if the block really is like that.
+                </p>
+              </div>
+            )}
+            {/* Previous weight, so a full/empty pair can be sanity-checked by eye. */}
+            {mode === 'strip' && pendingGross != null && (
+              <p className="text-xs text-muted">
+                Weighed full at <span className="font-semibold text-primary">{pendingGross.toFixed(1)} lbs</span>
+                {weight && Number(weight) > 0 && (
+                  <>
+                    {' '}
+                    · return would be{' '}
+                    <span className="font-semibold text-primary">
+                      {(pendingGross - (unit === 'kg' ? (kgToLbsWeight(Number(weight)) ?? 0) : Number(weight))).toFixed(1)} lbs
+                    </span>
+                  </>
+                )}
+              </p>
+            )}
             <div className="flex gap-2">
-              <Button onClick={() => void saveWeight()} disabled={saving}>
+              <Button onClick={() => void saveWeight(!!weighWarn)} disabled={saving}>
                 <Check size={16} className="mr-1 inline" />
-                {saving ? 'Saving…' : 'Save & scan next'}
+                {saving ? 'Saving…' : weighWarn ? 'Save anyway' : 'Save & scan next'}
               </Button>
               <Button
                 variant="ghost"

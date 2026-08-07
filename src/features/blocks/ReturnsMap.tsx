@@ -22,7 +22,7 @@ import {
   type SamplePoint,
 } from '@/domain/returnsMap'
 import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
-import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
+import { beeReturnLbs, seasonsOf, blockStage, STAGE_LABEL } from '@/domain/blocks'
 import { findGpsOutliers } from '@/domain/gpsOutliers'
 import type { FieldDict } from '@/domain/tentGrid'
 
@@ -35,6 +35,8 @@ const MARKER_EDGE = '#111111' // token-exempt: map pin over imagery
 const MARKER_BAD = '#FF4D4F' // token-exempt: map pin over imagery
 // The field's own boundary, drawn over satellite imagery in both themes.
 const OUTLINE_COLOR = '#00CED1' // token-exempt: map line over imagery
+// Placed but not yet weighed: visible, but plainly not part of the surface.
+const MARKER_PENDING = '#FFC53D' // token-exempt: map pin over imagery
 
 /**
  * Interpolated bee-return map — the job that used to mean exporting points,
@@ -84,7 +86,10 @@ export default function ReturnsMap() {
   const seasons = useMemo(() => seasonsOf(blockPlacements), [blockPlacements])
   const activeSeason = season ?? seasons[0] ?? new Date().getFullYear()
 
-  /** Which fields have weighed blocks this season — for labelling, not filtering. */
+  /**
+   * Fields with a weighed RETURN this season — a surface can be drawn for them.
+   * Needs both weigh-ins, so a block that's only been placed doesn't count.
+   */
   const fieldIdsWithData = useMemo(
     () =>
       new Set(
@@ -93,6 +98,43 @@ export default function ReturnsMap() {
           .map((p) => p.fieldId),
       ),
     [blockPlacements, activeSeason],
+  )
+
+  /**
+   * Fields with blocks merely PLACED this season.
+   *
+   * Kept separate because the two are wildly different situations, and
+   * conflating them told people with blocks in the ground that they had none.
+   * Placed blocks can't colour a surface, but they can and should be seen.
+   */
+  const placedByField = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const p of blockPlacements) {
+      if (p.season !== activeSeason || p.lat == null || p.lng == null || !p.fieldId) continue
+      counts.set(p.fieldId, (counts.get(p.fieldId) ?? 0) + 1)
+    }
+    return counts
+  }, [blockPlacements, activeSeason])
+
+  /** Blocks in this field awaiting a weight — drawn, but not part of the surface. */
+  const awaitingWeights = useMemo(
+    () =>
+      blockPlacements
+        .filter(
+          (p) =>
+            p.fieldId === fieldId &&
+            p.season === activeSeason &&
+            p.lat != null &&
+            p.lng != null &&
+            beeReturnLbs(p) == null,
+        )
+        .map((p) => ({
+          lat: p.lat!,
+          lng: p.lng!,
+          label: blocks.find((b) => b.id === p.blockId)?.label,
+          stage: blockStage(p),
+        })),
+    [blockPlacements, blocks, fieldId, activeSeason],
   )
 
   /**
@@ -388,6 +430,20 @@ export default function ReturnsMap() {
         })
       }
 
+      // Blocks placed but not yet weighed, in amber. They can't colour the
+      // surface — a return needs both weigh-ins — but they ARE in the ground,
+      // and saying nothing about them read as "you have no blocks".
+      if (showPoints && !imported) {
+        for (const p of awaitingWeights) {
+          const el = document.createElement('div')
+          el.style.cssText =
+            `width:10px;height:10px;border-radius:9999px;background:${MARKER_PENDING};` +
+            `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
+          el.title = `${p.label ?? 'Block'} — ${STAGE_LABEL[p.stage]}, awaiting weights`
+          markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map))
+        }
+      }
+
       if (!grid) {
         // No surface, but frame the field so it's actually on screen.
         if (outline) {
@@ -453,7 +509,7 @@ export default function ReturnsMap() {
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [grid, outline, active, cleaned, showPoints])
+  }, [grid, outline, active, cleaned, showPoints, awaitingWeights, imported])
 
   function exportPng() {
     const map = mapRef.current
@@ -510,7 +566,13 @@ export default function ReturnsMap() {
             {selectableFields.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
-                {fieldIdsWithData.has(f.id) ? '' : f.geometry ? ' — no blocks yet' : ' — no boundary'}
+                {fieldIdsWithData.has(f.id)
+                  ? ''
+                  : placedByField.has(f.id)
+                    ? ` — ${placedByField.get(f.id)} placed, not weighed`
+                    : f.geometry
+                      ? ' — no blocks yet'
+                      : ' — no boundary'}
               </option>
             ))}
           </Select>
@@ -705,8 +767,10 @@ export default function ReturnsMap() {
             {sheet
               ? 'No usable rows in that file yet — check the column choices above.'
               : samples.length === 0
-                ? outline
-                  ? `${field?.name ?? 'This field'} has no weighed blocks for ${activeSeason} yet, so its boundary is shown on its own. Place blocks, then weigh them full and empty, and the surface fills in.`
+                ? awaitingWeights.length > 0
+                  ? `${awaitingWeights.length} block${awaitingWeights.length === 1 ? '' : 's'} placed in ${field?.name ?? 'this field'}, shown in amber. The surface fills in once they're weighed full and empty — a return needs both.`
+                  : outline
+                  ? `${field?.name ?? 'This field'} has no blocks for ${activeSeason} yet, so its boundary is shown on its own. Place blocks, then weigh them full and empty, and the surface fills in.`
                   : 'No weighed blocks with a location for this field and season yet. Place blocks, then weigh them full and empty — the map builds itself from that. Or load a spreadsheet above to test.'
                 : 'This field has no boundary or pivot set, so there’s nothing to interpolate across. Add its geometry on the Shelter Maps tab.'}
           </EmptyState>

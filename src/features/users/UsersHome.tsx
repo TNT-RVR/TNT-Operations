@@ -19,8 +19,9 @@
 import { useState } from 'react'
 import { ASSIGNABLE_ROLES, type Role, useSession } from '@/auth/session'
 import { useData } from '@/data/context'
-import { Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
+import { Avatar, Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
 import { Archive, Mail, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { AvatarPicker } from './AvatarPicker'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 function roleTone(role: Role): 'brand' | 'blue' | 'amber' | 'neutral' {
@@ -109,6 +110,7 @@ export default function UsersHome() {
               <ul className="space-y-2">
                 {waiting.map((u) => (
                   <li key={u.id} className="flex flex-wrap items-center gap-3">
+                    <Avatar user={u} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-primary">{u.name || '—'}</div>
                       <div className="text-xs text-muted">{u.email}</div>
@@ -163,6 +165,7 @@ export default function UsersHome() {
                             />
                           ) : (
                             <span className="flex items-center gap-2">
+                              <AvatarPicker user={u} canEdit={canEdit} />
                               <span className="font-medium text-primary">{u.name || '—'}</span>
                               {isYou && <Badge tone="neutral">you</Badge>}
                             </span>

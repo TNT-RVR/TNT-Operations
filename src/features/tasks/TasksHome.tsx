@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Task, TaskStatus } from '@/data/types'
-import { Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
+import { Avatar, Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
 import { CheckCircle2, Circle, CloudOff, Plus, RefreshCw, Repeat, Trash2 } from 'lucide-react'
 import {
   DUE_ORDER,
@@ -178,12 +178,18 @@ function TaskRow({
   )
 }
 
-/** A user's name from their id — falls back to "Unassigned". */
+/** A user's photo and name from their id — falls back to "Unassigned". */
 function Assignee({ id }: { id: string | null }) {
   const s = useSession()
   if (!id) return <span className="text-faint">Unassigned</span>
   const u = s.users.find((x) => x.id === id)
-  return <span>{u?.name ?? 'Someone'}</span>
+  if (!u) return <span>Someone</span>
+  return (
+    <span className="flex items-center gap-1.5">
+      <Avatar user={u} size="xs" isYou={u.id === s.user.id} />
+      {u.name}
+    </span>
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -396,7 +402,14 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
                     )}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <div className={step.completedAt ? 'text-faint line-through' : 'text-primary'}>
+                    <div className={`flex items-center gap-1.5 ${step.completedAt ? 'text-faint line-through' : 'text-primary'}`}>
+                      {step.assigneeId && (
+                        <Avatar
+                          user={s.users.find((u) => u.id === step.assigneeId) ?? {}}
+                          size="xs"
+                          isYou={step.assigneeId === s.user.id}
+                        />
+                      )}
                       {step.title}
                     </div>
                     {step.notes && <div className="text-xs text-faint">{step.notes}</div>}

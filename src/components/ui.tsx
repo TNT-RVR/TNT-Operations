@@ -2,6 +2,7 @@ import type { ButtonHTMLAttributes, CSSProperties, ReactNode, SelectHTMLAttribut
 import { forwardRef } from 'react'
 import { Search, X, Lock } from 'lucide-react'
 import { BeeMark } from './BeeMark'
+import { AVATAR_SIZES, type AvatarSize, initialsOf } from '@/domain/avatar'
 
 /**
  * Token-driven UI primitives for TNT Pollination. Every colour/space/radius
@@ -302,5 +303,87 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
         <div className="p-5">{children}</div>
       </div>
     </div>
+  )
+}
+
+/**
+ * A person, as a circle.
+ *
+ * Falls back to initials rather than a blank disc — most people never upload a
+ * photo, and a task list of identical grey dots would be worse than no avatars
+ * at all. The fallback is neutral for everyone except you: honey is the only
+ * accent in this design system, so a colour per person is out, and tinting just
+ * your own makes "which of these is me" instant.
+ */
+export function Avatar({
+  user,
+  size = 'md',
+  isYou = false,
+  className = '',
+}: {
+  user: { name?: string | null; email?: string | null; avatar?: string | null }
+  size?: AvatarSize
+  isYou?: boolean
+  className?: string
+}) {
+  const px = AVATAR_SIZES[size]
+  const label = user.name?.trim() || user.email?.trim() || 'Unassigned'
+
+  if (user.avatar) {
+    return (
+      <img
+        src={user.avatar}
+        alt={label}
+        title={label}
+        width={px}
+        height={px}
+        className={`shrink-0 rounded-full object-cover ${isYou ? 'ring-2 ring-brand' : ''} ${className}`}
+        style={{ width: px, height: px }}
+      />
+    )
+  }
+
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${
+        isYou ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
+      } ${className}`}
+      // Font scales with the circle so two letters fit at every size.
+      style={{ width: px, height: px, fontSize: Math.round(px * 0.4) }}
+    >
+      {initialsOf(user)}
+    </span>
+  )
+}
+
+/** Overlapping avatars for a group, with a +N when there are too many. */
+export function AvatarStack({
+  users,
+  max = 3,
+  size = 'xs',
+}: {
+  users: Array<{ id: string; name?: string | null; email?: string | null; avatar?: string | null }>
+  max?: number
+  size?: AvatarSize
+}) {
+  if (users.length === 0) return null
+  const shown = users.slice(0, max)
+  const extra = users.length - shown.length
+  return (
+    <span className="flex items-center -space-x-1.5">
+      {shown.map((u) => (
+        <Avatar key={u.id} user={u} size={size} className="ring-1 ring-[color:var(--surface)]" />
+      ))}
+      {extra > 0 && (
+        <span
+          className="inline-flex items-center justify-center rounded-full bg-overlay text-[10px] font-semibold text-muted ring-1 ring-[color:var(--surface)]"
+          style={{ width: AVATAR_SIZES[size], height: AVATAR_SIZES[size] }}
+        >
+          +{extra}
+        </span>
+      )}
+    </span>
   )
 }

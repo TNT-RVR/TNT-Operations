@@ -4,7 +4,7 @@ import { LayoutDashboard, Map, Bug, Thermometer, Bell, Moon, Sun, Navigation, Ba
 import { useSession, type Module } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
-import { IconButton } from './ui'
+import { Avatar, IconButton } from './ui'
 import { BeeMark } from './BeeMark'
 import { ErrorBoundary } from './ErrorBoundary'
 
@@ -165,7 +165,8 @@ function UserSwitcher() {
   // Real auth: show who's signed in + a sign-out button (no identity switching).
   if (s.authMode === 'supabase') {
     return (
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex items-center gap-2 text-sm">
+        <Avatar user={s.user} size="sm" isYou />
         <span className="hidden text-secondary sm:inline">
           {s.user.name}
           <span className="text-faint"> · {s.user.role}</span>
@@ -180,6 +181,7 @@ function UserSwitcher() {
   // Mock: switch between the seeded users.
   return (
     <label className="flex items-center gap-2 text-sm">
+      <Avatar user={s.user} size="sm" isYou />
       <span className="hidden text-muted sm:inline">Signed in as</span>
       <select
         className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"

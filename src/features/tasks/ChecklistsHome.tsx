@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Checklist, ChecklistStep } from '@/data/types'
-import { Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
+import { Avatar, Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
 import { ClipboardList, Plus, Send, Trash2 } from 'lucide-react'
 import { stepProgress, todayInTz } from '@/domain/tasks'
 import { TasksChrome } from './TasksChrome'
@@ -91,7 +91,8 @@ export default function ChecklistsHome() {
                 <button className="card w-full text-left hover:bg-overlay" onClick={() => setOpenRunId(t.id)}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="font-medium text-primary">{t.title}</span>
-                    <span className="text-xs text-muted">
+                    <span className="flex items-center gap-1.5 text-xs text-muted">
+                      {who && <Avatar user={who} size="xs" isYou={who.id === s.user.id} />}
                       {who?.name ?? 'Unassigned'}
                       {t.dueDate ? ` · due ${t.dueDate}` : ''}
                     </span>

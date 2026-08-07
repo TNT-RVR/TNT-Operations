@@ -30,6 +30,7 @@ import {
 } from '@/domain/access'
 import type { CompanyDetails } from '@/data/types'
 import { MAX_SIGNATURE_BYTES, checkSignatureImage } from '@/domain/signature'
+import { AvatarPicker } from './AvatarPicker'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 const ALL_ROLES: Role[] = [...ASSIGNABLE_ROLES, 'pending']
@@ -447,6 +448,7 @@ export function AccountTab() {
       <div className="max-w-lg space-y-4">
         <div className="card space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">You</h3>
+          <AvatarPicker user={s.user} canEdit showButtons />
           <div className="text-sm">
             <div className="text-primary">{s.user.email}</div>
             <div className="mt-1">

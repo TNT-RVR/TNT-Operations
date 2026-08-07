@@ -22,6 +22,8 @@ export interface User {
   name: string
   email: string
   role: Role
+  /** Profile photo as a data URL, or null. Public — it shows on task rows. */
+  avatar?: string | null
 }
 
 /** Role → what it can do. `edit` implies `view`. */
@@ -94,6 +96,12 @@ export interface SessionValue {
   updateUserRole: (userId: string, role: Role) => void
   /** Admins rename a user (updates `profiles.name` in supabase mode). */
   updateUserName: (userId: string, name: string) => void
+  /**
+   * Set a profile photo. You may change your own; an admin may change anyone's.
+   * That split is enforced by the `profiles self or admin update` policy from
+   * migration 0001, not by this signature.
+   */
+  updateUserAvatar: (userId: string, avatar: string | null) => Promise<{ ok: boolean; error?: string }>
   /** Admins remove a user's profile (revokes access; they re-appear as pending
    *  if they sign in again). Cannot remove yourself. */
   deleteUser: (userId: string) => void
@@ -143,6 +151,10 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
       signOut: backToAdmin,
       updateUserRole: (uid, role) => setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, role } : u))),
       updateUserName: (uid, name) => setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, name } : u))),
+      updateUserAvatar: async (uid, avatar) => {
+        setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, avatar } : u)))
+        return { ok: true }
+      },
       deleteUser: (uid) => {
         if (uid === user.id) return
         setUsers((prev) => prev.filter((u) => u.id !== uid))
@@ -267,6 +279,13 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
           })
+      },
+      updateUserAvatar: async (userId, avatar) => {
+        if (!supabase) return { ok: false, error: 'Not connected' }
+        const { error } = await supabase.from('profiles').update({ avatar }).eq('id', userId)
+        if (error) return { ok: false, error: error.message }
+        setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, avatar } : u)))
+        return { ok: true }
       },
       updateUserName: (userId, name) => {
         sb.from('profiles')

@@ -182,10 +182,20 @@ describe('lbsToKgWeight', () => {
 })
 
 describe('checkWeight', () => {
-  const peers = [12.4, 12.8, 12.1, 13.0, 12.6, 12.9] // a normal season
+  // A normal season, in lbs as stored. Centred on ~2.5 kg, which is where
+  // 2025 actually sat (0.95-3.8 kg).
+  const kg = (v: number) => v / 0.45359237
+  const peers = [kg(2.4), kg(2.6), kg(2.3), kg(2.8), kg(2.5), kg(2.7)]
 
   it('accepts an ordinary weight without comment', () => {
-    expect(checkWeight(12.5, 'retrieve', null, peers)).toBeNull()
+    expect(checkWeight(kg(2.5), 'retrieve', null, peers)).toBeNull()
+  })
+
+  it('accepts the real extremes from last season', () => {
+    // 2025 ran 0.95-3.8 kg. Both ends must pass without a murmur, or the
+    // guard is just noise every day of the season.
+    expect(checkWeight(kg(0.95), 'retrieve', null, [])).toBeNull()
+    expect(checkWeight(kg(3.8), 'retrieve', null, [])).toBeNull()
   })
 
   it('refuses zero or nonsense', () => {
@@ -194,40 +204,51 @@ describe('checkWeight', () => {
     expect(checkWeight(NaN, 'retrieve', null, peers)?.level).toBe('error')
   })
 
-  it('refuses an empty weight at or above the full weight', () => {
-    // Physically impossible, and it would store a negative bee return.
-    const p = { grossWeightLbs: 12.5 }
-    expect(checkWeight(12.5, 'strip', p, peers)?.level).toBe('error')
-    expect(checkWeight(14, 'strip', p, peers)?.level).toBe('error')
-    expect(checkWeight(4.5, 'strip', p, peers)).toBeNull()
+  it('refuses anything outside 0.1-15 kg', () => {
+    // A block does not weigh 40 kg, so there is nothing to confirm.
+    expect(checkWeight(kg(0.05), 'retrieve', null, peers)?.level).toBe('error')
+    expect(checkWeight(kg(40), 'retrieve', null, peers)?.level).toBe('error')
+    // And the bounds themselves are inclusive of real work.
+    expect(checkWeight(kg(0.1), 'retrieve', null, [])).toBeNull()
+    expect(checkWeight(kg(15), 'retrieve', null, [])).toBeNull()
   })
 
-  it('catches a slipped decimal point against the season', () => {
-    // 125 for 12.5 — the mistake this exists for. Nothing else would catch it:
-    // it's a valid number in a valid field.
-    expect(checkWeight(125, 'retrieve', null, peers)?.level).toBe('warn')
-    expect(checkWeight(1.25, 'retrieve', null, peers)?.level).toBe('warn')
+  it('catches a decimal slip that stays inside the range', () => {
+    // 0.55 kg typed for 5.5 — inside the possible range, so only comparison
+    // with the season catches it.
+    expect(checkWeight(kg(0.25), 'retrieve', null, peers)?.level).toBe('warn')
+    // And the other direction: 2.5 -> 25 is out of range entirely, so the
+    // absolute bound catches it before any comparison is needed.
+    expect(checkWeight(kg(25), 'retrieve', null, peers)?.level).toBe('error')
+  })
+
+  it('catches a kg value typed while lbs is selected', () => {
+    // A 2.2x miss is within ordinary season variation, so it passes quietly —
+    // an honest limit of comparing against a median. A bigger slip does not.
+    expect(checkWeight(kg(2.5) / 2.2, 'retrieve', null, peers)).toBeNull()
+    expect(checkWeight(kg(2.5) / 5, 'retrieve', null, peers)?.level).toBe('warn')
   })
 
   it('says nothing about a merely unusual block', () => {
-    // Twice the usual is a real block having a good year, not a typo.
-    expect(checkWeight(24, 'retrieve', null, peers)).toBeNull()
+    // Three times the usual is a real block having a good year, not a typo —
+    // 2025's own extremes were 4x apart.
+    expect(checkWeight(kg(2.5) * 3, 'retrieve', null, peers)).toBeNull()
   })
 
-  it('holds off judgement until the season has a normal', () => {
-    // With four blocks weighed there is no "usual" yet, so only the absolute
-    // bounds apply — better silent than crying wolf on the first day.
-    expect(checkWeight(125, 'retrieve', null, [12, 13])).toBeNull()
-    expect(checkWeight(500, 'retrieve', null, [12, 13])?.level).toBe('warn')
+  it('refuses an empty weight at or above the full weight', () => {
+    const p = { grossWeightLbs: kg(2.5) }
+    expect(checkWeight(kg(2.5), 'strip', p, peers)?.level).toBe('error')
+    expect(checkWeight(kg(3), 'strip', p, peers)?.level).toBe('error')
+    expect(checkWeight(kg(1.2), 'strip', p, peers)).toBeNull()
   })
 
-  it('flags absolute nonsense whatever the season looks like', () => {
-    expect(checkWeight(0.2, 'retrieve', null, [])?.level).toBe('warn')
-    expect(checkWeight(900, 'retrieve', null, [])?.level).toBe('warn')
+  it('holds off the season comparison until there is a normal', () => {
+    // Four blocks is not a season. Only the absolute bounds apply.
+    expect(checkWeight(kg(14), 'retrieve', null, [kg(2.5), kg(2.6)])).toBeNull()
+    expect(checkWeight(kg(20), 'retrieve', null, [kg(2.5), kg(2.6)])?.level).toBe('error')
   })
 
-  it('warns rather than refuses, so an odd block can still be recorded', () => {
-    // The person holding the block knows more than the software does.
-    expect(checkWeight(125, 'retrieve', null, peers)?.level).toBe('warn')
+  it('reports in kg, which is how these are actually thought about', () => {
+    expect(checkWeight(kg(40), 'retrieve', null, peers)?.message).toMatch(/kg/)
   })
 })

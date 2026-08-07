@@ -153,10 +153,21 @@ export interface WeightCheck {
   message: string
 }
 
-/** Below this, someone has typed a fraction of what they meant. */
-const MIN_PLAUSIBLE_LBS = 0.5
-/** Above this, someone has typed a scale reading in the wrong unit, or slipped. */
-const MAX_PLAUSIBLE_LBS = 300
+/**
+ * Hard limits on a recorded weight, in kg — the unit these are actually
+ * thought about in.
+ *
+ * Set from real seasons rather than guessed: 2025 ran from 0.95 kg to 3.8 kg.
+ * The bounds sit well outside that on both sides, so an exceptional block
+ * passes and a slipped decimal (0.38, 38) does not. Refused rather than
+ * queried: nothing in this range of work produces 40 kg, so accepting it can
+ * only mean recording something false.
+ */
+const MIN_WEIGHT_KG = 0.1
+const MAX_WEIGHT_KG = 15
+
+const MIN_PLAUSIBLE_LBS = MIN_WEIGHT_KG / LBS_PER_KG
+const MAX_PLAUSIBLE_LBS = MAX_WEIGHT_KG / LBS_PER_KG
 
 /**
  * Check a weight before it's recorded.
@@ -186,11 +197,14 @@ export function checkWeight(
     }
   }
 
-  if (lbs < MIN_PLAUSIBLE_LBS) {
-    return { level: 'warn', message: `${lbs} lbs is very light for a block. Is that right?` }
-  }
-  if (lbs > MAX_PLAUSIBLE_LBS) {
-    return { level: 'warn', message: `${lbs} lbs is very heavy for a block. Is that right?` }
+  // Outside the possible range: refused, not queried. A block does not weigh
+  // 40 kg, so there is nothing to confirm — only a wrong number to correct.
+  if (lbs < MIN_PLAUSIBLE_LBS || lbs > MAX_PLAUSIBLE_LBS) {
+    const kg = lbs * LBS_PER_KG
+    return {
+      level: 'error',
+      message: `${kg.toFixed(2)} kg (${lbs.toFixed(1)} lbs) is outside the possible range of ${MIN_WEIGHT_KG}–${MAX_WEIGHT_KG} kg. Check the decimal point and the units.`,
+    }
   }
 
   // Against the season's own blocks. Needs enough of them to have a normal.
@@ -200,18 +214,21 @@ export function checkWeight(
     const mid = sorted.length >> 1
     const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
     if (median > 0) {
-      // A factor of three either way. Wide enough that ordinary variation
-      // passes silently, narrow enough to catch a slipped decimal point.
-      if (lbs > median * 3) {
+      // A factor of FOUR either way. 2025 spanned 0.95-3.8 kg, a genuine 4x
+      // between the extremes, so a tighter ratio would query real blocks all
+      // season — and a warning people learn to dismiss protects nothing. The
+      // absolute bounds above do the heavy lifting; this catches a slip that
+      // stays inside them.
+      if (lbs > median * 4) {
         return {
           level: 'warn',
-          message: `${lbs} lbs is more than three times the usual ${median.toFixed(1)} for this season. Check the decimal point.`,
+          message: `${(lbs * LBS_PER_KG).toFixed(2)} kg is more than four times this season's usual ${(median * LBS_PER_KG).toFixed(2)} kg. Check the decimal point.`,
         }
       }
-      if (lbs < median / 3) {
+      if (lbs < median / 4) {
         return {
           level: 'warn',
-          message: `${lbs} lbs is less than a third of the usual ${median.toFixed(1)} for this season. Check the decimal point.`,
+          message: `${(lbs * LBS_PER_KG).toFixed(2)} kg is less than a quarter of this season's usual ${(median * LBS_PER_KG).toFixed(2)} kg. Check the decimal point.`,
         }
       }
     }

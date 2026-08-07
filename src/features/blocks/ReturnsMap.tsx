@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import { Download, Image as ImageIcon, Info, Upload, X, Scan } from 'lucide-react'
+import { Download, Image as ImageIcon, Info, Upload, X } from 'lucide-react'
 import { PageHeader, Select, Button, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { SATELLITE_STYLE } from '@/features/maps/basemap'
@@ -23,8 +23,6 @@ import {
 import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
 import { beeReturnLbs, seasonsOf } from '@/domain/blocks'
 import { findGpsOutliers } from '@/domain/gpsOutliers'
-import { inferFieldShape } from '@/domain/fieldShape'
-import { detectFieldFromImagery, type DetectResult } from './imageryBoundary'
 import type { FieldDict } from '@/domain/tentGrid'
 
 // Block markers sit on satellite imagery and inside exported PNGs, so they are
@@ -64,16 +62,12 @@ export default function ReturnsMap() {
   /** Which field within the imported sheet is being mapped. */
   const [groupPick, setGroupPick] = useState<string | null>(null)
   /**
-   * Which real field's geometry to clip imported points to. Without this the
-   * outline is inferred from the points themselves, which can only ever be an
-   * approximation of a circle or a straight edge.
+   * Which recorded field's boundary to clip imported points to. Without one,
+   * the surface is drawn to the shape of the blocks themselves — the best
+   * that can be done for a season predating the field boundaries.
    */
   const [clipFieldId, setClipFieldId] = useState<string>('auto')
   const [importErr, setImportErr] = useState<string | null>(null)
-  /** Outline traced from the satellite imagery, when it worked. */
-  const [detected, setDetected] = useState<DetectResult | null>(null)
-  const [detecting, setDetecting] = useState(false)
-  const [detectErr, setDetectErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const mapEl = useRef<HTMLDivElement>(null)
@@ -151,40 +145,30 @@ export default function ReturnsMap() {
   /** A chosen field that holds almost none of the points is a mis-click. */
   const chosenShare = effectiveClipId ? (containment.get(effectiveClipId) ?? 0) : null
 
-  /**
-   * Outline fitted to the blocks, for when no recorded field matches — a true
-   * circle for a pivot, straight sides for a quarter. Beats tracing the point
-   * cloud, which is lumpy however much it's smoothed, and needs no boundary
-   * drawn by hand.
-   */
-  const fitted = useMemo(() => (effectiveClipId ? null : inferFieldShape(active)), [effectiveClipId, active])
-
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
 
-    // Best outline available, in order:
-    //   1. the matching field's RECORDED geometry — exact, and real
-    //   2. a shape FITTED to the blocks — a true circle or straight sides
-    //   3. a plain bounding box, only when there's too little to fit
-    // syntheticField is the last of those and is a RECTANGLE, so reaching it
-    // by accident draws the whole bounding box — which is exactly what
-    // happened when this branch silently kept using it.
+    // The field's RECORDED boundary is the outline — the same geometry that
+    // drives shelter placement. From 2026 every field has one, so this is the
+    // normal path rather than a special case.
+    //
+    // Historical imports predate those boundaries, so they fall back to a
+    // bounding box masked back to the blocks (see clipDistanceM). Shapes were
+    // once fitted to the blocks, and outlines detected from satellite imagery,
+    // for that case; both were removed as more trouble than they were worth.
     const clipField = effectiveClipId ? fields.find((f) => f.id === effectiveClipId) : null
     const geom =
-      (detected?.field as Record<string, unknown> | undefined) ??
       (clipField?.geometry as Record<string, unknown> | undefined) ??
-      (fitted?.field as Record<string, unknown> | undefined) ??
       (imported ? syntheticField(active) : (field?.geometry as Record<string, unknown> | undefined))
     if (!geom) return null
 
-    // A recorded or fitted outline IS the edge, so don't also trim back to the
-    // blocks. Only the bounding-box fallback needs the point-cloud mask.
+    // A recorded outline IS the edge, so don't also trim back to the blocks.
+    // Only the bounding-box fallback needs the point-cloud mask.
     // clipDistanceM only MASKS the edge; it must not limit which blocks a cell
     // averages, or every block gets its own flat disc instead of a surface.
-    const haveRealOutline = !!detected || !!clipField?.geometry || !!fitted
-    const clipDistanceM = haveRealOutline ? null : looseness > 0 ? autoTrimM(active, looseness) : null
+    const clipDistanceM = clipField?.geometry ? null : looseness > 0 ? autoTrimM(active, looseness) : null
     return idwGrid(geom, active, { cellM, power, clipDistanceM })
-  }, [field, fields, effectiveClipId, detected, fitted, active, imported, cellM, power, looseness])
+  }, [field, fields, effectiveClipId, active, imported, cellM, power, looseness])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
@@ -213,33 +197,6 @@ export default function ReturnsMap() {
       setGroupPick(groups[0].value)
     }
   }, [groups, groupPick])
-
-  // A detected outline belongs to one set of points; changing the field or the
-  // file must discard it rather than clip new data to an old boundary.
-  useEffect(() => {
-    setDetected(null)
-    setDetectErr(null)
-  }, [groupPick, sheet, fieldId, activeSeason])
-
-  async function runDetect() {
-    setDetectErr(null)
-    setDetecting(true)
-    try {
-      const r = await detectFieldFromImagery(active)
-      if (!r.ok) {
-        // Say WHY, not just that it failed — the reason names the fix.
-        setDetectErr(`${r.reason} Keeping the fitted outline.`)
-        setDetected(null)
-        return
-      }
-      setDetected(r.result)
-    } catch (e) {
-      console.error('[imagery] detect failed:', e)
-      setDetectErr(e instanceof Error ? e.message : 'Could not read the imagery.')
-    } finally {
-      setDetecting(false)
-    }
-  }
 
   async function onPickFile(file: File) {
     setImportErr(null)
@@ -649,9 +606,7 @@ export default function ReturnsMap() {
                       ? chosenShare != null && chosenShare < 0.5
                         ? `Warning: only ${Math.round(chosenShare * 100)}% of these points are inside that field, so the outline won't match the data. Switch back to Automatic.`
                         : 'Clipped to that field’s recorded boundary.'
-                      : fitted
-                        ? `No matching field on record, so the outline was fitted to the blocks — a ${fitted.kind === 'circle' ? `circle ${Math.round(fitted.radiusM ?? 0)} m across the radius` : `${fitted.corners}-sided shape with straight edges`}.`
-                        : 'Not enough blocks to fit an outline; using the shape of the points.'}
+                      : 'No matching field on record, so the surface is drawn to the shape of the blocks themselves. Fields recorded in the app get their real boundary.'}
                 </span>
               </label>
 
@@ -697,35 +652,6 @@ export default function ReturnsMap() {
 
         {grid && stats && (
           <>
-            {/* Trace the outline from the satellite imagery. */}
-            <div className="card">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-semibold text-primary">Field outline from the satellite image</div>
-                  <p className="mt-1 text-xs text-muted">
-                    {detected
-                      ? `Traced from the imagery — ${detected.corners} points around the edge, holding ${Math.round(detected.blocksInside * 100)}% of the blocks (edge threshold ${Math.round(detected.edgePercentile * 100)}%). This follows the real field, not a fitted circle.`
-                      : detecting
-                        ? 'Reading the imagery…'
-                        : 'Reads the satellite picture and follows the actual field edge — the crop circle, the fence line — instead of fitting a shape to the blocks.'}
-                  </p>
-                  {detectErr && <p className="mt-1 text-xs text-danger">{detectErr}</p>}
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="ghost" onClick={() => void runDetect()} disabled={detecting || active.length < 4}>
-                    <Scan size={16} className="mr-1 inline" />
-                    {detecting ? 'Working…' : detected ? 'Detect again' : 'Detect from imagery'}
-                  </Button>
-                  {detected && (
-                    <Button variant="ghost" onClick={() => setDetected(null)}>
-                      <X size={16} className="mr-1 inline" />
-                      Use fitted shape
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* GPS cleaning — stated plainly, never silent. */}
             <div className="card">
               <div className="flex flex-wrap items-center justify-between gap-3">

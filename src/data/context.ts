@@ -186,7 +186,18 @@ export interface DataContextValue extends SalesSlice, TasksSlice {
     lat: number | null
     lng: number | null
     season?: number
-  }) => Promise<{ ok: boolean; created: boolean; error?: string }>
+  }) => Promise<{
+    ok: boolean
+    created: boolean
+    error?: string
+    /**
+     * The field this block was in BEFORE, when a re-scan has just moved it.
+     * Null when nothing moved. Surfaced because a whole field can be walked
+     * with the wrong field selected, and silently reassigning blocks is the
+     * kind of mistake nobody notices until the returns look wrong.
+     */
+    movedFromFieldId?: string | null
+  }>
   /**
    * Scans 2 and 3 — weigh a block full (`retrieve`) then empty (`strip`).
    * Bee return is the difference, computed on read.

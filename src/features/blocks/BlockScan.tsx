@@ -80,6 +80,16 @@ export default function BlockScan() {
         return note(label, r.error ?? 'Could not save.', false)
       }
       const where = fix ? `±${Math.round(fix.acc)} m` : 'no GPS fix'
+
+      // Moving a block between fields is almost always the wrong field being
+      // selected — easy to do when re-walking a season, and invisible until
+      // the returns come out wrong. Warn rather than confirm.
+      if (r.movedFromFieldId) {
+        const from = fields.find((f) => f.id === r.movedFromFieldId)?.name ?? 'another field'
+        flash('warn', label, `Moved from ${from} → ${fieldName}. Is the right field selected?`)
+        return note(label, `MOVED from ${from}`, false)
+      }
+
       flash('ok', label, r.created ? `Placed · ${where}` : `Location updated · ${where}`)
       return note(label, r.created ? `Placed (${where})` : `Moved (${where})`, true)
     }

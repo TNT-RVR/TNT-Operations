@@ -789,30 +789,48 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
 
         const existing = blockPlacements.find((x) => x.blockId === block!.id && x.season === yr)
-        // Upsert on (block_id, season): re-scanning a block already placed this
-        // season CORRECTS its spot; last season's row is a different key and is
-        // left alone.
-        const { data, error } = await supabase
-          .from('block_placements')
-          .upsert(
-            {
-              block_id: block.id,
-              season: yr,
-              field_id: fieldId,
-              lat,
-              lon: lng,
-              placed_at: existing?.placedAt ?? new Date().toISOString(),
-            },
-            { onConflict: 'block_id,season' },
-          )
-          .select()
-          .single()
+
+        // Re-scanning a block already placed this season CORRECTS its spot.
+        // Done as an explicit UPDATE of just the position and field, rather
+        // than an upsert of the whole row: a block re-scanned AFTER it was
+        // weighed must not risk its weights, and an update that names its
+        // columns cannot touch them whatever the API does with the rest.
+        // Last season's row is a different key and is never involved.
+        const { data, error } = existing
+          ? await supabase
+              .from('block_placements')
+              .update({ field_id: fieldId, lat, lon: lng })
+              .eq('id', existing.id)
+              .select()
+              .single()
+          : // New placement. Upsert rather than insert so two people scanning
+            // the same block at once can't collide on the unique key.
+            await supabase
+              .from('block_placements')
+              .upsert(
+                {
+                  block_id: block.id,
+                  season: yr,
+                  field_id: fieldId,
+                  lat,
+                  lon: lng,
+                  placed_at: new Date().toISOString(),
+                },
+                { onConflict: 'block_id,season' },
+              )
+              .select()
+              .single()
         if (error) {
           console.error('[data] placeBlock:', error.message)
           return { ok: false, created: false, error: error.message }
         }
         upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
-        return { ok: true, created: isNewBlock || !existing }
+        return {
+          ok: true,
+          created: isNewBlock || !existing,
+          movedFromFieldId:
+            existing && existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
+        }
       },
 
       weighBlock: async ({ label, stage, weightLbs, season }) => {

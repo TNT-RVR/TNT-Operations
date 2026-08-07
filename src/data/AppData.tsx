@@ -244,7 +244,12 @@ function MockProvider({ children }: { children: ReactNode }) {
           setBlockPlacements((prev) =>
             prev.map((p) => (p.id === existing.id ? { ...p, fieldId, lat, lng } : p)),
           )
-          return Promise.resolve({ ok: true, created: isNewBlock })
+          return Promise.resolve({
+            ok: true,
+            created: isNewBlock,
+            movedFromFieldId:
+              existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
+          })
         }
         setBlockPlacements((prev) => [
           {

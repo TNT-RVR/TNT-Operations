@@ -20,6 +20,8 @@ import { heatPumpSetting, TEMP_MODES, type TempMode } from '@/domain/incubation'
 interface DeviceState {
   deviceId: string
   state?: AcState | null
+  /** State is what someone last SET, not something the unit reported. */
+  remembered?: boolean
   error?: string
 }
 
@@ -218,6 +220,7 @@ export function AcControl({
   }
 
   const first = devices?.[0]?.state ?? null
+  const remembered = !!devices?.[0]?.remembered
   const anyOn = (devices ?? []).some((d) => d.state?.on)
   const disagreement = targetDisagreesWith(first, bandC)
   const readErrors = (devices ?? []).filter((d) => d.error)
@@ -229,16 +232,18 @@ export function AcControl({
           <div className="font-semibold text-primary">
             Heat pump{ids.length > 1 ? `s (${ids.length}, controlled together)` : ''}
           </div>
-          {/* The readout and Refresh appear only when a unit actually reports
-              its state. These pumps don't, and a permanent "No reading" line
-              with a button that can't change it is just noise. Kept for units
-              that do report rather than deleted — the code path is the same. */}
+          {/* Shown when there is something to show — either the unit reported,
+              or we remember what someone last set it to. A pump that has never
+              been touched through the app has neither, and gets no line. */}
           {first && (
             <p className="mt-1 text-sm text-muted">
               {loading ? 'Reading…' : describeAcState(first)}
               {first.targetTemperature != null && first.on !== false && (
                 <span className="text-faint"> ({fToC(first.targetTemperature).toFixed(0)}°C)</span>
               )}
+              {/* Never dress a remembered command up as a reading: the pump
+                  can be changed at the wall and this would not know. */}
+              {remembered && <span className="text-faint"> · last set here, not confirmed by the unit</span>}
             </p>
           )}
         </div>

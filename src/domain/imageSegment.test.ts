@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { growRegion, fillHoles, traceOutline, distanceFrom, largestComponent, openMask } from './imageSegment'
+import { growRegion, fillHoles, traceOutline, distanceFrom, largestComponent, seedComponents, openMask } from './imageSegment'
 
 const W = 120
 const H = 120
@@ -336,5 +336,52 @@ describe('openMask', () => {
     for (let y = 40; y < 80; y++) for (let x = 40; x < 80; x++) m[y * W + x] = 1
     const opened = openMask(m, W, H, 3)
     for (let i = 0; i < m.length; i++) if (opened[i]) expect(m[i]).toBe(1)
+  })
+})
+
+describe('seedComponents', () => {
+  /** A field split in two by a track, plus a neighbouring field. */
+  const split = () => {
+    const m = new Uint8Array(W * H)
+    for (let y = 30; y < 90; y++) {
+      for (let x = 20; x < 70; x++) {
+        if (y >= 58 && y <= 62) continue // the track cutting it in half
+        m[y * W + x] = 1
+      }
+    }
+    for (let y = 40; y < 80; y++) for (let x = 90; x < 115; x++) m[y * W + x] = 1 // neighbour
+    return m
+  }
+
+  it('keeps every piece of the field that holds a block', () => {
+    // The reported failure: taking only the biggest blob discarded the far
+    // side of a split field and a quarter of the blocks with it.
+    const seeds: Array<[number, number]> = [
+      [40, 40], // upper half
+      [40, 80], // lower half
+    ]
+    const kept = seedComponents(split(), W, H, seeds)
+    expect(kept[40 * W + 40]).toBe(1)
+    expect(kept[80 * W + 40]).toBe(1)
+  })
+
+  it('still drops a neighbouring field with no blocks in it', () => {
+    const kept = seedComponents(split(), W, H, [[40, 40], [40, 80]])
+    expect(kept[60 * W + 100]).toBe(0)
+  })
+
+  it('differs from largestComponent exactly where it matters', () => {
+    const seeds: Array<[number, number]> = [[40, 40], [40, 80]]
+    const biggest = largestComponent(split(), W, H)
+    const seeded = seedComponents(split(), W, H, seeds)
+    // Both keep the bigger half; only the seeded version keeps the other.
+    expect(biggest[40 * W + 40]).toBe(1)
+    expect(seeded[40 * W + 40]).toBe(1)
+    expect(biggest[80 * W + 40]).toBe(0)
+    expect(seeded[80 * W + 40]).toBe(1)
+  })
+
+  it('returns nothing when no block lands on the mask', () => {
+    expect([...seedComponents(split(), W, H, [[5, 5]])].some(Boolean)).toBe(false)
   })
 })

@@ -8,7 +8,7 @@
  * The pixel work lives in src/domain/imageSegment.ts and is pure; this file is
  * the messy half: tiles, canvases and Web Mercator.
  */
-import { growRegion, fillHoles, traceOutline, largestComponent, openMask } from '@/domain/imageSegment'
+import { growRegion, fillHoles, traceOutline, seedComponents, openMask } from '@/domain/imageSegment'
 import { convexHull, polygonArea, simplify } from '@/domain/fieldShape'
 import { medianSpacingM } from '@/domain/returnsMap'
 import type { SamplePoint } from '@/domain/returnsMap'
@@ -223,7 +223,11 @@ export async function detectFieldFromImagery(
   // Cut the threads first — a track or headland a few metres wide otherwise
   // ties this field to its neighbour and they count as one blob.
   const opened = openMask(grown.mask, W, H, Math.max(2, Math.round(12 / mPerPxNow)))
-  const main = largestComponent(opened, W, H)
+  // Then keep every piece holding a block. NOT just the largest: a field split
+  // by a track or a change in crop stage loses its smaller halves that way,
+  // taking their blocks with it — which reported as "left 25% of the blocks
+  // outside". A neighbouring field has no blocks in it, so it still goes.
+  const main = seedComponents(opened, W, H, seeds)
   const filled = fillHoles(main, W, H)
   const outlinePx = traceOutline(filled, W, H)
   if (outlinePx.length < 8) return { ok: false, reason: 'The traced edge was too small to be a field.' }

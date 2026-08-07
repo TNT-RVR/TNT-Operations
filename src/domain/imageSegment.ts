@@ -319,6 +319,70 @@ export function largestComponent(mask: Uint8Array, w: number, h: number): Uint8A
 }
 
 /**
+ * Keep every blob that contains at least one block, and drop the rest.
+ *
+ * Better than keeping the single largest blob. A field is often split into
+ * several pieces — a track through the middle, a strip of different crop
+ * stage, a centre pivot's dry wedge — and taking only the biggest throws the
+ * others away along with the blocks in them. But every real piece of THIS
+ * field has blocks sitting in it, and a neighbouring field has none, so the
+ * blocks themselves say which pieces belong.
+ */
+export function seedComponents(
+  mask: Uint8Array,
+  w: number,
+  h: number,
+  seeds: Array<[number, number]>,
+): Uint8Array {
+  const label = new Int32Array(w * h).fill(-1)
+  const queue = new Int32Array(w * h)
+  let next = 0
+
+  for (let start = 0; start < mask.length; start++) {
+    if (!mask[start] || label[start] >= 0) continue
+    const id = next++
+    let head = 0
+    let tail = 0
+    label[start] = id
+    queue[tail++] = start
+    while (head < tail) {
+      const idx = queue[head++]
+      const x = idx % w
+      const y = (idx / w) | 0
+      if (x > 0 && mask[idx - 1] && label[idx - 1] < 0) {
+        label[idx - 1] = id
+        queue[tail++] = idx - 1
+      }
+      if (x < w - 1 && mask[idx + 1] && label[idx + 1] < 0) {
+        label[idx + 1] = id
+        queue[tail++] = idx + 1
+      }
+      if (y > 0 && mask[idx - w] && label[idx - w] < 0) {
+        label[idx - w] = id
+        queue[tail++] = idx - w
+      }
+      if (y < h - 1 && mask[idx + w] && label[idx + w] < 0) {
+        label[idx + w] = id
+        queue[tail++] = idx + w
+      }
+    }
+  }
+
+  const keep = new Set<number>()
+  for (const [sx, sy] of seeds) {
+    const x = Math.round(sx)
+    const y = Math.round(sy)
+    if (x < 0 || y < 0 || x >= w || y >= h) continue
+    const id = label[y * w + x]
+    if (id >= 0) keep.add(id)
+  }
+
+  const out = new Uint8Array(w * h)
+  for (let i = 0; i < out.length; i++) if (label[i] >= 0 && keep.has(label[i])) out[i] = 1
+  return out
+}
+
+/**
  * Fill enclosed holes in a mask — a dugout, a bale stack or a bare patch that
  * the grow refused. They're inside the field even if they don't look like it.
  *

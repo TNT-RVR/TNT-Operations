@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QrCode } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
+import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Incubator, Inspection } from '@/data/types'
@@ -228,6 +229,17 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
           </p>
         )}
+
+        {/* Manual heat-pump control. Deliberately sits beneath the mode: the
+            two are related but NOT linked, and seeing them together is how a
+            contradiction between them gets noticed. */}
+        <AcControl
+          incubatorId={incubator.id}
+          deviceIdsRaw={incubator.sensiboDeviceId}
+          bandC={[d.tempMin, d.tempMax]}
+          canEdit={canEdit}
+        />
+
         {p && (
           <div>
             <div className="mb-1 flex justify-between text-xs text-muted">

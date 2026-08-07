@@ -46,6 +46,11 @@ export interface Incubator {
   humidityMax?: number | null
   /** Date the incubation run started (date-only from the old app). */
   incubationStart?: string | null
+  /**
+   * Sensibo device id(s) for this incubator's heat pump(s), comma-separated.
+   * An incubator can have more than one AC head, controlled together.
+   */
+  sensiboDeviceId?: string | null
   capacity?: number | null
 }
 

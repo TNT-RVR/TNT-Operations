@@ -59,6 +59,7 @@ export interface IncubatorRow {
   humidity_max?: number | string | null
   incubation_start?: string | null
   capacity?: number | string | null
+  sensibo_device_id?: string | null
 }
 
 export interface InspectionRow {
@@ -126,6 +127,7 @@ export function toIncubator(row: IncubatorRow): Incubator {
     humidityMax: numOrNull(row.humidity_max),
     incubationStart: row.incubation_start ?? null,
     capacity: numOrNull(row.capacity),
+    sensiboDeviceId: row.sensibo_device_id ?? null,
   }
 }
 
@@ -444,6 +446,7 @@ export function incubatorUpdate(patch: Partial<Incubator>): Record<string, unkno
   if (patch.humidityMax !== undefined) row.humidity_max = patch.humidityMax
   if (patch.incubationStart !== undefined) row.incubation_start = patch.incubationStart
   if (patch.capacity !== undefined) row.capacity = patch.capacity
+  if (patch.sensiboDeviceId !== undefined) row.sensibo_device_id = patch.sensiboDeviceId
   return row
 }
 

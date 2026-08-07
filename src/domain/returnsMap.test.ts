@@ -12,6 +12,7 @@ import {
   insideField,
   sampleGrid,
   matchFieldByGeometry,
+  fieldOutlineRing,
   type ReturnsGrid,
   type SamplePoint,
 } from './returnsMap'
@@ -524,5 +525,39 @@ describe('matchFieldByGeometry', () => {
   it('ignores fields with no geometry, and handles no samples', () => {
     expect(matchFieldByGeometry([{ id: 'x' }], inPivot)).toBeNull()
     expect(matchFieldByGeometry([PIVOT_FIELD], [])).toBeNull()
+  })
+})
+
+describe('fieldOutlineRing', () => {
+  it('turns a pivot into a closed circle', () => {
+    // A pivot is stored as a centre and a radius with no vertices at all, so
+    // there is nothing to draw until it's turned into one.
+    const ring = fieldOutlineRing(PIVOT)!
+    expect(ring.length).toBeGreaterThan(50)
+    expect(ring[0]).toEqual(ring[ring.length - 1]) // closed
+
+    // Every vertex sits at the stated radius from the centre.
+    const frame = fieldFrame(PIVOT)!
+    for (const [lng, lat] of ring) {
+      const dLat = (lat - frame.pivotLat) * 111_320
+      const dLng = (lng - frame.pivotLon) * 111_320 * Math.cos((lat * Math.PI) / 180)
+      expect(Math.hypot(dLat, dLng)).toBeCloseTo(frame.radius, -1)
+    }
+  })
+
+  it('returns a polygon boundary closed for drawing', () => {
+    const ring = fieldOutlineRing(SQUARE)!
+    // Four corners plus the repeated first point.
+    expect(ring).toHaveLength(5)
+    expect(ring[0]).toEqual(ring[4])
+  })
+
+  it('is null for a field with no geometry at all', () => {
+    expect(fieldOutlineRing({ use_bays: false })).toBeNull()
+  })
+
+  it('does not need any blocks', () => {
+    // The point of it: a field with nothing placed in it yet still draws.
+    expect(fieldOutlineRing(PIVOT)).not.toBeNull()
   })
 })

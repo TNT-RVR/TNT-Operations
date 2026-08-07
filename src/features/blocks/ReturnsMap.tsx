@@ -17,6 +17,7 @@ import {
   sampleGrid,
   matchFieldByGeometry,
   fieldContainment,
+  fieldOutlineRing,
   type ReturnsGrid,
   type SamplePoint,
 } from '@/domain/returnsMap'
@@ -32,6 +33,8 @@ const MARKER_FILL = '#FFFFFF' // token-exempt: map pin over imagery
 const MARKER_EDGE = '#111111' // token-exempt: map pin over imagery
 // Excluded points stay on the map in red so a removal is never silent.
 const MARKER_BAD = '#FF4D4F' // token-exempt: map pin over imagery
+// The field's own boundary, drawn over satellite imagery in both themes.
+const OUTLINE_COLOR = '#00CED1' // token-exempt: map line over imagery
 
 /**
  * Interpolated bee-return map — the job that used to mean exporting points,
@@ -81,20 +84,36 @@ export default function ReturnsMap() {
   const seasons = useMemo(() => seasonsOf(blockPlacements), [blockPlacements])
   const activeSeason = season ?? seasons[0] ?? new Date().getFullYear()
 
-  // Fields that actually have weighed blocks this season — no point offering
-  // a field the map would render empty for.
-  const fieldsWithData = useMemo(() => {
-    const ids = new Set(
-      blockPlacements
-        .filter((p) => p.season === activeSeason && p.lat != null && p.lng != null && beeReturnLbs(p) != null)
-        .map((p) => p.fieldId),
-    )
-    return fields.filter((f) => ids.has(f.id))
-  }, [fields, blockPlacements, activeSeason])
+  /** Which fields have weighed blocks this season — for labelling, not filtering. */
+  const fieldIdsWithData = useMemo(
+    () =>
+      new Set(
+        blockPlacements
+          .filter((p) => p.season === activeSeason && p.lat != null && p.lng != null && beeReturnLbs(p) != null)
+          .map((p) => p.fieldId),
+      ),
+    [blockPlacements, activeSeason],
+  )
+
+  /**
+   * EVERY field is offered, not only those with blocks. A field with no blocks
+   * yet still draws its boundary, which is what you want when setting a season
+   * up — seeing the ground before anything has been placed on it.
+   */
+  const selectableFields = useMemo(
+    () =>
+      [...fields].sort((a, b) => {
+        // Fields with data first, then alphabetically.
+        const ad = fieldIdsWithData.has(a.id) ? 0 : 1
+        const bd = fieldIdsWithData.has(b.id) ? 0 : 1
+        return ad - bd || a.name.localeCompare(b.name)
+      }),
+    [fields, fieldIdsWithData],
+  )
 
   useEffect(() => {
-    if (!fieldId && fieldsWithData.length) setFieldId(fieldsWithData[0].id)
-  }, [fieldsWithData, fieldId])
+    if (!fieldId && selectableFields.length) setFieldId(selectableFields[0].id)
+  }, [selectableFields, fieldId])
 
   const field = fields.find((f) => f.id === fieldId)
 
@@ -144,6 +163,16 @@ export default function ReturnsMap() {
   const effectiveClipId = clipFieldId === 'auto' ? (autoMatch?.fieldId ?? '') : clipFieldId
   /** A chosen field that holds almost none of the points is a mis-click. */
   const chosenShare = effectiveClipId ? (containment.get(effectiveClipId) ?? 0) : null
+
+  /**
+   * The selected field's recorded boundary, as a ring to draw. Independent of
+   * the surface: a field with no blocks still has an outline worth seeing.
+   */
+  const outline = useMemo(() => {
+    const clipField = effectiveClipId ? fields.find((f) => f.id === effectiveClipId) : null
+    const geom = (clipField?.geometry ?? field?.geometry) as FieldDict | undefined
+    return geom ? fieldOutlineRing(geom) : null
+  }, [fields, effectiveClipId, field])
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
@@ -334,9 +363,41 @@ export default function ReturnsMap() {
       // Clear the previous surface and points.
       if (map.getLayer('returns')) map.removeLayer('returns')
       if (map.getSource('returns')) map.removeSource('returns')
+      if (map.getLayer('field-outline')) map.removeLayer('field-outline')
+      if (map.getSource('field-outline')) map.removeSource('field-outline')
       for (const m of markersRef.current) m.remove()
       markersRef.current = []
-      if (!grid) return
+
+      // The field's own boundary, drawn whether or not there's a surface yet.
+      // Before any blocks exist this is the whole point of the screen: see the
+      // ground you're about to work.
+      if (outline) {
+        map.addSource('field-outline', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: outline },
+          },
+        })
+        map.addLayer({
+          id: 'field-outline',
+          type: 'line',
+          source: 'field-outline',
+          paint: { 'line-color': OUTLINE_COLOR, 'line-width': 2, 'line-dasharray': [3, 2] },
+        })
+      }
+
+      if (!grid) {
+        // No surface, but frame the field so it's actually on screen.
+        if (outline) {
+          map.resize()
+          const b = new maplibregl.LngLatBounds()
+          for (const c of outline) b.extend(c as [number, number])
+          map.fitBounds(b, { padding: 40, duration: 400 })
+        }
+        return
+      }
 
       // Never hand MapLibre a coordinate it will throw on: one bad row used to
       // crash the entire view with "Invalid LngLat latitude value".
@@ -392,7 +453,7 @@ export default function ReturnsMap() {
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [grid, active, cleaned, showPoints])
+  }, [grid, outline, active, cleaned, showPoints])
 
   function exportPng() {
     const map = mapRef.current
@@ -446,8 +507,11 @@ export default function ReturnsMap() {
           </Select>
           <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
             <option value="">Select a field…</option>
-            {fieldsWithData.map((f) => (
-              <option key={f.id} value={f.id}>{f.name}</option>
+            {selectableFields.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+                {fieldIdsWithData.has(f.id) ? '' : f.geometry ? ' — no blocks yet' : ' — no boundary'}
+              </option>
             ))}
           </Select>
           <label className="flex items-center gap-2 text-sm text-muted">
@@ -641,12 +705,14 @@ export default function ReturnsMap() {
             {sheet
               ? 'No usable rows in that file yet — check the column choices above.'
               : samples.length === 0
-                ? 'No weighed blocks with a location for this field and season yet. Place blocks, then weigh them full and empty — the map builds itself from that. Or load a spreadsheet above to test.'
+                ? outline
+                  ? `${field?.name ?? 'This field'} has no weighed blocks for ${activeSeason} yet, so its boundary is shown on its own. Place blocks, then weigh them full and empty, and the surface fills in.`
+                  : 'No weighed blocks with a location for this field and season yet. Place blocks, then weigh them full and empty — the map builds itself from that. Or load a spreadsheet above to test.'
                 : 'This field has no boundary or pivot set, so there’s nothing to interpolate across. Add its geometry on the Shelter Maps tab.'}
           </EmptyState>
         )}
 
-        <div className={`overflow-hidden rounded-lg border border-default ${grid ? '' : 'hidden'}`}>
+        <div className={`overflow-hidden rounded-lg border border-default ${grid || outline ? '' : 'hidden'}`}>
           <div ref={mapEl} className="h-[60vh] w-full" />
         </div>
 

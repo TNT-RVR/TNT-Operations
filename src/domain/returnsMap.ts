@@ -682,6 +682,35 @@ export function autoTrimM(samples: SamplePoint[], looseness = 2): number {
 }
 
 /**
+ * A field's own boundary as a closed lon/lat ring, for drawing it on a map.
+ *
+ * Works for both shapes the app records: a polygon boundary is returned as it
+ * stands, while a pivot — which is stored as a centre and a radius, with no
+ * vertices at all — is turned into a circle. Useful before any blocks exist,
+ * when there is a field to look at but no surface to draw.
+ */
+export function fieldOutlineRing(field: FieldDict, segments = 96): Array<[number, number]> | null {
+  const frame = fieldFrame(field)
+  if (!frame) return null
+
+  const ring = frame.boundaryEnu
+  if (ring && ring.length >= 3) {
+    const out = ring.map(([e, n]) => enuToLonLat(frame, e, n))
+    // Close the ring so a line layer draws the final side.
+    out.push(out[0])
+    return out
+  }
+
+  if (!(frame.radius > 0)) return null
+  const out: Array<[number, number]> = []
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2
+    out.push(enuToLonLat(frame, frame.radius * Math.cos(a), frame.radius * Math.sin(a)))
+  }
+  return out
+}
+
+/**
  * Whether a grid's corners are real places MapLibre will accept.
  *
  * The ENU projection is LOCAL: accurate over a field, meaningless over a

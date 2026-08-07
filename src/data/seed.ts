@@ -8,7 +8,23 @@ const BOW_LON = -111.52
 const BOW_DLAT = 0.0036 // ~ ±400 m
 const BOW_DLON = 0.0056
 
-export const seedFields: Field[] = [
+/**
+ * Real field boundaries, when someone has pulled them down locally.
+ *
+ * `scripts/fetch_local_fields.py` writes src/data/localFields.json from the
+ * live database; that file is git-excluded because it holds real client names
+ * and coordinates. When it is absent — the normal case, and always in CI —
+ * this resolves to nothing and only the demo fields are used.
+ *
+ * Loaded via import.meta.glob precisely BECAUSE it may not exist: a plain
+ * import of a missing module fails the build.
+ */
+const localFieldModules = import.meta.glob<{ default: Field[] }>('./localFields.json', { eager: true })
+const localFields: Field[] = Object.values(localFieldModules)[0]?.default ?? []
+
+/** The two demo fields. Kept alongside any real ones, because the seeded
+ *  blocks below are placed in them — dropping them would orphan that data. */
+const demoFields: Field[] = [
   {
     id: 'f1',
     name: 'Grassy Lake NW Pivot',
@@ -88,6 +104,12 @@ export const seedFields: Field[] = [
   // Summary-only field (no geometry yet) — the map shows an "import needed" state.
   { id: 'f3', name: 'Taber South Pivot', client: 'Demo Seed Co.', region: 'Taber, AB', shapeType: 'pivot', shelterCount: 30, updatedAt: '2026-07-20T13:10:00Z' },
 ]
+
+/**
+ * Demo fields first so the seeded blocks (placed in f1/f2) still resolve, then
+ * any real boundaries pulled down locally.
+ */
+export const seedFields: Field[] = [...demoFields, ...localFields]
 
 export const seedIncubators: Incubator[] = [
   { id: 'i1', name: 'Incubator A', location: 'Shop — north wall', status: 'active', startedAt: '2026-07-10T06:00:00Z', tempTargetC: 30, humidityTargetPct: 55, tempMode: 'incubation', humidityMin: 55, humidityMax: 75, incubationStart: '2026-07-10' },

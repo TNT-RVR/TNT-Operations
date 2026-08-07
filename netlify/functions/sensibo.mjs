@@ -87,7 +87,22 @@ async function getState(apiKey, deviceId) {
 
 export default async (req) => {
   const apiKey = process.env.SENSIBO_API_KEY
-  if (!apiKey) return json({ error: 'Sensibo is not configured (SENSIBO_API_KEY)' }, 500)
+  if (!apiKey) {
+    // Say WHICH kind of missing. A variable added in Netlify only reaches a
+    // function on the NEXT deploy, and can also be scoped to builds only or to
+    // a different deploy context — three different fixes that look identical
+    // from here. Whether the function can see OTHER server-side variables
+    // separates "env not applied yet" from "this one is wrong".
+    const otherEnvVisible = !!(process.env.SUPABASE_SERVICE_ROLE || process.env.GOVEE_API_KEY)
+    return json(
+      {
+        error: otherEnvVisible
+          ? 'SENSIBO_API_KEY is missing, though other server keys are visible — check the name is exactly SENSIBO_API_KEY, and that its scope includes Functions and the Production context.'
+          : 'No server keys are visible to this function at all, which usually means the site has not been redeployed since they were added. Trigger a deploy in Netlify.',
+      },
+      500,
+    )
+  }
 
   const who = await identify(req)
   if (who.error) return who.error

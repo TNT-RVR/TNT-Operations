@@ -249,17 +249,6 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             </Link>
           )}
         </div>
-        {/* The cloud poller reads this mode to decide how often to log readings. */}
-        {canEdit && (
-          <p className="-mt-3 text-xs text-faint">
-            {d.running
-              ? incubator.incubationStart
-                ? 'Running — sensors logged every 15 minutes; milestones scheduled from the start date.'
-                : 'Running — sensors logged every 15 minutes. Set a start date so the calendar can schedule milestones.'
-              : 'Off — sensors are only checked every 6 hours. Set the mode when you start a run so readings are logged properly.'}
-          </p>
-        )}
-
         {/* Manual heat-pump control. Deliberately sits beneath the mode: the
             two are related but NOT linked, and seeing them together is how a
             contradiction between them gets noticed. */}

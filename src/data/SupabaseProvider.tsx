@@ -91,6 +91,39 @@ import {
  * session the queries return empty by design. Wiring auth into `useSession()`
  * is the Phase 3 follow-up (see supabase/README.md).
  */
+
+/** How many rows PostgREST will return in one request unless told otherwise. */
+const PAGE_SIZE = 1000
+
+/**
+ * Read an entire table, a page at a time.
+ *
+ * PostgREST caps a select at 1000 rows and reports NO error when it truncates
+ * — the request simply succeeds with the first page. Anything that can outgrow
+ * a thousand rows has to be paged, or it silently shows part of the data and
+ * looks like data loss to whoever counted.
+ */
+async function fetchAllRows<T>(
+  table: string,
+  order: { column: string; ascending: boolean },
+): Promise<{ rows: T[]; error?: string }> {
+  if (!supabase) return { rows: [], error: 'No backend connection.' }
+  const rows: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order(order.column, { ascending: order.ascending })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) return { rows, error: error.message }
+    const page = (data as T[]) ?? []
+    rows.push(...page)
+    // A short page is the last page. Stop on an exact multiple too — one extra
+    // empty request is cheaper than a truncated list nobody notices.
+    if (page.length < PAGE_SIZE) return { rows }
+  }
+}
+
 export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>([])
   const [incubators, setIncubators] = useState<Incubator[]>([])
@@ -619,16 +652,19 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         setBlocksLoading(true)
         const run = (async () => {
           // Both tables in parallel — the screen needs them together anyway.
+          // PAGED: PostgREST caps a select at 1000 rows and returns the first
+          // page with NO error, so an unpaged fetch silently truncates. With
+          // ~1,700 blocks a season that quietly hid a third of them.
           const [b, p] = await Promise.all([
-            supabase!.from('blocks').select('*').order('label', { ascending: true }),
-            supabase!.from('block_placements').select('*').order('season', { ascending: false }),
+            fetchAllRows<BlockRow>('blocks', { column: 'label', ascending: true }),
+            fetchAllRows<BlockPlacementRow>('block_placements', { column: 'season', ascending: false }),
           ])
           if (b.error || p.error) {
-            console.error('[data] loadBlocks:', b.error?.message ?? p.error?.message)
+            console.error('[data] loadBlocks:', b.error ?? p.error)
             blocksPromiseRef.current = null // let it retry
           } else {
-            setBlocks(((b.data as BlockRow[]) ?? []).map(toBlock))
-            setBlockPlacements(((p.data as BlockPlacementRow[]) ?? []).map(toBlockPlacement))
+            setBlocks(b.rows.map(toBlock))
+            setBlockPlacements(p.rows.map(toBlockPlacement))
           }
           setBlocksLoading(false)
         })()

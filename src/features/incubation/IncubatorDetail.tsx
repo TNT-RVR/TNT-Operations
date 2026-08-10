@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { QrCode, RefreshCw } from 'lucide-react'
+import { QrCode, RefreshCw, ClipboardPen } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
 import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
@@ -115,6 +115,12 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   /** Target text for the current mode; an off incubator shows none. */
   const targetLabel = d.running ? fmtRange(d.tempMin, d.tempMax, '°C', `${incubator.tempTargetC}°C`) : '—'
 
+  /**
+   * The inspection form is a screenful of controls used a couple of times a
+   * day, on a screen people open all day to read numbers. Folded away behind a
+   * button until someone actually means to log one.
+   */
+  const [logging, setLogging] = useState(false)
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
   const [heatPumpsOk, setHeatPumpsOk] = useState(true)
@@ -187,6 +193,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
     setBeesEmerging(false)
     setParasitesEmerging(false)
     setObservations([])
+    setLogging(false)
   }
 
   return (
@@ -310,9 +317,20 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
         </section>
 
         {/* Add inspection */}
-        {canEdit && (
+        {canEdit && !logging && (
+          <button className="btn-ghost w-full justify-center" onClick={() => setLogging(true)}>
+            <ClipboardPen size={16} className="mr-2 inline" />
+            Log an inspection
+          </button>
+        )}
+        {canEdit && logging && (
           <section className="rounded-lg bg-overlay p-3">
-            <h3 className="mb-2 font-semibold">Log an inspection</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="font-semibold">Log an inspection</h3>
+              <button className="text-xs text-muted underline" onClick={() => setLogging(false)}>
+                Cancel
+              </button>
+            </div>
             <div className="flex flex-wrap items-end gap-3">
               <label className="block">
                 <span className="label">Period</span>

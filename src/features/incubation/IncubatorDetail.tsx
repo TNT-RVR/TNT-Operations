@@ -64,15 +64,19 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
     .filter((i) => i.incubatorId === incubator.id)
     .sort((a, b) => b.at.localeCompare(a.at))
   /**
-   * This run only. Inspections aren't tied to a run, so the start date is the
-   * boundary: without it last season's rounds sit above this morning's with
-   * nothing to say they belong to different bees.
+   * The history boundary. Inspections aren't tied to a run, so without one
+   * last season's rounds sit above this morning's with nothing to say they
+   * belong to different bees.
    *
-   * An incubator with no start date has no boundary to draw, so it shows
-   * everything rather than nothing.
+   * The run's start date when there is one; otherwise the season, since every
+   * incubator here currently runs with no start date set and "no boundary"
+   * meant the whole list came back.
    */
+  const seasonStart = `${new Date().getFullYear()}-01-01T00:00:00.000Z`
   const runStart = incubator.incubationStart ?? null
-  const sinceRun = runStart ? allMine.filter((i) => i.at >= runStart) : allMine
+  const boundary = runStart ?? seasonStart
+  const scopeLabel = runStart ? 'this run' : 'this season'
+  const sinceRun = allMine.filter((i) => i.at >= boundary)
   const earlierCount = allMine.length - sinceRun.length
   const myReadings = readings.filter((r) => r.incubatorId === incubator.id)
   const latest = latestReading(incubator.id)
@@ -522,8 +526,8 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           <div className="mb-2 flex items-baseline justify-between gap-2">
             <h3 className="font-semibold">
               Inspection history
-              {runStart && !showEarlierRuns && (
-                <span className="ml-2 text-xs font-normal text-faint">this run</span>
+              {!showEarlierRuns && (
+                <span className="ml-2 text-xs font-normal text-faint">{scopeLabel}</span>
               )}
             </h3>
             <span className="flex items-center gap-3">
@@ -540,7 +544,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   className="text-xs text-muted underline"
                   onClick={() => setShowEarlierRuns((v) => !v)}
                 >
-                  {showEarlierRuns ? 'This run only' : `${earlierCount} from earlier runs`}
+                  {showEarlierRuns ? `${scopeLabel === 'this run' ? 'This run' : 'This season'} only` : `${earlierCount} earlier`}
                 </button>
               )}
             </span>
@@ -548,7 +552,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           {mine.length === 0 ? (
             <p className="text-sm text-muted">
               {earlierCount > 0
-                ? 'Nothing logged since this run started.'
+                ? `Nothing logged ${runStart ? 'since this run started' : 'this season'}.`
                 : 'No inspections logged yet.'}
             </p>
           ) : (

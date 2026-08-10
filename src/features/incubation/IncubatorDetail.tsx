@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { QrCode, RefreshCw, ClipboardPen } from 'lucide-react'
+import { QrCode, RefreshCw, ClipboardPen, ChevronDown } from 'lucide-react'
 import { Modal, Badge, Gauge } from '@/components/ui'
 import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
@@ -38,6 +38,9 @@ function healthTone(score: number): 'green' | 'amber' | 'red' {
 }
 
 /** Compact status chips for an inspection: red for problems, info for emergence. */
+/** How many inspections show before "show all". A week of twice-daily rounds. */
+const INSPECTION_PREVIEW = 5
+
 function inspectionChips(i: Inspection) {
   const chips: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = []
   if (i.heatPumpsOk === false) chips.push({ label: 'Heat pumps', tone: 'red' })
@@ -121,6 +124,10 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
    * button until someone actually means to log one.
    */
   const [logging, setLogging] = useState(false)
+  /** Which past inspection is expanded, if any. One line each until asked. */
+  const [openInspection, setOpenInspection] = useState<string | null>(null)
+  /** History is capped until someone asks for the rest. */
+  const [showAllInspections, setShowAllInspections] = useState(false)
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
   const [heatPumpsOk, setHeatPumpsOk] = useState(true)
@@ -493,56 +500,88 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           </section>
         )}
 
-        {/* Inspection history */}
+        {/* Inspection history — one line each, details on click. Every
+            inspection fully expanded turned a season into a wall of text. */}
         <section>
-          <h3 className="mb-2 font-semibold">Inspection history</h3>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <h3 className="font-semibold">Inspection history</h3>
+            {mine.length > INSPECTION_PREVIEW && (
+              <button
+                className="text-xs text-muted underline"
+                onClick={() => setShowAllInspections((v) => !v)}
+              >
+                {showAllInspections ? 'Show recent' : `Show all ${mine.length}`}
+              </button>
+            )}
+          </div>
           {mine.length === 0 ? (
             <p className="text-sm text-muted">No inspections logged yet.</p>
           ) : (
             <ul className="divide-y divide-subtle rounded-lg border border-subtle">
-              {mine.map((i) => (
-                <li key={i.id} className="px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {i.period && <Badge tone="brand">{i.period}</Badge>}
-                    {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
-                    {i.thermometerTempC != null && (
-                      <span className="text-xs text-secondary">
-                        therm {formatTemp(i.thermometerTempC)}
-                        {i.goveeTempC != null && <> · govee {formatTemp(i.goveeTempC)}</>}
-                        {i.tempDiffC != null && (
-                          <>
-                            {' · Δ '}
-                            <span className={i.tempAlert ? 'font-semibold text-danger' : 'text-muted'}>
-                              {i.tempDiffC > 0 ? '+' : ''}
-                              {i.tempDiffC}°C
-                            </span>
-                          </>
-                        )}
-                      </span>
-                    )}
-                    {inspectionChips(i)}
-                  </div>
-                  {i.notes && <div className="mt-1 text-sm text-primary">{i.notes}</div>}
-                  {/* Trays examined during this inspection. */}
-                  {trayInspections
-                    .filter((t) => t.inspectionId === i.id)
-                    .map((t) => (
-                      <div key={t.id} className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <span className="font-mono text-secondary">{t.trayNumber}</span>
-                        <span>
-                          {t.stackPosition} / {t.depthPosition}
-                          {t.cellsOpened != null ? ` · ${t.cellsOpened} cells` : ''}
+              {(showAllInspections ? mine : mine.slice(0, INSPECTION_PREVIEW)).map((i) => {
+                const trays = trayInspections.filter((t) => t.inspectionId === i.id)
+                const open = openInspection === i.id
+                return (
+                  <li key={i.id}>
+                    <button
+                      className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left hover:bg-overlay"
+                      onClick={() => setOpenInspection(open ? null : i.id)}
+                    >
+                      <span className="text-xs text-faint">{fmtWhen(i.at)}</span>
+                      {i.period && <Badge tone="brand">{i.period}</Badge>}
+                      {/* Older imported inspections carry a health score; the
+                          form no longer collects one, so this is history only. */}
+                      {i.healthScore > 0 && <Badge tone={healthTone(i.healthScore)}>{i.healthScore}</Badge>}
+                      {/* The temperature disagreement is the one number worth
+                          seeing without opening anything — it is what says the
+                          sensor and the thermometer no longer agree. */}
+                      {i.tempDiffC != null && (
+                        <span className={i.tempAlert ? 'text-xs font-semibold text-danger' : 'text-xs text-muted'}>
+                          Δ {i.tempDiffC > 0 ? '+' : ''}
+                          {i.tempDiffC}°C
                         </span>
-                        <span className="text-secondary">{t.devStage}</span>
-                        {t.notes && <span>“{t.notes}”</span>}
+                      )}
+                      {inspectionChips(i)}
+                      {trays.length > 0 && (
+                        <span className="text-xs text-faint">
+                          {trays.length} tray{trays.length === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {i.notes && !open && (
+                        <span className="min-w-0 flex-1 truncate text-xs text-secondary">{i.notes}</span>
+                      )}
+                      <ChevronDown
+                        size={14}
+                        className={`ml-auto shrink-0 text-faint transition-transform ${open ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {open && (
+                      <div className="px-3 pb-2">
+                        {i.thermometerTempC != null && (
+                          <div className="text-xs text-secondary">
+                            therm {formatTemp(i.thermometerTempC)}
+                            {i.goveeTempC != null && <> · govee {formatTemp(i.goveeTempC)}</>}
+                          </div>
+                        )}
+                        {i.notes && <div className="mt-1 text-sm text-primary">{i.notes}</div>}
+                        {trays.map((t) => (
+                          <div key={t.id} className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <span className="font-mono text-secondary">{t.trayNumber}</span>
+                            <span>
+                              {t.stackPosition} / {t.depthPosition}
+                              {t.cellsOpened != null ? ` · ${t.cellsOpened} cells` : ''}
+                            </span>
+                            <span className="text-secondary">{t.devStage}</span>
+                            {t.notes && <span>“{t.notes}”</span>}
+                          </div>
+                        ))}
+                        {i.inspector && <div className="mt-1 text-xs text-faint">{i.inspector}</div>}
                       </div>
-                    ))}
-                  <div className="mt-0.5 text-xs text-faint">
-                    {fmtWhen(i.at)}
-                    {i.inspector ? ` · ${i.inspector}` : ''}
-                  </div>
-                </li>
-              ))}
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>

@@ -191,6 +191,8 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
     ok: boolean
     created: boolean
     error?: string
+    /** The saved placement, so the scan screen can offer to undo it. */
+    placementId?: string
     /**
      * The field this block was in BEFORE, when a re-scan has just moved it.
      * Null when nothing moved. Surfaced because a whole field can be walked
@@ -199,6 +201,12 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
      */
     movedFromFieldId?: string | null
   }>
+  /**
+   * Undo a placement scan: delete the row, and the block registration too when
+   * that scan is what created it. Refuses once the block has been weighed —
+   * that is no longer an undo, it is deleting a season's data.
+   */
+  undoPlacement: (placementId: string) => Promise<{ ok: boolean; blockRemoved?: boolean; error?: string }>
   /**
    * Scans 2 and 3 — weigh a block full (`retrieve`) then empty (`strip`).
    * Bee return is the difference, computed on read.

@@ -122,9 +122,21 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
    * independent of the auth provider — the seam rule cuts both ways.
    */
   const [userId, setUserId] = useState<string | null>(null)
+  /**
+   * A human-readable name for the signed-in user, stamped on scans so a
+   * placement says who put the block out. Name if the profile has one, e-mail
+   * otherwise — a bare uuid in a field crew's audit trail helps nobody.
+   */
+  const [userLabel, setUserLabel] = useState<string | null>(null)
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null))
+    void supabase.auth.getUser().then(async ({ data }) => {
+      const u = data.user ?? null
+      setUserId(u?.id ?? null)
+      if (!u) return setUserLabel(null)
+      const { data: prof } = await supabase!.from('profiles').select('name').eq('id', u.id).maybeSingle()
+      setUserLabel((prof as { name?: string } | null)?.name?.trim() || u.email || null)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
       setUserId(session?.user?.id ?? null),
     )
@@ -802,7 +814,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const { data, error } = existing
           ? await supabase
               .from('block_placements')
-              .update({ field_id: fieldId, lat, lon: lng })
+              .update({ field_id: fieldId, lat, lon: lng, placed_by: userLabel })
               .eq('id', existing.id)
               .select()
               .single()
@@ -818,6 +830,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
                   lat,
                   lon: lng,
                   placed_at: new Date().toISOString(),
+                  placed_by: userLabel,
                 },
                 { onConflict: 'block_id,season' },
               )
@@ -827,13 +840,54 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           console.error('[data] placeBlock:', error.message)
           return { ok: false, created: false, error: error.message }
         }
-        upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
+        const saved = toBlockPlacement(data as BlockPlacementRow)
+        upsertPlacement(saved)
         return {
           ok: true,
           created: isNewBlock || !existing,
+          placementId: saved.id,
           movedFromFieldId:
             existing && existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
         }
+      },
+
+      undoPlacement: async (placementId: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const placement = blockPlacements.find((x) => x.id === placementId)
+        if (!placement) return { ok: false, error: 'That scan is no longer in the system.' }
+        // Undo removes a SCAN, not a season of work. A placement carrying
+        // weights has been through a weigh-in since, and deleting it would
+        // throw away the numbers the whole returns map is built on.
+        if (placement.grossWeightLbs != null || placement.strippedWeightLbs != null) {
+          return { ok: false, error: 'This block has been weighed since — undo would delete the weights.' }
+        }
+
+        const { error } = await supabase.from('block_placements').delete().eq('id', placementId)
+        if (error) {
+          console.error('[data] undoPlacement:', error.message)
+          return { ok: false, error: error.message }
+        }
+        setBlockPlacements((prev) => prev.filter((x) => x.id !== placementId))
+
+        // A label first seen by this scan leaves a block registered to nothing
+        // once its placement is gone. Clear it too, so undoing really does undo
+        // — but only when no other season is using it.
+        const others = blockPlacements.filter(
+          (x) => x.blockId === placement.blockId && x.id !== placementId,
+        )
+        let blockRemoved = false
+        if (others.length === 0) {
+          const { error: bErr } = await supabase.from('blocks').delete().eq('id', placement.blockId)
+          if (bErr) {
+            // The placement is already gone; a stranded label is untidy, not
+            // wrong, so this reports rather than pretending the undo failed.
+            console.warn('[data] undoPlacement/block:', bErr.message)
+          } else {
+            blockRemoved = true
+            setBlocks((prev) => prev.filter((b) => b.id !== placement.blockId))
+          }
+        }
+        return { ok: true, blockRemoved }
       },
 
       weighBlock: async ({ label, stage, weightLbs, season }) => {
@@ -852,8 +906,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const now = new Date().toISOString()
         const patch =
           stage === 'retrieve'
-            ? { retrieved_at: now, gross_weight_lbs: weightLbs }
-            : { stripped_at: now, stripped_weight_lbs: weightLbs }
+            ? { retrieved_at: now, gross_weight_lbs: weightLbs, retrieved_by: userLabel }
+            : { stripped_at: now, stripped_weight_lbs: weightLbs, stripped_by: userLabel }
 
         const { data, error } = await supabase
           .from('block_placements')

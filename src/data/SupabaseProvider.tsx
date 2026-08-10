@@ -16,6 +16,7 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  BlockSeason,
   Grant,
   GrantTask,
   FieldAnalysis,
@@ -91,6 +92,41 @@ import {
  * session the queries return empty by design. Wiring auth into `useSession()`
  * is the Phase 3 follow-up (see supabase/README.md).
  */
+
+/** How many rows PostgREST will return in one request unless told otherwise. */
+const PAGE_SIZE = 1000
+
+/**
+ * Read an entire table, a page at a time.
+ *
+ * PostgREST caps a select at 1000 rows and reports NO error when it truncates
+ * — the request simply succeeds with the first page. Anything that can outgrow
+ * a thousand rows has to be paged, or it silently shows part of the data and
+ * looks like data loss to whoever counted.
+ */
+async function fetchAllRows<T>(
+  table: string,
+  order: { column: string; ascending: boolean },
+  filter?: { column: string; value: unknown } | { column: string; in: string[] },
+): Promise<{ rows: T[]; error?: string }> {
+  if (!supabase) return { rows: [], error: 'No backend connection.' }
+  const rows: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    let q = supabase.from(table).select('*')
+    if (filter && 'in' in filter) q = q.in(filter.column, filter.in)
+    else if (filter) q = q.eq(filter.column, filter.value)
+    const { data, error } = await q
+      .order(order.column, { ascending: order.ascending })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) return { rows, error: error.message }
+    const page = (data as T[]) ?? []
+    rows.push(...page)
+    // A short page is the last page. Stop on an exact multiple too — one extra
+    // empty request is cheaper than a truncated list nobody notices.
+    if (page.length < PAGE_SIZE) return { rows }
+  }
+}
+
 export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>([])
   const [incubators, setIncubators] = useState<Incubator[]>([])
@@ -110,6 +146,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [blocks, setBlocks] = useState<Block[]>([])
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>([])
   const [blocksLoading, setBlocksLoading] = useState(false)
+  /** One row per season (see migration 0021) — fills the season picker without
+   *  loading a single placement. */
+  const [blockSeasons, setBlockSeasons] = useState<BlockSeason[]>([])
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -122,9 +161,21 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
    * independent of the auth provider — the seam rule cuts both ways.
    */
   const [userId, setUserId] = useState<string | null>(null)
+  /**
+   * A human-readable name for the signed-in user, stamped on scans so a
+   * placement says who put the block out. Name if the profile has one, e-mail
+   * otherwise — a bare uuid in a field crew's audit trail helps nobody.
+   */
+  const [userLabel, setUserLabel] = useState<string | null>(null)
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null))
+    void supabase.auth.getUser().then(async ({ data }) => {
+      const u = data.user ?? null
+      setUserId(u?.id ?? null)
+      if (!u) return setUserLabel(null)
+      const { data: prof } = await supabase!.from('profiles').select('name').eq('id', u.id).maybeSingle()
+      setUserLabel((prof as { name?: string } | null)?.name?.trim() || u.email || null)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) =>
       setUserId(session?.user?.id ?? null),
     )
@@ -136,8 +187,11 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const loadedSinceRef = useRef<Map<string, string>>(new Map())
   /** Guards the one-shot tray fetch against every screen calling it at once. */
   const traysPromiseRef = useRef<Promise<void> | null>(null)
-  /** Same one-shot guard for blocks — several screens call loadBlocks(). */
-  const blocksPromiseRef = useRef<Promise<void> | null>(null)
+  /**
+   * One in-flight guard PER SEASON — several screens call loadBlocks() on
+   * mount, and each season is fetched once.
+   */
+  const blocksPromiseRef = useRef<Map<number, Promise<void>>>(new Map())
   /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
   const analysisPromiseRef = useRef<Promise<void> | null>(null)
   /**
@@ -206,6 +260,26 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Which block seasons exist. One row per season, so this is cheap even
+      // when a season holds 14,000 blocks.
+      const bs = await sb.from('block_seasons').select('*').order('season', { ascending: false })
+      if (cancelled) return
+      if (bs.error) {
+        // Before migration 0021 the view doesn't exist. Not fatal: the screens
+        // fall back to the seasons of whatever placements are loaded.
+        console.warn('[data] load block_seasons:', bs.error.message)
+      } else {
+        setBlockSeasons(
+          ((bs.data as Array<{ season: number; placed: number; retrieved: number; stripped: number }>) ?? [])
+            .map((r) => ({
+              season: Number(r.season),
+              placed: Number(r.placed ?? 0),
+              retrieved: Number(r.retrieved ?? 0),
+              stripped: Number(r.stripped ?? 0),
+            })),
+        )
+      }
 
       // Incubation alert history (the old app's rules). Newest first, capped —
       // this is a log, so the most recent season is what matters.
@@ -601,27 +675,86 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       blocks,
       blockPlacements,
       blocksLoading,
-      loadBlocks: () => {
-        if (blocksPromiseRef.current) return blocksPromiseRef.current
+      loadBlocks: (season?: number) => {
+        const yr = season ?? new Date().getFullYear()
+        // Already have it? Nothing to do. Screens call this on every mount.
+        const inFlight = blocksPromiseRef.current.get(yr)
+        if (inFlight) return inFlight
         if (!supabase) return Promise.resolve()
         setBlocksLoading(true)
         const run = (async () => {
-          // Both tables in parallel — the screen needs them together anyway.
-          const [b, p] = await Promise.all([
-            supabase!.from('blocks').select('*').order('label', { ascending: true }),
-            supabase!.from('block_placements').select('*').order('season', { ascending: false }),
-          ])
-          if (b.error || p.error) {
-            console.error('[data] loadBlocks:', b.error?.message ?? p.error?.message)
-            blocksPromiseRef.current = null // let it retry
-          } else {
-            setBlocks(((b.data as BlockRow[]) ?? []).map(toBlock))
-            setBlockPlacements(((p.data as BlockPlacementRow[]) ?? []).map(toBlockPlacement))
+          // ONE SEASON AT A TIME. A big season runs to ~14,000 blocks, so
+          // "fetch everything and filter in the browser" would mean tens of
+          // thousands of rows on a phone in a field to look at one year.
+          const p = await fetchAllRows<BlockPlacementRow>(
+            'block_placements',
+            { column: 'season', ascending: false },
+            { column: 'season', value: yr },
+          )
+          if (p.error) {
+            console.error('[data] loadBlocks/placements:', p.error)
+            blocksPromiseRef.current.delete(yr) // let it retry
+            setBlocksLoading(false)
+            return
           }
+          const placements = p.rows.map(toBlockPlacement)
+
+          // Only the blocks these placements point at. The registry spans
+          // every season a label has ever been used, and this screen needs the
+          // labels for THIS one. Requested in chunks because a few thousand ids
+          // in a URL is a request no server will accept.
+          const wanted = [...new Set(placements.map((x) => x.blockId))].filter(Boolean)
+          const CHUNK = 200
+          const blockRows: BlockRow[] = []
+          for (let i = 0; i < wanted.length; i += CHUNK) {
+            const got = await fetchAllRows<BlockRow>(
+              'blocks',
+              { column: 'label', ascending: true },
+              { column: 'id', in: wanted.slice(i, i + CHUNK) },
+            )
+            if (got.error) {
+              console.error('[data] loadBlocks/blocks:', got.error)
+              blocksPromiseRef.current.delete(yr)
+              setBlocksLoading(false)
+              return
+            }
+            blockRows.push(...got.rows)
+          }
+
+          // MERGE, never replace: another season may already be loaded, and
+          // dropping it would make switching seasons wipe the previous one.
+          setBlockPlacements((prev) => {
+            const byId = new Map(prev.map((x) => [x.id, x]))
+            for (const x of placements) byId.set(x.id, x)
+            return [...byId.values()]
+          })
+          setBlocks((prev) => {
+            const byId = new Map(prev.map((b) => [b.id, b]))
+            for (const b of blockRows.map(toBlock)) byId.set(b.id, b)
+            return [...byId.values()].sort((a, z) => a.label.localeCompare(z.label))
+          })
           setBlocksLoading(false)
         })()
-        blocksPromiseRef.current = run
+        blocksPromiseRef.current.set(yr, run)
         return run
+      },
+
+      blockSeasons,
+
+      loadBlockHistory: async (blockId: string) => {
+        if (!supabase || !blockId) return
+        const { data, error } = await supabase
+          .from('block_placements')
+          .select('*')
+          .eq('block_id', blockId)
+          .order('season', { ascending: false })
+        if (error) return console.error('[data] loadBlockHistory:', error.message)
+        const rows = ((data as BlockPlacementRow[]) ?? []).map(toBlockPlacement)
+        setBlockPlacements((prev) => {
+          const byId = new Map(prev.map((x) => [x.id, x]))
+          for (const x of rows) byId.set(x.id, x)
+          return [...byId.values()]
+        })
       },
 
       // ── Season analysis ───────────────────────────────────────────────────
@@ -802,7 +935,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const { data, error } = existing
           ? await supabase
               .from('block_placements')
-              .update({ field_id: fieldId, lat, lon: lng })
+              .update({ field_id: fieldId, lat, lon: lng, placed_by: userLabel })
               .eq('id', existing.id)
               .select()
               .single()
@@ -818,6 +951,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
                   lat,
                   lon: lng,
                   placed_at: new Date().toISOString(),
+                  placed_by: userLabel,
                 },
                 { onConflict: 'block_id,season' },
               )
@@ -827,13 +961,54 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           console.error('[data] placeBlock:', error.message)
           return { ok: false, created: false, error: error.message }
         }
-        upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
+        const saved = toBlockPlacement(data as BlockPlacementRow)
+        upsertPlacement(saved)
         return {
           ok: true,
           created: isNewBlock || !existing,
+          placementId: saved.id,
           movedFromFieldId:
             existing && existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
         }
+      },
+
+      undoPlacement: async (placementId: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const placement = blockPlacements.find((x) => x.id === placementId)
+        if (!placement) return { ok: false, error: 'That scan is no longer in the system.' }
+        // Undo removes a SCAN, not a season of work. A placement carrying
+        // weights has been through a weigh-in since, and deleting it would
+        // throw away the numbers the whole returns map is built on.
+        if (placement.grossWeightLbs != null || placement.strippedWeightLbs != null) {
+          return { ok: false, error: 'This block has been weighed since — undo would delete the weights.' }
+        }
+
+        const { error } = await supabase.from('block_placements').delete().eq('id', placementId)
+        if (error) {
+          console.error('[data] undoPlacement:', error.message)
+          return { ok: false, error: error.message }
+        }
+        setBlockPlacements((prev) => prev.filter((x) => x.id !== placementId))
+
+        // A label first seen by this scan leaves a block registered to nothing
+        // once its placement is gone. Clear it too, so undoing really does undo
+        // — but only when no other season is using it.
+        const others = blockPlacements.filter(
+          (x) => x.blockId === placement.blockId && x.id !== placementId,
+        )
+        let blockRemoved = false
+        if (others.length === 0) {
+          const { error: bErr } = await supabase.from('blocks').delete().eq('id', placement.blockId)
+          if (bErr) {
+            // The placement is already gone; a stranded label is untidy, not
+            // wrong, so this reports rather than pretending the undo failed.
+            console.warn('[data] undoPlacement/block:', bErr.message)
+          } else {
+            blockRemoved = true
+            setBlocks((prev) => prev.filter((b) => b.id !== placement.blockId))
+          }
+        }
+        return { ok: true, blockRemoved }
       },
 
       weighBlock: async ({ label, stage, weightLbs, season }) => {
@@ -852,8 +1027,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const now = new Date().toISOString()
         const patch =
           stage === 'retrieve'
-            ? { retrieved_at: now, gross_weight_lbs: weightLbs }
-            : { stripped_at: now, stripped_weight_lbs: weightLbs }
+            ? { retrieved_at: now, gross_weight_lbs: weightLbs, retrieved_by: userLabel }
+            : { stripped_at: now, stripped_weight_lbs: weightLbs, stripped_by: userLabel }
 
         const { data, error } = await supabase
           .from('block_placements')

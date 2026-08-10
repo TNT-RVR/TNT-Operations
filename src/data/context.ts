@@ -15,6 +15,7 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  BlockSeason,
   Grant,
   GrantTask,
   FieldAnalysis,
@@ -168,8 +169,26 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   /** Per-season block records. Loaded alongside `blocks`. */
   blockPlacements: BlockPlacement[]
   blocksLoading: boolean
-  /** Fetch blocks and placements once. Idempotent — safe to call anywhere. */
-  loadBlocks: () => Promise<void>
+  /**
+   * Fetch ONE season of placements (defaults to the current year) and the
+   * blocks they refer to, merging into what's already loaded. Idempotent per
+   * season — safe to call from every screen on every mount.
+   *
+   * Season-scoped because a big season runs to ~14,000 blocks: loading every
+   * season to look at one would put tens of thousands of rows on a phone.
+   */
+  loadBlocks: (season?: number) => Promise<void>
+  /**
+   * Which seasons exist and how many blocks are in each — from a view, so the
+   * season picker costs one small request instead of a season of rows.
+   */
+  blockSeasons: BlockSeason[]
+  /**
+   * Every season of one block, for its history view. Needed because the lists
+   * only load the season on screen — without this, a block's history would
+   * show the year you happened to be looking at and call it the whole story.
+   */
+  loadBlockHistory: (blockId: string) => Promise<void>
   /**
    * Scan 1 — put a block out in a field. Captures where it is and when.
    *
@@ -191,6 +210,8 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
     ok: boolean
     created: boolean
     error?: string
+    /** The saved placement, so the scan screen can offer to undo it. */
+    placementId?: string
     /**
      * The field this block was in BEFORE, when a re-scan has just moved it.
      * Null when nothing moved. Surfaced because a whole field can be walked
@@ -199,6 +220,12 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
      */
     movedFromFieldId?: string | null
   }>
+  /**
+   * Undo a placement scan: delete the row, and the block registration too when
+   * that scan is what created it. Refuses once the block has been weighed —
+   * that is no longer an undo, it is deleting a season's data.
+   */
+  undoPlacement: (placementId: string) => Promise<{ ok: boolean; blockRemoved?: boolean; error?: string }>
   /**
    * Scans 2 and 3 — weigh a block full (`retrieve`) then empty (`strip`).
    * Bee return is the difference, computed on read.

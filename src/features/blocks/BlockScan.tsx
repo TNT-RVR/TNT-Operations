@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, MapPin, Scale, Check } from 'lucide-react'
+import { Camera, MapPin, Scale, Check, Undo2, X } from 'lucide-react'
 import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
@@ -23,12 +23,21 @@ const MODE_COPY: Record<Mode, { label: string; hint: string }> = {
  * stop for a number, so they scan one block, take the weight, and reopen.
  */
 export default function BlockScan() {
-  const { fields, blocks, blockPlacements, loadBlocks, placeBlock, weighBlock } = useData()
+  const { fields, blocks, blockPlacements, loadBlocks, placeBlock, weighBlock, undoPlacement } = useData()
   const [mode, setMode] = useState<Mode>('place')
   const [fieldId, setFieldId] = useState<string>('')
   const [open, setOpen] = useState(false)
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
-  const [log, setLog] = useState<Array<{ label: string; text: string; ok: boolean; at: number }>>([])
+  /**
+   * What happened this session. Placement entries carry their placement id so
+   * a mis-scan can be taken back on the spot — the moment someone notices is
+   * while they are still standing there, not that evening in a spreadsheet.
+   */
+  const [log, setLog] = useState<
+    Array<{ label: string; text: string; ok: boolean; at: number; placementId?: string; undone?: boolean }>
+  >([])
+  const [undoing, setUndoing] = useState<string | null>(null)
+  const [undoError, setUndoError] = useState<string | null>(null)
 
   // Weigh modes: the block that was scanned and is waiting for a number.
   const [pending, setPending] = useState<{ label: string } | null>(null)
@@ -44,8 +53,9 @@ export default function BlockScan() {
   // Same code re-decoding while it sits in frame is not a second block.
   const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
 
+  // Scanning always works in the current season, so that is all it loads.
   useEffect(() => {
-    void loadBlocks()
+    void loadBlocks(new Date().getFullYear())
   }, [loadBlocks])
 
   // GPS only matters while placing, and only while the camera is up.
@@ -54,8 +64,26 @@ export default function BlockScan() {
   const season = new Date().getFullYear()
   const canPlace = mode !== 'place' || !!fieldId
 
-  const note = (label: string, text: string, ok: boolean) =>
-    setLog((prev) => [{ label, text, ok, at: Date.now() }, ...prev].slice(0, 30))
+  const note = (label: string, text: string, ok: boolean, placementId?: string) =>
+    setLog((prev) => [{ label, text, ok, at: Date.now(), placementId }, ...prev].slice(0, 30))
+
+  /** Take back a placement scan. */
+  async function undo(entry: { label: string; placementId?: string; at: number }) {
+    if (!entry.placementId) return
+    setUndoing(entry.placementId)
+    setUndoError(null)
+    const r = await undoPlacement(entry.placementId)
+    setUndoing(null)
+    if (!r.ok) {
+      setUndoError(`${entry.label}: ${r.error ?? 'Could not undo.'}`)
+      return
+    }
+    setLog((prev) => prev.map((e) => (e.at === entry.at ? { ...e, undone: true, text: 'Undone' } : e)))
+    flash('ok', entry.label, r.blockRemoved ? 'Scan undone' : 'Placement removed')
+  }
+
+  /** The most recent placement still standing — what "undo last" acts on. */
+  const lastUndoable = log.find((e) => e.ok && e.placementId && !e.undone)
 
   const flash = (kind: ScanFeedback['kind'], title: string, detail?: string) => {
     setFeedback({ kind, title, detail, seq: ++seqRef.current })
@@ -93,7 +121,7 @@ export default function BlockScan() {
       }
 
       flash('ok', label, r.created ? `Placed · ${where}` : `Location updated · ${where}`)
-      return note(label, r.created ? `Placed (${where})` : `Moved (${where})`, true)
+      return note(label, r.created ? `Placed (${where})` : `Moved (${where})`, true, r.placementId)
     }
 
     // Weigh modes: check the block makes sense BEFORE stopping to type a
@@ -290,12 +318,42 @@ export default function BlockScan() {
         {/* What just happened — so a mis-scan is caught on the spot. */}
         {log.length > 0 && (
           <div className="card">
-            <h3 className="mb-2 text-sm font-semibold text-muted">This session</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-muted">This session</h3>
+              {/* One tap for the common case: the scan you just took was wrong
+                  and you know it immediately. */}
+              {lastUndoable && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!!undoing}
+                  onClick={() => void undo(lastUndoable)}
+                >
+                  <Undo2 size={14} className="mr-1 inline" />
+                  Undo {lastUndoable.label}
+                </Button>
+              )}
+            </div>
+            {undoError && <p className="mb-2 text-sm text-danger">{undoError}</p>}
             <ul className="space-y-1 text-sm">
               {log.map((e) => (
-                <li key={e.at} className="flex justify-between gap-2">
-                  <span className="font-medium">{e.label}</span>
-                  <span className={e.ok ? 'text-muted' : 'text-danger'}>{e.text}</span>
+                <li key={e.at} className="flex items-center justify-between gap-2">
+                  <span className={`font-medium ${e.undone ? 'text-faint line-through' : ''}`}>{e.label}</span>
+                  <span className="flex items-center gap-2">
+                    <span className={e.undone ? 'text-faint' : e.ok ? 'text-muted' : 'text-danger'}>
+                      {e.text}
+                    </span>
+                    {e.placementId && !e.undone && (
+                      <button
+                        className="text-muted hover:text-danger disabled:opacity-40"
+                        aria-label={`Undo ${e.label}`}
+                        disabled={!!undoing}
+                        onClick={() => void undo(e)}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

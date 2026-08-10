@@ -346,10 +346,6 @@ export function AcControl({
               </label>
             </div>
           )}
-          <p className="text-xs text-faint">
-            These controls are manual. Nothing here follows the sensor or changes on its own — setting the
-            incubator's mode above does not move the AC.
-          </p>
           {linking ? (
             deviceEditor
           ) : (

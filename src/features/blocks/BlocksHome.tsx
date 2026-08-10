@@ -12,16 +12,21 @@ const both = (v: number | null) => {
 
 /** Season overview: where every block is, and what each field returned. */
 export default function BlocksHome() {
-  const { fields, blockPlacements, blocksLoading, loadBlocks } = useData()
+  const { fields, blockPlacements, blocksLoading, loadBlocks, blockSeasons } = useData()
   const [season, setSeason] = useState<number | null>(null)
 
-  useEffect(() => {
-    void loadBlocks()
-  }, [loadBlocks])
-
-  const seasons = useMemo(() => seasonsOf(blockPlacements), [blockPlacements])
+  // The season list comes from the index, so it is right before any placement
+  // is loaded; the placements themselves are fetched a season at a time.
+  const seasons = useMemo(
+    () => (blockSeasons.length ? blockSeasons.map((s) => s.season) : seasonsOf(blockPlacements)),
+    [blockSeasons, blockPlacements],
+  )
   // Default to the current year, matching every other year filter in the app.
   const active = season ?? (seasons.includes(new Date().getFullYear()) ? new Date().getFullYear() : seasons[0])
+  useEffect(() => {
+    if (active != null) void loadBlocks(active)
+  }, [loadBlocks, active])
+
   const forSeason = useMemo(
     () => blockPlacements.filter((p) => p.season === active),
     [blockPlacements, active],

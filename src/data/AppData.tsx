@@ -250,13 +250,15 @@ function MockProvider({ children }: { children: ReactNode }) {
           return Promise.resolve({
             ok: true,
             created: isNewBlock,
+            placementId: existing.id,
             movedFromFieldId:
               existing.fieldId && existing.fieldId !== fieldId ? existing.fieldId : null,
           })
         }
+        const newId = nextId('bp')
         setBlockPlacements((prev) => [
           {
-            id: nextId('bp'),
+            id: newId,
             blockId: block!.id,
             season: yr,
             fieldId,
@@ -275,8 +277,32 @@ function MockProvider({ children }: { children: ReactNode }) {
           },
           ...prev,
         ])
-        return Promise.resolve({ ok: true, created: true })
+        return Promise.resolve({ ok: true, created: true, placementId: newId })
       },
+      blockSeasons: [...new Set(blockPlacements.map((p) => p.season))]
+        .sort((a, z) => z - a)
+        .map((season) => {
+          const rows = blockPlacements.filter((p) => p.season === season)
+          return {
+            season,
+            placed: rows.length,
+            retrieved: rows.filter((p) => p.grossWeightLbs != null).length,
+            stripped: rows.filter((p) => p.strippedWeightLbs != null).length,
+          }
+        }),
+      loadBlockHistory: async () => {},
+      undoPlacement: async (placementId: string) => {
+        const placement = blockPlacements.find((x) => x.id === placementId)
+        if (!placement) return { ok: false, error: 'That scan is no longer in the system.' }
+        if (placement.grossWeightLbs != null || placement.strippedWeightLbs != null) {
+          return { ok: false, error: 'This block has been weighed since — undo would delete the weights.' }
+        }
+        const others = blockPlacements.filter((x) => x.blockId === placement.blockId && x.id !== placementId)
+        setBlockPlacements((prev) => prev.filter((x) => x.id !== placementId))
+        if (others.length === 0) setBlocks((prev) => prev.filter((b) => b.id !== placement.blockId))
+        return { ok: true, blockRemoved: others.length === 0 }
+      },
+
       weighBlock: ({ label, stage, weightLbs, season }) => {
         if (!Number.isFinite(weightLbs) || weightLbs < 0)
           return Promise.resolve({ ok: false, error: 'Enter a valid weight.' })

@@ -864,3 +864,11 @@ export interface ArchivedUser {
   role: string
   archivedAt: string
 }
+
+/** One row per season from the `block_seasons` view (migration 0021). */
+export interface BlockSeason {
+  season: number
+  placed: number
+  retrieved: number
+  stripped: number
+}

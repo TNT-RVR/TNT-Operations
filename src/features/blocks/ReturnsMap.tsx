@@ -49,7 +49,14 @@ const MARKER_PENDING = '#FFC53D' // token-exempt: map pin over imagery
  */
 export default function ReturnsMap() {
   const { fields, blocks, blockPlacements, loadBlocks } = useData()
+  /**
+   * "Every block this season", including the ones no field claims. Blocks land
+   * outside boundaries all the time — poor fixes, points deleted on purpose —
+   * and per-field views can't show those at all.
+   */
+  const ALL_FIELDS = '__all__'
   const [fieldId, setFieldId] = useState('')
+  const isAll = fieldId === ALL_FIELDS
   const [season, setSeason] = useState<number | null>(null)
   const [cellM, setCellM] = useState(10)
   const [power, setPower] = useState(2)
@@ -122,7 +129,7 @@ export default function ReturnsMap() {
       blockPlacements
         .filter(
           (p) =>
-            p.fieldId === fieldId &&
+            (isAll || p.fieldId === fieldId) &&
             p.season === activeSeason &&
             p.lat != null &&
             p.lng != null &&
@@ -134,7 +141,7 @@ export default function ReturnsMap() {
           label: blocks.find((b) => b.id === p.blockId)?.label,
           stage: blockStage(p),
         })),
-    [blockPlacements, blocks, fieldId, activeSeason],
+    [blockPlacements, blocks, fieldId, isAll, activeSeason],
   )
 
   /**
@@ -157,11 +164,26 @@ export default function ReturnsMap() {
     if (!fieldId && selectableFields.length) setFieldId(selectableFields[0].id)
   }, [selectableFields, fieldId])
 
-  const field = fields.find((f) => f.id === fieldId)
+  const field = isAll ? undefined : fields.find((f) => f.id === fieldId)
+
+  /** Every block with a location this season, whatever field claims it. */
+  const seasonPlacedCount = useMemo(
+    () =>
+      blockPlacements.filter((p) => p.season === activeSeason && p.lat != null && p.lng != null).length,
+    [blockPlacements, activeSeason],
+  )
+  /** Blocks no field claims — the ones a per-field view can never show. */
+  const unattributedCount = useMemo(
+    () =>
+      blockPlacements.filter(
+        (p) => p.season === activeSeason && p.lat != null && p.lng != null && !p.fieldId,
+      ).length,
+    [blockPlacements, activeSeason],
+  )
 
   const samples: SamplePoint[] = useMemo(() => {
     return blockPlacements
-      .filter((p) => p.fieldId === fieldId && p.season === activeSeason && p.lat != null && p.lng != null)
+      .filter((p) => (isAll || p.fieldId === fieldId) && p.season === activeSeason && p.lat != null && p.lng != null)
       .map((p) => ({ p, value: beeReturnLbs(p) }))
       .filter((x): x is { p: (typeof blockPlacements)[number]; value: number } => x.value != null)
       .map(({ p, value }) => ({
@@ -170,7 +192,7 @@ export default function ReturnsMap() {
         value,
         label: blocks.find((b) => b.id === p.blockId)?.label,
       }))
-  }, [blockPlacements, blocks, fieldId, activeSeason])
+  }, [blockPlacements, blocks, fieldId, isAll, activeSeason])
 
   const groups = useMemo(() => (sheet ? groupValues(sheet, cols.group) : []), [sheet, cols.group])
   const imported = useMemo(
@@ -184,10 +206,13 @@ export default function ReturnsMap() {
   // around it, so cleaning afterwards would be too late.
   const cleaned = useMemo(() => {
     if (!cleanGps) return null
+    // Across every field, distance from the pack means "a different field",
+    // not "a bad fix". Outlier detection would throw away whole sites.
+    if (isAll) return null
     // Use the real field's boundary when we have one — it's definitive.
     const geom = imported ? null : ((field?.geometry as FieldDict | undefined) ?? null)
     return findGpsOutliers(raw, geom, { madK: strictness })
-  }, [raw, cleanGps, imported, field, strictness])
+  }, [raw, cleanGps, imported, field, isAll, strictness])
 
   const active = cleaned ? cleaned.keep : raw
 
@@ -211,13 +236,19 @@ export default function ReturnsMap() {
    * the surface: a field with no blocks still has an outline worth seeing.
    */
   const outline = useMemo(() => {
+    // One boundary can't frame every field at once.
+    if (isAll) return null
     const clipField = effectiveClipId ? fields.find((f) => f.id === effectiveClipId) : null
     const geom = (clipField?.geometry ?? field?.geometry) as FieldDict | undefined
     return geom ? fieldOutlineRing(geom) : null
-  }, [fields, effectiveClipId, field])
+  }, [fields, effectiveClipId, field, isAll])
 
   const grid: ReturnsGrid | null = useMemo(() => {
     if (active.length === 0) return null
+    // A returns SURFACE is a per-field thing: interpolating across the gaps
+    // between fields would invent bee returns over roads and neighbours' land.
+    // "All" is a map of where the blocks are, not a surface.
+    if (isAll) return null
 
     // The field's RECORDED boundary is the outline — the same geometry that
     // drives shelter placement. From 2026 every field has one, so this is the
@@ -239,7 +270,7 @@ export default function ReturnsMap() {
     // averages, or every block gets its own flat disc instead of a surface.
     const clipDistanceM = clipField?.geometry ? null : looseness > 0 ? autoTrimM(active, looseness) : null
     return idwGrid(geom, active, { cellM, power, clipDistanceM })
-  }, [field, fields, effectiveClipId, active, imported, cellM, power, looseness])
+  }, [field, fields, effectiveClipId, active, imported, isAll, cellM, power, looseness])
 
   const stats = useMemo(() => (grid ? gridStats(grid) : null), [grid])
 
@@ -445,12 +476,35 @@ export default function ReturnsMap() {
       }
 
       if (!grid) {
-        // No surface, but frame the field so it's actually on screen.
-        if (outline) {
+        // "All fields": no surface to draw, so the weighed blocks are drawn as
+        // points here — the same white markers the surface would otherwise sit
+        // under — and the view is framed around every block rather than a
+        // boundary, which is the whole point of the mode.
+        if (showPoints && !imported) {
+          for (const s of active) {
+            const el = document.createElement('div')
+            el.style.cssText =
+              `width:10px;height:10px;border-radius:9999px;background:${MARKER_FILL};` +
+              `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
+            el.title = `${s.label ?? 'Block'}: ${s.value.toFixed(1)} lbs`
+            markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map))
+          }
+        }
+        const b = new maplibregl.LngLatBounds()
+        let any = false
+        for (const c of outline ?? []) {
+          b.extend(c as [number, number])
+          any = true
+        }
+        for (const pt of [...active, ...awaitingWeights]) {
+          // A single bad row must not drag the view off the planet.
+          if (Math.abs(pt.lat) > 90 || Math.abs(pt.lng) > 180) continue
+          b.extend([pt.lng, pt.lat])
+          any = true
+        }
+        if (any) {
           map.resize()
-          const b = new maplibregl.LngLatBounds()
-          for (const c of outline) b.extend(c as [number, number])
-          map.fitBounds(b, { padding: 40, duration: 400 })
+          map.fitBounds(b, { padding: 40, duration: 400, maxZoom: 15 })
         }
         return
       }
@@ -563,6 +617,9 @@ export default function ReturnsMap() {
           </Select>
           <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
             <option value="">Select a field…</option>
+            <option value={ALL_FIELDS}>
+              All fields — every block ({seasonPlacedCount})
+            </option>
             {selectableFields.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
@@ -762,7 +819,20 @@ export default function ReturnsMap() {
           </div>
         )}
 
-        {!grid && (
+        {isAll && active.length === 0 && awaitingWeights.length === 0 && (
+          <EmptyState>No blocks with a location for {activeSeason} yet.</EmptyState>
+        )}
+
+        {isAll && (active.length > 0 || awaitingWeights.length > 0) && (
+          <p className="text-sm text-muted">
+            Every block placed in {activeSeason}: {active.length} weighed (white), {awaitingWeights.length}{' '}
+            awaiting weights (amber)
+            {unattributedCount > 0 && `, of which ${unattributedCount} sit in no field`}. No surface is drawn
+            across fields — interpolating between them would invent returns over the ground in between.
+          </p>
+        )}
+
+        {!grid && !isAll && (
           <EmptyState>
             {sheet
               ? 'No usable rows in that file yet — check the column choices above.'
@@ -776,7 +846,7 @@ export default function ReturnsMap() {
           </EmptyState>
         )}
 
-        <div className={`overflow-hidden rounded-lg border border-default ${grid || outline ? '' : 'hidden'}`}>
+        <div className={`overflow-hidden rounded-lg border border-default ${grid || outline || active.length || awaitingWeights.length ? '' : 'hidden'}`}>
           <div ref={mapEl} className="h-[60vh] w-full" />
         </div>
 

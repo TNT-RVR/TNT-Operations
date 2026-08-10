@@ -48,7 +48,7 @@ const MARKER_PENDING = '#FFC53D' // token-exempt: map pin over imagery
  * thousands of polygons.
  */
 export default function ReturnsMap() {
-  const { fields, blocks, blockPlacements, loadBlocks } = useData()
+  const { fields, blocks, blockPlacements, loadBlocks, blockSeasons } = useData()
   /**
    * "Every block this season", including the ones no field claims. Blocks land
    * outside boundaries all the time — poor fixes, points deleted on purpose —
@@ -86,12 +86,16 @@ export default function ReturnsMap() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
 
-  useEffect(() => {
-    void loadBlocks()
-  }, [loadBlocks])
-
-  const seasons = useMemo(() => seasonsOf(blockPlacements), [blockPlacements])
+  const seasons = useMemo(
+    () => (blockSeasons.length ? blockSeasons.map((s) => s.season) : seasonsOf(blockPlacements)),
+    [blockSeasons, blockPlacements],
+  )
   const activeSeason = season ?? seasons[0] ?? new Date().getFullYear()
+
+  // Load the season being mapped, and only that one.
+  useEffect(() => {
+    void loadBlocks(activeSeason)
+  }, [loadBlocks, activeSeason])
 
   /**
    * Fields with a weighed RETURN this season — a surface can be drawn for them.

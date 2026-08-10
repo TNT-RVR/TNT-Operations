@@ -22,7 +22,7 @@ type SortKey = 'label' | 'field' | 'stage' | 'return' | 'placed'
 
 /** Every block placement, filterable — the register you check things against. */
 export default function BlockList() {
-  const { fields, blocks, blockPlacements, blocksLoading, loadBlocks } = useData()
+  const { fields, blocks, blockPlacements, blocksLoading, loadBlocks, blockSeasons, loadBlockHistory } = useData()
   const [q, setQ] = useState('')
   const [season, setSeason] = useState<string>('')
   const [fieldId, setFieldId] = useState('')
@@ -31,11 +31,15 @@ export default function BlockList() {
   const [historyFor, setHistoryFor] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
 
-  useEffect(() => {
-    void loadBlocks()
-  }, [loadBlocks])
+  const seasons = useMemo(
+    () => (blockSeasons.length ? blockSeasons.map((s) => s.season) : seasonsOf(blockPlacements)),
+    [blockSeasons, blockPlacements],
+  )
 
-  const seasons = useMemo(() => seasonsOf(blockPlacements), [blockPlacements])
+  // Fetch whichever season is on screen — never all of them.
+  useEffect(() => {
+    if (season) void loadBlocks(Number(season))
+  }, [loadBlocks, season])
   // Default the year filter to the current season, as everywhere else.
   useEffect(() => {
     if (season === '' && seasons.length) {
@@ -101,6 +105,12 @@ export default function BlockList() {
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  // Pull every season for the block whose history is open — the list itself
+  // only holds the season being filtered.
+  useEffect(() => {
+    if (historyFor) void loadBlockHistory(historyFor)
+  }, [historyFor, loadBlockHistory])
 
   const historyRows = historyFor ? blockHistory(blockPlacements, historyFor) : []
 

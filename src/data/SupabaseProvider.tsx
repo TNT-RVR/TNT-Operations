@@ -16,6 +16,7 @@ import type {
   PlacedShelter,
   ShelterTrayLink,
   NestingBlock,
+  BlockSeason,
   Grant,
   GrantTask,
   FieldAnalysis,
@@ -106,13 +107,15 @@ const PAGE_SIZE = 1000
 async function fetchAllRows<T>(
   table: string,
   order: { column: string; ascending: boolean },
+  filter?: { column: string; value: unknown } | { column: string; in: string[] },
 ): Promise<{ rows: T[]; error?: string }> {
   if (!supabase) return { rows: [], error: 'No backend connection.' }
   const rows: T[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
+    let q = supabase.from(table).select('*')
+    if (filter && 'in' in filter) q = q.in(filter.column, filter.in)
+    else if (filter) q = q.eq(filter.column, filter.value)
+    const { data, error } = await q
       .order(order.column, { ascending: order.ascending })
       .range(from, from + PAGE_SIZE - 1)
     if (error) return { rows, error: error.message }
@@ -143,6 +146,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [blocks, setBlocks] = useState<Block[]>([])
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>([])
   const [blocksLoading, setBlocksLoading] = useState(false)
+  /** One row per season (see migration 0021) — fills the season picker without
+   *  loading a single placement. */
+  const [blockSeasons, setBlockSeasons] = useState<BlockSeason[]>([])
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -181,8 +187,11 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const loadedSinceRef = useRef<Map<string, string>>(new Map())
   /** Guards the one-shot tray fetch against every screen calling it at once. */
   const traysPromiseRef = useRef<Promise<void> | null>(null)
-  /** Same one-shot guard for blocks — several screens call loadBlocks(). */
-  const blocksPromiseRef = useRef<Promise<void> | null>(null)
+  /**
+   * One in-flight guard PER SEASON — several screens call loadBlocks() on
+   * mount, and each season is fetched once.
+   */
+  const blocksPromiseRef = useRef<Map<number, Promise<void>>>(new Map())
   /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
   const analysisPromiseRef = useRef<Promise<void> | null>(null)
   /**
@@ -251,6 +260,26 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (bt.error) console.error('[data] load batches:', bt.error.message)
       setSamples(((sm.data as SampleRow[]) ?? []).map(toSample))
       setBatches(((bt.data as BatchRow[]) ?? []).map(toBatch))
+
+      // Which block seasons exist. One row per season, so this is cheap even
+      // when a season holds 14,000 blocks.
+      const bs = await sb.from('block_seasons').select('*').order('season', { ascending: false })
+      if (cancelled) return
+      if (bs.error) {
+        // Before migration 0021 the view doesn't exist. Not fatal: the screens
+        // fall back to the seasons of whatever placements are loaded.
+        console.warn('[data] load block_seasons:', bs.error.message)
+      } else {
+        setBlockSeasons(
+          ((bs.data as Array<{ season: number; placed: number; retrieved: number; stripped: number }>) ?? [])
+            .map((r) => ({
+              season: Number(r.season),
+              placed: Number(r.placed ?? 0),
+              retrieved: Number(r.retrieved ?? 0),
+              stripped: Number(r.stripped ?? 0),
+            })),
+        )
+      }
 
       // Incubation alert history (the old app's rules). Newest first, capped —
       // this is a log, so the most recent season is what matters.
@@ -646,30 +675,86 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       blocks,
       blockPlacements,
       blocksLoading,
-      loadBlocks: () => {
-        if (blocksPromiseRef.current) return blocksPromiseRef.current
+      loadBlocks: (season?: number) => {
+        const yr = season ?? new Date().getFullYear()
+        // Already have it? Nothing to do. Screens call this on every mount.
+        const inFlight = blocksPromiseRef.current.get(yr)
+        if (inFlight) return inFlight
         if (!supabase) return Promise.resolve()
         setBlocksLoading(true)
         const run = (async () => {
-          // Both tables in parallel — the screen needs them together anyway.
-          // PAGED: PostgREST caps a select at 1000 rows and returns the first
-          // page with NO error, so an unpaged fetch silently truncates. With
-          // ~1,700 blocks a season that quietly hid a third of them.
-          const [b, p] = await Promise.all([
-            fetchAllRows<BlockRow>('blocks', { column: 'label', ascending: true }),
-            fetchAllRows<BlockPlacementRow>('block_placements', { column: 'season', ascending: false }),
-          ])
-          if (b.error || p.error) {
-            console.error('[data] loadBlocks:', b.error ?? p.error)
-            blocksPromiseRef.current = null // let it retry
-          } else {
-            setBlocks(b.rows.map(toBlock))
-            setBlockPlacements(p.rows.map(toBlockPlacement))
+          // ONE SEASON AT A TIME. A big season runs to ~14,000 blocks, so
+          // "fetch everything and filter in the browser" would mean tens of
+          // thousands of rows on a phone in a field to look at one year.
+          const p = await fetchAllRows<BlockPlacementRow>(
+            'block_placements',
+            { column: 'season', ascending: false },
+            { column: 'season', value: yr },
+          )
+          if (p.error) {
+            console.error('[data] loadBlocks/placements:', p.error)
+            blocksPromiseRef.current.delete(yr) // let it retry
+            setBlocksLoading(false)
+            return
           }
+          const placements = p.rows.map(toBlockPlacement)
+
+          // Only the blocks these placements point at. The registry spans
+          // every season a label has ever been used, and this screen needs the
+          // labels for THIS one. Requested in chunks because a few thousand ids
+          // in a URL is a request no server will accept.
+          const wanted = [...new Set(placements.map((x) => x.blockId))].filter(Boolean)
+          const CHUNK = 200
+          const blockRows: BlockRow[] = []
+          for (let i = 0; i < wanted.length; i += CHUNK) {
+            const got = await fetchAllRows<BlockRow>(
+              'blocks',
+              { column: 'label', ascending: true },
+              { column: 'id', in: wanted.slice(i, i + CHUNK) },
+            )
+            if (got.error) {
+              console.error('[data] loadBlocks/blocks:', got.error)
+              blocksPromiseRef.current.delete(yr)
+              setBlocksLoading(false)
+              return
+            }
+            blockRows.push(...got.rows)
+          }
+
+          // MERGE, never replace: another season may already be loaded, and
+          // dropping it would make switching seasons wipe the previous one.
+          setBlockPlacements((prev) => {
+            const byId = new Map(prev.map((x) => [x.id, x]))
+            for (const x of placements) byId.set(x.id, x)
+            return [...byId.values()]
+          })
+          setBlocks((prev) => {
+            const byId = new Map(prev.map((b) => [b.id, b]))
+            for (const b of blockRows.map(toBlock)) byId.set(b.id, b)
+            return [...byId.values()].sort((a, z) => a.label.localeCompare(z.label))
+          })
           setBlocksLoading(false)
         })()
-        blocksPromiseRef.current = run
+        blocksPromiseRef.current.set(yr, run)
         return run
+      },
+
+      blockSeasons,
+
+      loadBlockHistory: async (blockId: string) => {
+        if (!supabase || !blockId) return
+        const { data, error } = await supabase
+          .from('block_placements')
+          .select('*')
+          .eq('block_id', blockId)
+          .order('season', { ascending: false })
+        if (error) return console.error('[data] loadBlockHistory:', error.message)
+        const rows = ((data as BlockPlacementRow[]) ?? []).map(toBlockPlacement)
+        setBlockPlacements((prev) => {
+          const byId = new Map(prev.map((x) => [x.id, x]))
+          for (const x of rows) byId.set(x.id, x)
+          return [...byId.values()]
+        })
       },
 
       // ── Season analysis ───────────────────────────────────────────────────

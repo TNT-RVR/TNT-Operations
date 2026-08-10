@@ -279,6 +279,18 @@ function MockProvider({ children }: { children: ReactNode }) {
         ])
         return Promise.resolve({ ok: true, created: true, placementId: newId })
       },
+      blockSeasons: [...new Set(blockPlacements.map((p) => p.season))]
+        .sort((a, z) => z - a)
+        .map((season) => {
+          const rows = blockPlacements.filter((p) => p.season === season)
+          return {
+            season,
+            placed: rows.length,
+            retrieved: rows.filter((p) => p.grossWeightLbs != null).length,
+            stripped: rows.filter((p) => p.strippedWeightLbs != null).length,
+          }
+        }),
+      loadBlockHistory: async () => {},
       undoPlacement: async (placementId: string) => {
         const placement = blockPlacements.find((x) => x.id === placementId)
         if (!placement) return { ok: false, error: 'That scan is no longer in the system.' }

@@ -53,8 +53,9 @@ export default function BlockScan() {
   // Same code re-decoding while it sits in frame is not a second block.
   const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
 
+  // Scanning always works in the current season, so that is all it loads.
   useEffect(() => {
-    void loadBlocks()
+    void loadBlocks(new Date().getFullYear())
   }, [loadBlocks])
 
   // GPS only matters while placing, and only while the camera is up.

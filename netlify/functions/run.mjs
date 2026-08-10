@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import runGrantsPull from './grants-pull.mjs'
 import runGoveePoll from './poll-govee.mjs'
 import runTasksTick from './tasks-tick.mjs'
+import runGcalSync from './gcal-sync.mjs'
 
 /**
  * Manual trigger for the scheduled functions.
@@ -35,6 +36,7 @@ const JOBS = {
   'grants-pull': runGrantsPull,
   'poll-govee': runGoveePoll,
   'tasks-tick': runTasksTick,
+  'gcal-sync': runGcalSync,
 }
 
 const json = (body, status) =>

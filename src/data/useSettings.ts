@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
 import type { AccessOverrides, Grant } from '@/domain/access'
 import type { Module, Role } from '@/auth/session'
-import type { ArchivedUser, CompanyDetails, DocumentSignature, QboStatus, UserSignature } from './types'
+import type { ArchivedUser, CompanyDetails, DocumentSignature, GcalStatus, QboStatus, UserSignature } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>
@@ -137,6 +137,14 @@ export interface SettingsSlice {
   qboStatus: QboStatus | null
 
   /**
+   * YOUR Google Calendar connection, or null. Per-user, not per-company: the
+   * `gcal_status` view filters to the caller, so this is never anyone else's.
+   */
+  gcalStatus: GcalStatus | null
+  /** Turn syncing on or off without disconnecting the account. */
+  setGcalSyncEnabled: (enabled: boolean) => Promise<SettingsResult>
+
+  /**
    * Sign-in state per user id — who has been invited and who has actually
    * arrived. Empty in mock mode, where there are no real logins to track.
    */
@@ -166,6 +174,7 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
   const [mySignature, setMySignature] = useState<UserSignature | null>(null)
   const [documentSignatures, setDocSignatures] = useState<DocumentSignature[]>([])
   const [qboStatus, setQbo] = useState<QboStatus | null>(null)
+  const [gcalStatus, setGcal] = useState<GcalStatus | null>(null)
   const [userPresence, setPresence] = useState<SettingsSlice['userPresence']>({})
   const [archivedUsers, setArchived] = useState<ArchivedUser[]>([])
   const [settingsLoading, setLoading] = useState(false)
@@ -179,13 +188,14 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
     setLoading(true)
     const sb = sbase
 
-    const [co, ov, sig, docSigs, qbo, people] = await Promise.all([
+    const [co, ov, sig, docSigs, qbo, people, gcal] = await Promise.all([
       sb.from('app_company').select('*').limit(1).maybeSingle(),
       sb.from('app_role_access').select('role, module, grant_level'),
       sb.from('user_signatures').select('*').limit(1).maybeSingle(),
       sb.from('document_signatures').select('*').order('signed_at', { ascending: false }).limit(200),
       sb.from('qbo_status').select('*').limit(1).maybeSingle(),
       sb.from('profiles').select('id, name, email, role, archived_at, last_sign_in_at, invited_at'),
+      sb.from('gcal_status').select('*').limit(1).maybeSingle(),
     ])
 
     // Each is independent — a missing migration for one must not blank the
@@ -231,6 +241,19 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
       })
     } else setQbo(null)
 
+    if (gcal.error) console.warn('[settings] google calendar:', gcal.error.message)
+    else if (gcal.data) {
+      const r = gcal.data as Row
+      setGcal({
+        googleEmail: r.google_email ?? '',
+        calendarId: r.calendar_id ?? null,
+        syncEnabled: r.sync_enabled !== false,
+        lastSyncedAt: r.last_synced_at ?? null,
+        lastError: r.last_error ?? '',
+        connected: r.connected === true,
+      })
+    } else setGcal(null)
+
     if (people.error) console.warn('[settings] roster:', people.error.message)
     else {
       const rows = (people.data as Row[]) ?? []
@@ -269,6 +292,20 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
       return { ok: true }
     },
     [currentUserId, sbase],
+  )
+
+  const setGcalSyncEnabled = useCallback(
+    async (enabled: boolean): Promise<SettingsResult> => {
+      if (!sbase || !currentUserId) return { ok: false, error: 'Not connected' }
+      const { error } = await sbase
+        .from('gcal_connection')
+        .update({ sync_enabled: enabled })
+        .eq('user_id', currentUserId)
+      if (error) return { ok: false, error: error.message }
+      setGcal((g) => (g ? { ...g, syncEnabled: enabled } : g))
+      return { ok: true }
+    },
+    [sbase, currentUserId],
   )
 
   const archiveUser = useCallback((id: string) => setArchivedAt(id, new Date().toISOString()), [setArchivedAt])
@@ -381,6 +418,8 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
       signDocument,
       voidSignature,
       qboStatus,
+      gcalStatus,
+      setGcalSyncEnabled,
       userPresence,
       archivedUsers,
       archiveUser,
@@ -390,7 +429,7 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
     }),
     [
       company, saveCompany, accessOverrides, saveAccessOverrides, mySignature, saveMySignature,
-      deleteMySignature, documentSignatures, signDocument, voidSignature, qboStatus,
+      deleteMySignature, documentSignatures, signDocument, voidSignature, qboStatus, gcalStatus, setGcalSyncEnabled,
       userPresence, archivedUsers, archiveUser, restoreUser, settingsLoading, loadSettings,
     ],
   )

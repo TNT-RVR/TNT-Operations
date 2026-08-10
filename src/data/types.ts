@@ -872,3 +872,13 @@ export interface BlockSeason {
   retrieved: number
   stripped: number
 }
+
+/** Google Calendar connection state, from the `gcal_status` view. No tokens. */
+export interface GcalStatus {
+  googleEmail: string
+  calendarId: string | null
+  syncEnabled: boolean
+  lastSyncedAt: string | null
+  lastError: string
+  connected: boolean
+}

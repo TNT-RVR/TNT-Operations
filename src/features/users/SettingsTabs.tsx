@@ -6,7 +6,7 @@
  * does. The Users tab stays in UsersHome.tsx — it's the biggest of the six.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ASSIGNABLE_ROLES,
   MATRIX,
@@ -17,9 +17,10 @@ import {
   useSession,
 } from '@/auth/session'
 import { useData } from '@/data/context'
+import { supabase } from '@/data/supabaseClient'
 import { useTheme } from '@/styles/theme'
 import { Badge, Button, EmptyState, Input, Switch } from '@/components/ui'
-import { AlertTriangle, ArchiveRestore, Check, ExternalLink, Lock, PenLine, Save, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArchiveRestore, CalendarDays, Check, ExternalLink, Lock, PenLine, RefreshCw, Save, Trash2 } from 'lucide-react'
 import {
   type AccessOverrides,
   type Grant,
@@ -335,6 +336,9 @@ export function IntegrationsTab() {
         <p className="mb-3 text-sm text-muted">
           Everything the app talks to. Server keys live in Netlify's environment, never in the browser.
         </p>
+
+        <GoogleCalendarCard />
+
         <ul className="grid gap-2 md:grid-cols-2">
           {cards.map((c) => (
             <li key={c.name} className="card flex flex-col gap-1.5">
@@ -624,6 +628,137 @@ function SignatureCard() {
       {msg && (
         <p className="flex items-center gap-1 text-xs text-brand">
           <Check size={13} /> {msg}
+        </p>
+      )}
+    </div>
+  )
+}
+
+
+/**
+ * Google Calendar — a live card rather than a static row, because unlike the
+ * other integrations this one is connected PER PERSON. Each user links their
+ * own Google account and gets their own copy of the incubation calendar, so
+ * there is nothing here an admin can do on someone else's behalf.
+ */
+function GoogleCalendarCard() {
+  const { gcalStatus: gcal, setGcalSyncEnabled, loadSettings } = useData()
+  const [params, setParams] = useSearchParams()
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+  const [note, setNote] = useState('')
+
+  // The OAuth callback bounces back here with ?gcal=connected|denied|error.
+  const callback = params.get('gcal')
+  useEffect(() => {
+    if (!callback) return
+    if (callback === 'connected') setNote('Connected. Your first sync will run within the hour, or press Sync now.')
+    else setError(params.get('detail') ?? 'The Google Calendar connection was not completed.')
+    const next = new URLSearchParams(params)
+    next.delete('gcal')
+    next.delete('detail')
+    setParams(next, { replace: true })
+    void loadSettings()
+  }, [callback, params, setParams, loadSettings])
+
+  const call = async (path: string, body?: unknown) => {
+    if (!supabase) return { ok: false, error: 'Not connected' }
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return { ok: false, error: 'Sign in again' }
+    const r = await fetch(`/.netlify/functions/${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    })
+    const json = await r.json().catch(() => ({}))
+    return r.ok ? { ok: true, ...json } : { ok: false, error: json.error ?? `Failed (${r.status})` }
+  }
+
+  const connect = async () => {
+    setBusy('connect')
+    setError('')
+    const r = await call('gcal-auth?action=start')
+    setBusy('')
+    if (r.ok && typeof r.url === 'string') window.location.href = r.url
+    else setError(r.error ?? 'Could not start the connection')
+  }
+
+  const run = async (action: 'disconnect' | 'sync') => {
+    setBusy(action)
+    setError('')
+    setNote('')
+    const r = action === 'disconnect'
+      ? await call('gcal-auth', { action: 'disconnect' })
+      : await call('gcal-sync', { action: 'sync' })
+    setBusy('')
+    if (!r.ok) setError(r.error ?? 'Failed')
+    else if (action === 'sync') {
+      const { created = 0, updated = 0, removed = 0, unchanged = 0 } = r as Record<string, number>
+      setNote(`Synced — ${created} added, ${updated} updated, ${removed} removed, ${unchanged} already current.`)
+    }
+    await loadSettings()
+  }
+
+  return (
+    <div className="card mb-3 space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 font-medium text-primary">
+            <CalendarDays size={16} className={gcal?.connected ? 'text-brand' : 'text-muted'} />
+            Google Calendar
+            <Badge tone={gcal?.connected ? 'green' : 'neutral'}>
+              {gcal?.connected ? 'Connected' : 'Not connected'}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            Puts incubation milestones on your own Google Calendar. One-way — the app owns the schedule, so
+            anything you change in Google is overwritten on the next sync.
+          </p>
+          {gcal?.connected && (
+            <p className="mt-1 text-xs text-faint">
+              {gcal.googleEmail || 'Google account'}
+              {gcal.lastSyncedAt
+                ? ` · last synced ${new Date(gcal.lastSyncedAt).toLocaleString('en-CA', {
+                    timeZone: 'America/Edmonton',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}`
+                : ' · not synced yet'}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {gcal?.connected ? (
+            <>
+              <Switch
+                checked={gcal.syncEnabled}
+                onChange={(v) => void setGcalSyncEnabled(v)}
+                label="Keep the calendar in sync"
+              />
+              <Button variant="ghost" onClick={() => void run('sync')} disabled={!!busy}>
+                <RefreshCw size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync now'}
+              </Button>
+              <Button variant="ghost" onClick={() => void run('disconnect')} disabled={!!busy}>
+                Disconnect
+              </Button>
+            </>
+          ) : (
+            <Button onClick={connect} disabled={busy === 'connect'}>
+              <CalendarDays size={15} /> {busy === 'connect' ? 'Opening Google…' : 'Connect'}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {gcal?.lastError && <p className="text-xs text-danger">{gcal.lastError}</p>}
+      {error && <p className="text-xs text-danger">{error}</p>}
+      {note && (
+        <p className="flex items-center gap-1 text-xs text-brand">
+          <Check size={13} /> {note}
         </p>
       )}
     </div>

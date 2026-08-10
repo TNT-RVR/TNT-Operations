@@ -60,7 +60,20 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
-  const mine = inspections.filter((i) => i.incubatorId === incubator.id).sort((a, b) => b.at.localeCompare(a.at))
+  const allMine = inspections
+    .filter((i) => i.incubatorId === incubator.id)
+    .sort((a, b) => b.at.localeCompare(a.at))
+  /**
+   * This run only. Inspections aren't tied to a run, so the start date is the
+   * boundary: without it last season's rounds sit above this morning's with
+   * nothing to say they belong to different bees.
+   *
+   * An incubator with no start date has no boundary to draw, so it shows
+   * everything rather than nothing.
+   */
+  const runStart = incubator.incubationStart ?? null
+  const sinceRun = runStart ? allMine.filter((i) => i.at >= runStart) : allMine
+  const earlierCount = allMine.length - sinceRun.length
   const myReadings = readings.filter((r) => r.incubatorId === incubator.id)
   const latest = latestReading(incubator.id)
 
@@ -128,6 +141,9 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const [openInspection, setOpenInspection] = useState<string | null>(null)
   /** History is capped until someone asks for the rest. */
   const [showAllInspections, setShowAllInspections] = useState(false)
+  /** Reach past this run's boundary into earlier ones. */
+  const [showEarlierRuns, setShowEarlierRuns] = useState(false)
+  const mine = showEarlierRuns ? allMine : sinceRun
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
   const [heatPumpsOk, setHeatPumpsOk] = useState(true)
@@ -504,18 +520,37 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
             inspection fully expanded turned a season into a wall of text. */}
         <section>
           <div className="mb-2 flex items-baseline justify-between gap-2">
-            <h3 className="font-semibold">Inspection history</h3>
-            {mine.length > INSPECTION_PREVIEW && (
-              <button
-                className="text-xs text-muted underline"
-                onClick={() => setShowAllInspections((v) => !v)}
-              >
-                {showAllInspections ? 'Show recent' : `Show all ${mine.length}`}
-              </button>
-            )}
+            <h3 className="font-semibold">
+              Inspection history
+              {runStart && !showEarlierRuns && (
+                <span className="ml-2 text-xs font-normal text-faint">this run</span>
+              )}
+            </h3>
+            <span className="flex items-center gap-3">
+              {mine.length > INSPECTION_PREVIEW && (
+                <button
+                  className="text-xs text-muted underline"
+                  onClick={() => setShowAllInspections((v) => !v)}
+                >
+                  {showAllInspections ? 'Show recent' : `Show all ${mine.length}`}
+                </button>
+              )}
+              {earlierCount > 0 && (
+                <button
+                  className="text-xs text-muted underline"
+                  onClick={() => setShowEarlierRuns((v) => !v)}
+                >
+                  {showEarlierRuns ? 'This run only' : `${earlierCount} from earlier runs`}
+                </button>
+              )}
+            </span>
           </div>
           {mine.length === 0 ? (
-            <p className="text-sm text-muted">No inspections logged yet.</p>
+            <p className="text-sm text-muted">
+              {earlierCount > 0
+                ? 'Nothing logged since this run started.'
+                : 'No inspections logged yet.'}
+            </p>
           ) : (
             <ul className="divide-y divide-subtle rounded-lg border border-subtle">
               {(showAllInspections ? mine : mine.slice(0, INSPECTION_PREVIEW)).map((i) => {

@@ -163,6 +163,16 @@ _Last reviewed 2026-08-03._
           static asset fetched on first use, NOT seam data — it is government
           survey data, identical everywhere, so it has no business in Supabase.
           Rebuild: `python scripts/build_ats_townships.py`.
+        - **Reverse LLD on pivot drop** (`reverseLld`) — moving the pivot fills
+          the field's `lld` in, so the description is captured as a by-product
+          of dropping the pin. Fills only an EMPTY box (a contract's LLD is the
+          legal one; a pin dropped by eye is not) and only when the pivot MOVES
+          (so clearing the box by hand leaves it cleared). Where a typed LLD
+          and the pivot disagree, `sameParcel` raises a save-time warning
+          instead — lenient about what the typed one OMITS (`35-8-21` is less
+          precise than `SW-35-8-21-W4`, not a contradiction), strict about what
+          it states. Round-trip is locked over all 36 sections × 4 quarters and
+          over the 15 real fields, whose recorded LLDs it recovers exactly.
       - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
         `cost.ts` port: per-field cost, profitability, season totals, pricing
         inputs stored PER YEAR (missing years carry forward). Prefs in

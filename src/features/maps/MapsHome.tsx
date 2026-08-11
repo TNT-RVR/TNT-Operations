@@ -7,7 +7,7 @@ import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { formatLld, lldMatches, parseLld } from '@/domain/lld'
-import { GRID_ERROR_M, SURVEY_ERROR_M, atsBox, toGeoJson } from '@/domain/ats'
+import { GRID_ERROR_M, SURVEY_ERROR_M, atsBox, reverseLld, sameParcel, toGeoJson } from '@/domain/ats'
 import { useTownshipTable } from './atsTownships'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
@@ -300,8 +300,9 @@ export default function MapsHome() {
    * in the system.
    */
   const lldParts = useMemo(() => parseLld(fieldQuery), [fieldQuery])
-  // Fetch the survey table only once someone actually types a description.
-  const townships = useTownshipTable(lldParts != null)
+  // Fetch the survey table when it can actually be used: someone has typed a
+  // description, or a field is open for editing and its pivot needs one back.
+  const townships = useTownshipTable(lldParts != null || editing)
 
   const lldLookup = useMemo(() => {
     if (!lldParts) return null
@@ -434,13 +435,54 @@ export default function MapsHome() {
     [previewGeom, shelters],
   )
 
+  /**
+   * The legal land description the pivot actually sits in.
+   *
+   * Recomputed as the pin moves; feeds both the autofill below and the
+   * mismatch warning. Null until the survey table has loaded, so the autofill
+   * never writes a description from the coarse grid tier into saved data.
+   */
+  const pivotLld = useMemo(() => {
+    if (!editing || !draft || !townships) return null
+    const lat = num(draft.PP_Latitude)
+    const lon = num(draft.PP_Longitude)
+    if (lat == null || lon == null) return null
+    const r = reverseLld({ lat, lng: lon }, townships)
+    return r?.source === 'survey' ? r : null
+  }, [editing, draft, townships])
+
+  /**
+   * Fill in a field's LLD from its pivot.
+   *
+   * Two limits, both deliberate. It only writes into an EMPTY box — the
+   * description on a contract is the legal one, a pin dropped by eye is not,
+   * and overwriting what someone typed would be worse than leaving it blank;
+   * where the two disagree the warning below says so and the operator decides.
+   * And it only fires when the pivot MOVES, so clearing the box by hand leaves
+   * it cleared instead of having it reappear on the next keystroke.
+   */
+  const filledFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!pivotLld) return
+    const key = pivotLld.text
+    if (filledFor.current === key) return
+    filledFor.current = key
+    setDraft((prev) => (!prev || str(prev.lld).trim() ? prev : { ...prev, lld: key }))
+  }, [pivotLld])
+
   // Save-time sanity checks (§5.8) + the GUI's compute-based zero-pins check.
   const warnings = useMemo(() => {
     if (!editing || !draft) return []
     const w = fieldWarnings(draft)
     if (shelters.length === 0) w.push('No shelters placed with the current settings.')
+    // Catches the pivot dropped on the wrong field, and the transposed
+    // township/range — both of which look entirely plausible written down.
+    const typed = parseLld(str(draft.lld))
+    if (pivotLld && typed && !sameParcel(typed, pivotLld.parts)) {
+      w.push(`LLD says ${formatLld(str(draft.lld))}, but the pivot is in ${pivotLld.text}.`)
+    }
     return w
-  }, [editing, draft, shelters])
+  }, [editing, draft, shelters, pivotLld])
 
   const isPivotDraft = !!draft && !draft.boundary_polygon
   const manualEditing = editing && !!draft && str(draft.shelter_mode) === 'manual'

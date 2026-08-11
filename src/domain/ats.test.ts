@@ -20,12 +20,15 @@ import {
   contains,
   distanceM,
   parseTownshipTable,
+  reverseLld,
+  sameParcel,
+  sectionAt,
   sectionGridPosition,
   toGeoJson,
   townshipSouthLat,
   type TownshipTable,
 } from './ats'
-import { parseLld } from './lld'
+import { formatLld, parseLld } from './lld'
 
 /**
  * The survey table the app ships. Read from disk rather than mocked, so these
@@ -306,6 +309,159 @@ describe('township table', () => {
     v.setUint32(0, 0x41545431, false)
     v.setUint32(4, 500, true)
     expect(parseTownshipTable(short)).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Reverse — coordinate → description
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('sectionAt', () => {
+  it('inverts sectionGridPosition for all 36 sections', () => {
+    for (let s = 1; s <= 36; s++) {
+      const pos = sectionGridPosition(s)!
+      expect(sectionAt(pos.rowFromSouth, 5 - pos.colFromWest)).toBe(s)
+    }
+  })
+})
+
+describe('reverseLld', () => {
+  it('recovers the recorded LLD of every real field from its pivot', () => {
+    // The strongest test in the file. These are surveyed pivot coordinates and
+    // descriptions recorded independently by the crew — neither derived from
+    // the other — so agreeing on all fifteen is a real check, not a round-trip
+    // through my own arithmetic.
+    for (const f of REAL) {
+      const got = reverseLld({ lat: f.lat, lng: f.lon }, TABLE)
+      const want = parseLld(f.lld)!
+      // Compared on parts, not text: one of the fifteen is recorded without a
+      // meridian ("SE 9-11-14"), and reverse always supplies one. Everything
+      // that was written down has to match; what was left out cannot.
+      expect(
+        {
+          quarter: got?.parts.quarter,
+          section: got?.parts.section,
+          township: got?.parts.township,
+          range: got?.parts.range,
+          meridian: want.meridian ?? got?.parts.meridian,
+        },
+        `${f.lld} (${f.file}) → ${got?.text}`,
+      ).toEqual({
+        quarter: want.quarter,
+        section: want.section,
+        township: want.township,
+        range: want.range,
+        meridian: want.meridian ?? 4,
+      })
+    }
+  })
+
+  it('uses the survey for all of them', () => {
+    for (const f of REAL) {
+      expect(reverseLld({ lat: f.lat, lng: f.lon }, TABLE)?.source).toBe('survey')
+    }
+  })
+
+  it('round-trips against atsBox across a whole township', () => {
+    // Every section and every quarter: box it, take the centre, reverse it,
+    // and expect the description back. Catches a row/column flip that the
+    // fifteen real fields — which do not cover all 36 sections — would miss.
+    for (let section = 1; section <= 36; section++) {
+      for (const quarter of ['NE', 'NW', 'SE', 'SW']) {
+        const parts = { quarter, section, township: 9, range: 15, meridian: 4 }
+        const b = atsBox(parts, TABLE)!
+        expect(reverseLld(b.center, TABLE)?.text, `${quarter}-${section}-9-15-W4`).toBe(
+          `${quarter}-${section}-9-15-W4`,
+        )
+      }
+    }
+  })
+
+  it('round-trips on the grid tier too', () => {
+    for (let section = 1; section <= 36; section += 7) {
+      for (const quarter of ['NE', 'SW']) {
+        const parts = { quarter, section, township: 40, range: 8, meridian: 5 }
+        const b = atsBox(parts)!
+        expect(reverseLld(b.center)?.text).toBe(`${quarter}-${section}-40-8-W5`)
+      }
+    }
+  })
+
+  it('answers at coarser granularity when asked', () => {
+    const p = surveyed('SW-16-9-15-W4').center
+    expect(reverseLld(p, TABLE, 'section')?.text).toBe('16-9-15-W4')
+    expect(reverseLld(p, TABLE, 'township')?.text).toBe('9-15-W4')
+  })
+
+  it('produces text the forward parser accepts', () => {
+    // The output is written into a field's `lld`, which everything else reads
+    // through parseLld. If the two ever disagree on format, the autofill writes
+    // a value the app cannot read back.
+    for (const f of REAL) {
+      const text = reverseLld({ lat: f.lat, lng: f.lon }, TABLE)!.text
+      expect(parseLld(text), text).not.toBeNull()
+      expect(formatLld(text)).toBe(text)
+    }
+  })
+
+  it('picks the right meridian either side of one', () => {
+    const lat = 50.5
+    expect(reverseLld({ lat, lng: -110.5 }, TABLE)?.parts.meridian).toBe(4)
+    expect(reverseLld({ lat, lng: -114.5 }, TABLE)?.parts.meridian).toBe(5)
+    expect(reverseLld({ lat, lng: -118.5 }, TABLE)?.parts.meridian).toBe(6)
+    // Just east of the 4th meridian is Saskatchewan — W3, and no survey data.
+    const sask = reverseLld({ lat, lng: -109.5 }, TABLE)
+    expect(sask?.parts.meridian).toBe(3)
+    expect(sask?.source).toBe('grid')
+  })
+
+  it('refuses a point off the survey rather than inventing one', () => {
+    expect(reverseLld({ lat: 45, lng: -110.5 }, TABLE)).toBeNull() // south of the border
+    expect(reverseLld({ lat: NaN, lng: -110.5 }, TABLE)).toBeNull()
+    expect(reverseLld({ lat: 50.5, lng: -90 }, TABLE)).toBeNull() // east of W1
+  })
+})
+
+describe('sameParcel', () => {
+  const pivot = { quarter: 'SW', section: 35, township: 8, range: 21, meridian: 4 }
+
+  it('accepts the same parcel written out in full', () => {
+    expect(sameParcel(parseLld('SW-35-8-21-W4'), pivot)).toBe(true)
+  })
+
+  it('accepts a description that merely says LESS', () => {
+    // Absent is not wrong. Warning on these would fire on real fields — one of
+    // the fifteen is recorded without a meridian — and a warning that cries
+    // wolf gets ignored on the day it matters.
+    expect(sameParcel(parseLld('SW-35-8-21'), pivot)).toBe(true)
+    expect(sameParcel(parseLld('35-8-21-W4'), pivot)).toBe(true)
+    expect(sameParcel(parseLld('35-8-21'), pivot)).toBe(true)
+  })
+
+  it('rejects a stated value that actually differs', () => {
+    expect(sameParcel(parseLld('NE-35-8-21-W4'), pivot)).toBe(false) // wrong quarter
+    expect(sameParcel(parseLld('SW-36-8-21-W4'), pivot)).toBe(false) // wrong section
+    expect(sameParcel(parseLld('SW-35-9-21-W4'), pivot)).toBe(false) // wrong township
+    expect(sameParcel(parseLld('SW-35-8-22-W4'), pivot)).toBe(false) // wrong range
+    expect(sameParcel(parseLld('SW-35-8-21-W5'), pivot)).toBe(false) // wrong meridian
+  })
+
+  it('catches a transposed township and range', () => {
+    // The classic typo, and one that reads perfectly well on paper.
+    expect(sameParcel(parseLld('SW-35-21-8-W4'), pivot)).toBe(false)
+  })
+
+  it('rejects an unreadable description rather than passing it', () => {
+    expect(sameParcel(null, pivot)).toBe(false)
+    expect(sameParcel(parseLld('Wordmans'), pivot)).toBe(false)
+  })
+
+  it('agrees with itself for every real field', () => {
+    // The warning must be silent on data that is already correct.
+    for (const f of REAL) {
+      const got = reverseLld({ lat: f.lat, lng: f.lon }, TABLE)!
+      expect(sameParcel(parseLld(f.lld), got.parts), `${f.lld} (${f.file})`).toBe(true)
+    }
   })
 })
 

@@ -318,6 +318,169 @@ export function atsBox(parts: AtsParts, table?: TownshipTable | null): AtsBox | 
   return makeBox(south, west, north, east, 'grid')
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Reverse: a coordinate → a legal land description
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ReverseLld {
+  parts: AtsParts
+  /** Canonical text, e.g. `SW-35-8-21-W4`. Round-trips through `parseLld`. */
+  text: string
+  source: 'survey' | 'grid'
+}
+
+/** Section number from a grid position — the inverse of the serpentine. */
+export function sectionAt(rowFromSouth: number, colFromEast: number): number {
+  const posInRow = rowFromSouth % 2 === 0 ? colFromEast : 5 - colFromEast
+  return rowFromSouth * 6 + posInRow + 1
+}
+
+const clamp05 = (n: number) => Math.min(5, Math.max(0, Math.floor(n)))
+
+/** The meridian a point hangs off: the nearest one to its EAST. */
+function meridianFor(lng: number): number | null {
+  let best: number | null = null
+  for (const key of Object.keys(MERIDIANS)) {
+    const m = Number(key)
+    if (MERIDIANS[m] > lng && (best === null || MERIDIANS[m] < MERIDIANS[best])) best = m
+  }
+  return best
+}
+
+function formatParts(p: AtsParts, granularity: Granularity): string {
+  const head = granularity === 'quarter' && p.quarter ? `${p.quarter}-` : ''
+  const body = granularity === 'township' ? `${p.township}-${p.range}` : `${p.section}-${p.township}-${p.range}`
+  return `${head}${body}-W${p.meridian}`
+}
+
+export type Granularity = 'quarter' | 'section' | 'township'
+
+/**
+ * The legal land description covering a point — the inverse of `atsBox`.
+ *
+ * Used to fill in a field's LLD from its pivot, so the description is captured
+ * as a by-product of dropping the pin instead of being typed from a contract.
+ *
+ * Same two tiers as `atsBox`, and the same caveat: this answers "which parcel
+ * is this in", not "where is the boundary". A point within a few metres of a
+ * section line can land on either side of it.
+ */
+export function reverseLld(
+  p: LatLng,
+  table?: TownshipTable | null,
+  granularity: Granularity = 'quarter',
+): ReverseLld | null {
+  const meridian = meridianFor(p.lng)
+  if (meridian === null) return null
+  if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return null
+  if (p.lat < BASE_LAT) return null
+
+  // ── Grid estimate. Also the answer outright when there is no survey data. ──
+  let township = 1
+  let southLat = BASE_LAT
+  while (township < 126) {
+    const next = southLat + TOWNSHIP_M / mPerDegLat(southLat)
+    if (next > p.lat) break
+    southLat = next
+    township++
+  }
+  const midLat = southLat + TOWNSHIP_M / 2 / mPerDegLat(southLat)
+  const degLon = (m: number) => m / mPerDegLon(midLat)
+  const range = Math.floor((MERIDIANS[meridian] - p.lng) / degLon(RANGE_M)) + 1
+
+  // ── Survey tier: find the township that actually contains the point. ──────
+  //
+  // Searched as a small neighbourhood around the grid estimate rather than by
+  // scanning all 7,196: the estimate is never more than a few hundred metres
+  // out, and a township is ten kilometres across, so ±2 is far more slack than
+  // it needs. A scan would work too — this just keeps a pin drag cheap.
+  if (table) {
+    let hit: { t: Township; twp: number; rng: number } | null = null
+    let nearest: { t: Township; twp: number; rng: number; d: number } | null = null
+    for (let twp = township - 2; twp <= township + 2 && !hit; twp++) {
+      for (let rng = range - 2; rng <= range + 2; rng++) {
+        if (twp < 1 || rng < 1) continue
+        const t = table.get(meridian, twp, rng)
+        if (!t) continue
+        // Extent uses the PITCH, not the section size, so neighbouring
+        // townships tile without a road-allowance gap between them for a point
+        // to fall into.
+        const north = t.south + 6 * t.pitchLat
+        const west = t.east - 6 * t.pitchLon
+        if (p.lat >= t.south && p.lat < north && p.lng <= t.east && p.lng > west) {
+          hit = { t, twp, rng }
+          break
+        }
+        const d = Math.abs(p.lat - (t.south + 3 * t.pitchLat)) + Math.abs(p.lng - (t.east - 3 * t.pitchLon))
+        if (!nearest || d < nearest.d) nearest = { t, twp, rng, d }
+      }
+    }
+    const found = hit ?? nearest
+    if (found) {
+      const { t } = found
+      const row = clamp05((p.lat - t.south) / t.pitchLat)
+      const col = clamp05((t.east - p.lng) / t.pitchLon)
+      const section = sectionAt(row, col)
+      const secMidLat = t.south + row * t.pitchLat + t.sizeLat / 2
+      const secMidLng = t.east - col * t.pitchLon - t.sizeLon / 2
+      const parts: AtsParts = {
+        quarter: granularity === 'quarter' ? `${p.lat >= secMidLat ? 'N' : 'S'}${p.lng >= secMidLng ? 'E' : 'W'}` : null,
+        section,
+        township: found.twp,
+        range: found.rng,
+        meridian,
+      }
+      return { parts, text: formatParts(parts, granularity), source: 'survey' }
+    }
+  }
+
+  if (range < 1 || range > 34) return null
+  const secH = TOWNSHIP_M / 6
+  const secW = RANGE_M / 6
+  const degLat = (m: number) => m / mPerDegLat(midLat)
+  const rangeEast = MERIDIANS[meridian] - degLon((range - 1) * RANGE_M)
+  const row = clamp05((p.lat - southLat) / degLat(secH))
+  const col = clamp05((rangeEast - p.lng) / degLon(secW))
+  const secMidLat = southLat + (row + 0.5) * degLat(secH)
+  const secMidLng = rangeEast - (col + 0.5) * degLon(secW)
+  const parts: AtsParts = {
+    quarter: granularity === 'quarter' ? `${p.lat >= secMidLat ? 'N' : 'S'}${p.lng >= secMidLng ? 'E' : 'W'}` : null,
+    section: sectionAt(row, col),
+    township,
+    range,
+    meridian,
+  }
+  return { parts, text: formatParts(parts, granularity), source: 'grid' }
+}
+
+/**
+ * Whether a written description and a computed one name the same parcel.
+ *
+ * Used to warn when a field's LLD disagrees with where its pivot actually is —
+ * a pin dropped on the neighbouring field, or a transposed township and range,
+ * both of which look entirely plausible written down.
+ *
+ * Deliberately lenient about what the written one LEAVES OUT: `35-8-21` with no
+ * quarter, or no meridian, is not a contradiction of `SW-35-8-21-W4`, it is
+ * less precise. Only a stated value that actually differs counts. Being strict
+ * here would fire the warning on half the real fields, and a warning that cries
+ * wolf gets ignored on the day it is right.
+ */
+export function sameParcel(
+  // Accepts `parseLld`'s shape, whose optional parts are null rather than
+  // absent — the whole point is that they may be missing.
+  written: { quarter?: string | null; section: number; township: number; range: number; meridian?: number | null } | null,
+  computed: AtsParts,
+): boolean {
+  if (!written) return false
+  if (written.section !== computed.section) return false
+  if (written.township !== computed.township) return false
+  if (written.range !== computed.range) return false
+  if (written.meridian != null && written.meridian !== computed.meridian) return false
+  if (written.quarter && written.quarter !== computed.quarter) return false
+  return true
+}
+
 /** Great-circle distance in metres. For measuring how far off we are. */
 export function distanceM(a: LatLng, b: LatLng): number {
   const R = 6371008.8

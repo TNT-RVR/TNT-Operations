@@ -13,11 +13,23 @@
  * does is lay a regular 6-mile grid north from 49°N and west from each
  * meridian, which is the shape the survey approximates.
  *
- * `ats.test.ts` measures the error against fifteen real TNT fields whose
- * surveyed pivot coordinates are known, and asserts each pivot lands inside the
- * quarter this computes. That is the honest claim: good enough to find a parcel
- * and drive to it, NOT a legal boundary. Anything that needs survey accuracy
- * needs the Alberta ATS dataset, not this.
+ * ── Two tiers ────────────────────────────────────────────────────────────────
+ *
+ * SURVEY (`atsBox` with a township table) uses the real Alberta Township System
+ * survey, collapsed to one origin and section pitch per township by
+ * `scripts/build_ats_townships.py`. Median error 7 m. This is what Alberta
+ * lookups use.
+ *
+ * GRID (`atsBox` with no table) lays a regular grid north from 49°N and west
+ * from each meridian. Typical error 300 m, and it CANNOT be better: the survey
+ * re-sets its ranges at correction lines every four townships, so the offset
+ * jumps — two fields either side of one are wrong in opposite directions. This
+ * tier exists so Saskatchewan, Manitoba and W1–W3 degrade instead of failing.
+ *
+ * `ats.test.ts` measures both against fifteen real TNT fields whose surveyed
+ * pivot coordinates are known. Even the survey tier is a lookup of section
+ * centres, NOT a legal boundary — anything that needs survey accuracy needs
+ * Alberta's own ATS dataset.
  */
 
 /** Metres in a survey mile. */
@@ -41,10 +53,11 @@ const TOWNSHIP_M = 6 * MILE_M + 56
 const RANGE_M = 6 * MILE_M + 138
 
 /**
- * Typical error, measured. A quarter section is 804 m across, so this places a
- * parcel reliably in the right section and usually in the right quarter.
+ * Typical error of each tier, measured — quoted to the user, so they know what
+ * the box on the map is worth. A quarter section is 804 m across.
  */
-export const TYPICAL_ERROR_M = 300
+export const SURVEY_ERROR_M = 35
+export const GRID_ERROR_M = 300
 
 /**
  * Longitude of each meridian, west negative.
@@ -107,6 +120,76 @@ export interface AtsBox {
   ring: Ring
   /** South-west and north-east corners. */
   bounds: { south: number; west: number; north: number; east: number }
+  /** Which tier produced this — the UI quotes a different error for each. */
+  source: 'survey' | 'grid'
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The survey table
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** One township as surveyed: where it starts and how its sections step. */
+export interface Township {
+  /** Latitude of the south edge of the southern section row. */
+  south: number
+  /** Longitude of the east edge of the eastern section column. */
+  east: number
+  /**
+   * Spacing between section edges. NOT the same as `sizeLat`/`sizeLon` — the
+   * survey cuts a road allowance between sections, so the pitch is a mile plus
+   * that allowance.
+   */
+  pitchLat: number
+  pitchLon: number
+  /** The surveyed section itself, without the road allowance. */
+  sizeLat: number
+  sizeLon: number
+}
+
+export interface TownshipTable {
+  get(meridian: number, township: number, range: number): Township | null
+  readonly size: number
+}
+
+/** Fixed-point scales, matching `scripts/build_ats_townships.py`. */
+const DEG_SCALE = 1e7
+const STEP_SCALE = 1e6
+const RECORD_BYTES = 20
+
+const townshipKey = (meridian: number, township: number, range: number) =>
+  meridian * 1_000_000 + township * 1_000 + range
+
+/**
+ * Decode `public/ats-townships.bin`.
+ *
+ * Returns null rather than throwing on a bad or truncated file: a corrupt asset
+ * should cost the lookup its accuracy, not take the map down with it. The
+ * caller falls back to the grid tier.
+ */
+export function parseTownshipTable(buffer: ArrayBuffer): TownshipTable | null {
+  if (buffer.byteLength < 8) return null
+  const view = new DataView(buffer)
+  // Magic 'ATT1' — guards against a 404 HTML page arriving as the asset.
+  if (view.getUint32(0, false) !== 0x41545431) return null
+  const count = view.getUint32(4, true)
+  if (buffer.byteLength < 8 + count * RECORD_BYTES) return null
+
+  const map = new Map<number, Township>()
+  for (let i = 0; i < count; i++) {
+    const o = 8 + i * RECORD_BYTES
+    map.set(townshipKey(view.getUint8(o), view.getUint8(o + 1), view.getUint8(o + 2)), {
+      south: view.getInt32(o + 4, true) / DEG_SCALE,
+      east: view.getInt32(o + 8, true) / DEG_SCALE,
+      pitchLat: view.getUint16(o + 12, true) / STEP_SCALE,
+      pitchLon: view.getUint16(o + 14, true) / STEP_SCALE,
+      sizeLat: view.getUint16(o + 16, true) / STEP_SCALE,
+      sizeLon: view.getUint16(o + 18, true) / STEP_SCALE,
+    })
+  }
+  return {
+    get: (meridian, township, range) => map.get(townshipKey(meridian, township, range)) ?? null,
+    size: map.size,
+  }
 }
 
 /**
@@ -152,20 +235,61 @@ export interface AtsParts {
   meridian: number
 }
 
+/** Assemble a box from its edges. */
+function makeBox(
+  south: number,
+  west: number,
+  north: number,
+  east: number,
+  source: 'survey' | 'grid',
+): AtsBox {
+  return {
+    center: { lat: (south + north) / 2, lng: (west + east) / 2 },
+    ring: [
+      { lat: south, lng: west },
+      { lat: south, lng: east },
+      { lat: north, lng: east },
+      { lat: north, lng: west },
+      { lat: south, lng: west },
+    ],
+    bounds: { south, west, north, east },
+    source,
+  }
+}
+
 /**
  * The box for a legal land description.
  *
  * With a quarter, the box is that quarter (half a mile square). Without one it
  * is the whole section (a mile square) — which is the right answer to "where is
  * 35-8-21", rather than silently picking a corner.
+ *
+ * Pass `table` (from `parseTownshipTable`) to use the survey. Without it, or
+ * for a township the survey data does not cover, this falls back to the grid —
+ * see the two tiers at the top of the file.
  */
-export function atsBox(parts: AtsParts): AtsBox | null {
+export function atsBox(parts: AtsParts, table?: TownshipTable | null): AtsBox | null {
   const meridianLng = MERIDIANS[parts.meridian]
   if (meridianLng === undefined) return null
   const pos = sectionGridPosition(parts.section)
   if (!pos) return null
   if (parts.township < 1 || parts.township > 126) return null
   if (parts.range < 1 || parts.range > 34) return null
+
+  const surveyed = table?.get(parts.meridian, parts.township, parts.range)
+  if (surveyed) {
+    const q = quarterOffset(parts.quarter)
+    // Sections step west from the township's east edge, so a column counted
+    // from the west has to be flipped.
+    const colFromEast = 5 - pos.colFromWest
+    const secSouth = surveyed.south + pos.rowFromSouth * surveyed.pitchLat
+    const secEast = surveyed.east - colFromEast * surveyed.pitchLon
+    const h = parts.quarter ? surveyed.sizeLat / 2 : surveyed.sizeLat
+    const w = parts.quarter ? surveyed.sizeLon / 2 : surveyed.sizeLon
+    const south = secSouth + (parts.quarter ? q.north * h : 0)
+    const east = secEast - (parts.quarter ? (1 - q.east) * w : 0)
+    return makeBox(south, east - w, south + h, east, 'survey')
+  }
 
   const southLat = townshipSouthLat(parts.township)
   // Work at the township's middle latitude: longitude degrees change with
@@ -191,17 +315,7 @@ export function atsBox(parts: AtsParts): AtsBox | null {
   const east = sectionEast - (parts.quarter ? degLon(((1 - q.east) * secW) / 2) : 0)
   const west = east - degLon(parts.quarter ? secW / 2 : secW)
 
-  return {
-    center: { lat: (south + north) / 2, lng: (west + east) / 2 },
-    ring: [
-      { lat: south, lng: west },
-      { lat: south, lng: east },
-      { lat: north, lng: east },
-      { lat: north, lng: west },
-      { lat: south, lng: west },
-    ],
-    bounds: { south, west, north, east },
-  }
+  return makeBox(south, west, north, east, 'grid')
 }
 
 /** Great-circle distance in metres. For measuring how far off we are. */

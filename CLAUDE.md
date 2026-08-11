@@ -147,6 +147,22 @@ _Last reviewed 2026-08-03._
           shelter pins, planned-vs-actual view, pin number modes (shelter # /
           tray count from the Part 7.2 bee math), and field search by
           name/company/year/LLD.
+        - **LLD lookup** (`domain/ats.ts`) — typing ANY legal land description
+          in the field search boxes that parcel on the map, in or out of the
+          system (the scouting case). TWO TIERS: the real Alberta survey
+          (median 7 m), else a computed grid (~300 m). The grid alone is NOT
+          good enough and cannot be — the survey re-sets its ranges at
+          correction lines, so two fields either side of one are wrong in
+          OPPOSITE directions; no single offset fixes both.
+          `scripts/build_ats_townships.py` collapses the old app's 255k
+          surveyed sections (5.1 MB) to 7,196 townships (141 KiB) by storing an
+          origin + section pitch each — the jogs are between townships, inside
+          one the 6×6 grid is regular. Pitch ≠ section size (road allowances go
+          between sections); conflating them quadrupled the error once already,
+          and a test now pins pitch > size. `public/ats-townships.bin` is a
+          static asset fetched on first use, NOT seam data — it is government
+          survey data, identical everywhere, so it has no business in Supabase.
+          Rebuild: `python scripts/build_ats_townships.py`.
       - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
         `cost.ts` port: per-field cost, profitability, season totals, pricing
         inputs stored PER YEAR (missing years carry forward). Prefs in

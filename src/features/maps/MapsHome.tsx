@@ -7,7 +7,8 @@ import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { formatLld, lldMatches, parseLld } from '@/domain/lld'
-import { TYPICAL_ERROR_M, atsBox, toGeoJson } from '@/domain/ats'
+import { GRID_ERROR_M, SURVEY_ERROR_M, atsBox, toGeoJson } from '@/domain/ats'
+import { useTownshipTable } from './atsTownships'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
 import { Check, MapPin, Undo2, X as XIcon } from 'lucide-react'
@@ -298,26 +299,27 @@ export default function MapsHome() {
    * independent of the field list, which only ever knows about fields already
    * in the system.
    */
+  const lldParts = useMemo(() => parseLld(fieldQuery), [fieldQuery])
+  // Fetch the survey table only once someone actually types a description.
+  const townships = useTownshipTable(lldParts != null)
+
   const lldLookup = useMemo(() => {
-    const parts = parseLld(fieldQuery)
-    if (!parts) return null
+    if (!lldParts) return null
     // No meridian given: assume W4, which covers south-eastern Alberta where
     // TNT works. Stated in the UI rather than assumed silently.
-    const meridian = parts.meridian ?? 4
-    // Always draw the SECTION — that is the mile-square landmark you navigate
-    // by, and at ~300 m accuracy it is the honest unit. The quarter is drawn
-    // inside it when one was given, so you can see which corner is meant
-    // without the box implying survey precision it does not have.
-    const section = atsBox({ ...parts, quarter: null, meridian })
+    const meridian = lldParts.meridian ?? 4
+    // Always draw the SECTION — it is the mile-square landmark you navigate by
+    // — and the quarter inside it when one was given.
+    const section = atsBox({ ...lldParts, quarter: null, meridian }, townships)
     if (!section) return null
-    const quarter = parts.quarter ? atsBox({ ...parts, meridian }) : null
+    const quarter = lldParts.quarter ? atsBox({ ...lldParts, meridian }, townships) : null
     return {
       section,
       quarter,
       label: formatLld(fieldQuery) ?? fieldQuery,
-      assumedMeridian: parts.meridian == null,
+      assumedMeridian: lldParts.meridian == null,
     }
-  }, [fieldQuery])
+  }, [lldParts, fieldQuery, townships])
   const visibleFields = useMemo(() => {
     const q = fieldQuery.trim().toLowerCase()
     if (!q) return fields
@@ -1696,8 +1698,10 @@ export default function MapsHome() {
               </div>
               <p className="mt-0.5 text-xs text-secondary">
                 {lldLookup.quarter ? 'Section outlined, quarter shaded' : 'Section outlined'}
-                {lldLookup.assumedMeridian ? ', assuming W4' : ''}. Placed from the township grid to within
-                about {TYPICAL_ERROR_M} m — right parcel, not a survey boundary.
+                {lldLookup.assumedMeridian ? ', assuming W4' : ''}.{' '}
+                {lldLookup.section.source === 'survey'
+                  ? `From the Alberta survey, to within about ${SURVEY_ERROR_M} m.`
+                  : `Estimated from the township grid, to within about ${GRID_ERROR_M} m — outside the Alberta survey data.`}
               </p>
             </div>
           )}

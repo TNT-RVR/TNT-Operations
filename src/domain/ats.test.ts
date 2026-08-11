@@ -8,24 +8,50 @@
  * in the UI ("within a few hundred metres") is a measurement rather than a
  * hope.
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import realFields from './__fixtures__/atsRealFields.json'
 import {
+  GRID_ERROR_M,
   MERIDIANS,
-  TYPICAL_ERROR_M,
+  SURVEY_ERROR_M,
   atsBox,
   contains,
   distanceM,
+  parseTownshipTable,
   sectionGridPosition,
   toGeoJson,
   townshipSouthLat,
+  type TownshipTable,
 } from './ats'
 import { parseLld } from './lld'
 
+/**
+ * The survey table the app ships. Read from disk rather than mocked, so these
+ * tests fail if the asset is missing, truncated or rebuilt into a different
+ * shape — the exact ways this feature would silently go back to being 300 m
+ * out in production.
+ */
+const TABLE: TownshipTable = (() => {
+  const buf = readFileSync(resolve(__dirname, '../../public/ats-townships.bin'))
+  const t = parseTownshipTable(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
+  if (!t) throw new Error('public/ats-townships.bin is missing or corrupt — rebuild it')
+  return t
+})()
+
+/** Grid tier: no table. */
 const box = (lld: string) => {
   const p = parseLld(lld)
   if (!p) throw new Error(`unparseable: ${lld}`)
   return atsBox({ ...p, meridian: p.meridian ?? 4 })!
+}
+
+/** Survey tier. */
+const surveyed = (lld: string) => {
+  const p = parseLld(lld)
+  if (!p) throw new Error(`unparseable: ${lld}`)
+  return atsBox({ ...p, meridian: p.meridian ?? 4 }, TABLE)!
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -168,50 +194,134 @@ interface RealField {
  */
 const REAL = realFields as RealField[]
 
-describe('accuracy against real fields', () => {
-  const errors = REAL.map((f) => {
-    const p = parseLld(f.lld)!
-    const b = atsBox({ ...p, meridian: p.meridian ?? 4 })!
-    return { ...f, box: b, error: distanceM(b.center, { lat: f.lat, lng: f.lon }) }
-  })
+/** Distance from a description's computed centre to the field's real pivot. */
+const errorFor = (f: RealField, table?: TownshipTable) => {
+  const p = parseLld(f.lld)!
+  const b = atsBox({ ...p, meridian: p.meridian ?? 4 }, table)!
+  return distanceM(b.center, { lat: f.lat, lng: f.lon })
+}
 
+describe('accuracy against real fields', () => {
   it('parses every real LLD', () => {
     expect(REAL.every((f) => parseLld(f.lld) !== null)).toBe(true)
     expect(REAL.length).toBeGreaterThanOrEqual(15)
   })
 
-  it('lands within half a kilometre of the pivot, typically', () => {
-    const sorted = [...errors].map((e) => e.error).sort((a, b) => a - b)
-    const median = sorted[Math.floor(sorted.length / 2)]
-    expect(median).toBeLessThan(500)
-  })
-
-  it('is never wildly wrong — no field is a section away', () => {
-    // The failure that matters is landing on the wrong parcel. A mile is the
-    // width of a section, so anything beyond that is a different piece of land.
-    for (const e of errors) {
-      expect(e.error, `${e.lld} (${e.file})`).toBeLessThan(1609)
-    }
-  })
-
-  it('puts most pivots inside the computed SECTION', () => {
-    // Quarter-level containment is too strict given the pivots are not centred,
-    // but the section is the unit someone actually navigates to.
-    let inside = 0
+  it('covers every real field with survey data', () => {
+    // All fifteen are W4 in southern Alberta. If one ever falls back to the
+    // grid, the table was built from the wrong source or is missing townships.
     for (const f of REAL) {
       const p = parseLld(f.lld)!
-      const section = atsBox({ ...p, quarter: null, meridian: p.meridian ?? 4 })!
-      if (contains(section, { lat: f.lat, lng: f.lon })) inside++
+      const b = atsBox({ ...p, meridian: p.meridian ?? 4 }, TABLE)!
+      expect(b.source, `${f.lld} (${f.file})`).toBe('survey')
     }
-    expect(inside / REAL.length).toBeGreaterThanOrEqual(0.6)
   })
 
-  it('keeps the advertised error honest', () => {
-    // TYPICAL_ERROR_M is shown to users. If the geometry changes such that the
-    // real error drifts away from it, this fails and the number gets updated —
-    // rather than the UI quietly claiming an accuracy it no longer has.
-    const rms = Math.sqrt(errors.reduce((s, e) => s + e.error ** 2, 0) / errors.length)
-    expect(rms).toBeGreaterThan(TYPICAL_ERROR_M * 0.5)
-    expect(rms).toBeLessThan(TYPICAL_ERROR_M * 2)
+  it('puts EVERY pivot inside its quarter section', () => {
+    // The strong claim, and the one the map is judged on. It only holds on the
+    // survey tier — the grid tier misses most of these, which is the whole
+    // reason the survey table is shipped.
+    for (const f of REAL) {
+      const p = parseLld(f.lld)!
+      const q = atsBox({ ...p, meridian: p.meridian ?? 4 }, TABLE)!
+      expect(contains(q, { lat: f.lat, lng: f.lon }), `${f.lld} (${f.file})`).toBe(true)
+    }
+  })
+
+  it('keeps the advertised survey error honest', () => {
+    // SURVEY_ERROR_M is shown to the user. The pivot is not the quarter's
+    // centre — it is wherever it was installed — so this compares against a
+    // quarter's half-diagonal, the most a correctly placed pivot could be off
+    // by, rather than against the model error itself.
+    const worst = Math.max(...REAL.map((f) => errorFor(f, TABLE)))
+    expect(worst).toBeLessThan(600)
+    expect(SURVEY_ERROR_M).toBeLessThan(100)
+  })
+
+  it('beats the grid tier by an order of magnitude', () => {
+    // Compared on the median, not per field. A pivot is not at its quarter's
+    // centre — one of these fifteen sits 285 m off inside a quarter the survey
+    // tier places correctly — so a per-field comparison measures where the
+    // pivot was installed as much as it measures the model.
+    const med = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+    const survey = med(REAL.map((f) => errorFor(f, TABLE)))
+    const grid = med(REAL.map((f) => errorFor(f)))
+    expect(survey).toBeLessThan(100)
+    expect(grid).toBeGreaterThan(200)
+    expect(survey * 5).toBeLessThan(grid)
+  })
+
+  it('is the reason the quarter claim holds at all', () => {
+    // The survey tier gets all fifteen; the grid tier does not. That gap is
+    // what the 141 KiB asset buys, stated as a test so removing it fails here.
+    const inQuarter = (table?: TownshipTable) =>
+      REAL.filter((f) => {
+        const p = parseLld(f.lld)!
+        return contains(atsBox({ ...p, meridian: p.meridian ?? 4 }, table)!, { lat: f.lat, lng: f.lon })
+      }).length
+    expect(inQuarter(TABLE)).toBe(REAL.length)
+    expect(inQuarter()).toBeLessThan(REAL.length)
+  })
+
+  it('still answers without the table, within the error it advertises', () => {
+    // The fallback has to stay usable — it is what Saskatchewan gets.
+    const errs = REAL.map((f) => errorFor(f)).sort((a, b) => a - b)
+    const rms = Math.sqrt(errs.reduce((s, e) => s + e * e, 0) / errs.length)
+    expect(rms).toBeLessThan(GRID_ERROR_M * 2)
+    expect(Math.max(...errs)).toBeLessThan(1609)
+  })
+})
+
+describe('township table', () => {
+  it('loads the whole survey', () => {
+    expect(TABLE.size).toBeGreaterThan(7000)
+  })
+
+  it('covers the Alberta meridians and not the eastern ones', () => {
+    expect(TABLE.get(4, 9, 15)).not.toBeNull()
+    // W1/W2 are Manitoba and Saskatchewan — deliberately absent.
+    expect(TABLE.get(1, 9, 15)).toBeNull()
+  })
+
+  it('stores a section pitch slightly larger than the section itself', () => {
+    // The difference is the road allowance. If these were ever equal, the
+    // builder went back to deriving pitch from size — the bug that put the
+    // prediction four times further out.
+    const t = TABLE.get(4, 9, 15)!
+    expect(t.pitchLat).toBeGreaterThan(t.sizeLat)
+    expect(t.pitchLon).toBeGreaterThan(t.sizeLon)
+    expect(t.pitchLat - t.sizeLat).toBeLessThan(0.001)
+  })
+
+  it('rejects a corrupt or missing file instead of guessing', () => {
+    expect(parseTownshipTable(new ArrayBuffer(0))).toBeNull()
+    expect(parseTownshipTable(new ArrayBuffer(4))).toBeNull()
+    // Right size, wrong magic — e.g. a 404 HTML page served as the asset.
+    const bad = new ArrayBuffer(64)
+    new DataView(bad).setUint32(0, 0x3c21444f, false)
+    expect(parseTownshipTable(bad)).toBeNull()
+    // Correct magic but truncated body.
+    const short = new ArrayBuffer(12)
+    const v = new DataView(short)
+    v.setUint32(0, 0x41545431, false)
+    v.setUint32(4, 500, true)
+    expect(parseTownshipTable(short)).toBeNull()
+  })
+})
+
+describe('the correction line — the bug this fixes', () => {
+  // Two townships either side of a correction line, from the report that the
+  // box sat east of the parcel in one and west of it in the other. A uniform
+  // grid cannot get both right; the survey table can.
+  const pair = ['SW-3-11-13-W4', 'SW-33-10-13-W4']
+
+  it('shifts the two in OPPOSITE directions relative to the grid', () => {
+    const deltas = pair.map((lld) => surveyed(lld).center.lng - box(lld).center.lng)
+    expect(Math.sign(deltas[0])).not.toBe(Math.sign(deltas[1]))
+    for (const d of deltas) expect(Math.abs(d)).toBeGreaterThan(0.001)
+  })
+
+  it('places both from the survey', () => {
+    for (const lld of pair) expect(surveyed(lld).source).toBe('survey')
   })
 })

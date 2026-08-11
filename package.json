@@ -6,6 +6,7 @@
   "description": "TNT Operations — combined shelter mapping + bee incubation web app (React + TypeScript + Vite + Tailwind).",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "vite --port 5181 --mode mock",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

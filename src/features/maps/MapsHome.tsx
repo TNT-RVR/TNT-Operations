@@ -6,10 +6,11 @@ import type { Feature, FeatureCollection, Polygon, Point, Position } from 'geojs
 import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import { lldMatches } from '@/domain/lld'
+import { formatLld, lldMatches, parseLld } from '@/domain/lld'
+import { TYPICAL_ERROR_M, atsBox, toGeoJson } from '@/domain/ats'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
-import { Check, Undo2, X as XIcon } from 'lucide-react'
+import { Check, MapPin, Undo2, X as XIcon } from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { crewRoute } from '@/domain/crewRoute'
@@ -287,6 +288,36 @@ export default function MapsHome() {
    * a spray record or memory. See src/domain/lld.ts.
    */
   const [fieldQuery, setFieldQuery] = useState('')
+
+  /**
+   * A legal land description typed into the search box, resolved to a parcel on
+   * the map — whether or not it is a field we have.
+   *
+   * This is the scouting case: a grower names a quarter you have never worked
+   * and you want to see where it is before driving out. It is deliberately
+   * independent of the field list, which only ever knows about fields already
+   * in the system.
+   */
+  const lldLookup = useMemo(() => {
+    const parts = parseLld(fieldQuery)
+    if (!parts) return null
+    // No meridian given: assume W4, which covers south-eastern Alberta where
+    // TNT works. Stated in the UI rather than assumed silently.
+    const meridian = parts.meridian ?? 4
+    // Always draw the SECTION — that is the mile-square landmark you navigate
+    // by, and at ~300 m accuracy it is the honest unit. The quarter is drawn
+    // inside it when one was given, so you can see which corner is meant
+    // without the box implying survey precision it does not have.
+    const section = atsBox({ ...parts, quarter: null, meridian })
+    if (!section) return null
+    const quarter = parts.quarter ? atsBox({ ...parts, meridian }) : null
+    return {
+      section,
+      quarter,
+      label: formatLld(fieldQuery) ?? fieldQuery,
+      assumedMeridian: parts.meridian == null,
+    }
+  }, [fieldQuery])
   const visibleFields = useMemo(() => {
     const q = fieldQuery.trim().toLowerCase()
     if (!q) return fields
@@ -301,6 +332,80 @@ export default function MapsHome() {
       return lldMatches(lld, fieldQuery) || String(lld ?? '').toLowerCase().includes(q)
     })
   }, [fields, fieldQuery])
+
+  /**
+   * Draw the looked-up parcel and frame it.
+   *
+   * Layers are created lazily on first use rather than at map init: the lookup
+   * is a rare action, and adding them up front means carrying two more layers
+   * through every style reload for the common case where nobody types an LLD.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource('lld-lookup') as maplibregl.GeoJSONSource | undefined
+    if (!src) return
+
+    if (!lldLookup) {
+      src.setData(EMPTY)
+      return
+    }
+
+    // `kind` distinguishes the two rings so one source can carry both: the
+    // section is outline-only, the quarter is filled.
+    const section = toGeoJson(lldLookup.section, lldLookup.label)
+    section.properties = { ...section.properties, kind: 'section' }
+    const features = [section]
+    if (lldLookup.quarter) {
+      const q = toGeoJson(lldLookup.quarter, lldLookup.label)
+      q.properties = { ...q.properties, kind: 'quarter' }
+      features.push(q)
+    }
+    src.setData({ type: 'FeatureCollection', features })
+
+    if (!map.getLayer('lld-lookup-fill')) {
+      map.addLayer({
+        id: 'lld-lookup-fill',
+        type: 'fill',
+        source: 'lld-lookup',
+        filter: ['==', ['get', 'kind'], 'quarter'],
+        paint: { 'fill-color': '#FEB836', 'fill-opacity': 0.14 },
+      })
+      map.addLayer({
+        id: 'lld-lookup-line',
+        type: 'line',
+        source: 'lld-lookup',
+        paint: {
+          'line-color': '#FEB836',
+          // The section reads as the frame; the quarter as the detail inside it.
+          'line-width': ['case', ['==', ['get', 'kind'], 'section'], 2.5, 1.5],
+          'line-dasharray': [2, 1.5],
+        },
+      })
+      map.addLayer({
+        id: 'lld-lookup-label',
+        type: 'symbol',
+        source: 'lld-lookup',
+        filter: ['==', ['get', 'kind'], 'section'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': 13,
+          'text-offset': [0, -0.6],
+          'text-anchor': 'bottom',
+        },
+        paint: { 'text-color': '#FEB836', 'text-halo-color': '#000000', 'text-halo-width': 1.4 },
+      })
+    }
+
+    const b = lldLookup.section.bounds
+    map.fitBounds(
+      [
+        [b.west, b.south],
+        [b.east, b.north],
+      ],
+      { padding: 120, duration: 600, maxZoom: 14 },
+    )
+  }, [ready, lldLookup])
 
   const selectedField: Field | null = useMemo(
     () => fields.find((f) => f.id === selectedId) ?? fields.find((f) => f.geometry) ?? fields[0] ?? null,
@@ -825,6 +930,9 @@ export default function MapsHome() {
     // soon as the style object is parsed (immediate for our inline style), so
     // the field is framed and drawn while the imagery is still streaming in.
     map.on('style.load', () => {
+      // The LLD lookup box — an overlay that has nothing to do with any field,
+      // so it gets its own source rather than sharing one.
+      map.addSource('lld-lookup', { type: 'geojson', data: EMPTY })
       map.addSource('boundary', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'boundary-fill', type: 'fill', source: 'boundary', paint: { 'fill-color': FIELD, 'fill-opacity': 0.1 } })
       map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD, 'line-width': 2 } })
@@ -1581,7 +1689,24 @@ export default function MapsHome() {
             onChange={(e) => setFieldQuery(e.target.value)}
             placeholder="Find by name, company, year, LLD…"
           />
-          {visibleFields.length === 0 && <p className="px-1 py-2 text-xs text-muted">No fields match.</p>}
+          {lldLookup && (
+            <div className="mb-2 rounded border border-brand/40 bg-brand/10 p-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-brand">
+                <MapPin size={13} /> {lldLookup.label}
+              </div>
+              <p className="mt-0.5 text-xs text-secondary">
+                {lldLookup.quarter ? 'Section outlined, quarter shaded' : 'Section outlined'}
+                {lldLookup.assumedMeridian ? ', assuming W4' : ''}. Placed from the township grid to within
+                about {TYPICAL_ERROR_M} m — right parcel, not a survey boundary.
+              </p>
+            </div>
+          )}
+          {visibleFields.length === 0 && !lldLookup && (
+            <p className="px-1 py-2 text-xs text-muted">No fields match.</p>
+          )}
+          {visibleFields.length === 0 && lldLookup && (
+            <p className="px-1 py-2 text-xs text-muted">Not one of your fields — showing the parcel only.</p>
+          )}
           {visibleFields.map((f) => {
             const active = selectedField?.id === f.id
             return (

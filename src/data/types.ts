@@ -882,3 +882,11 @@ export interface GcalStatus {
   lastError: string
   connected: boolean
 }
+
+/** The subscribable calendar feed. The token IS the credential — see 0023. */
+export interface CalendarFeed {
+  token: string
+  enabled: boolean
+  lastFetchedAt: string | null
+  fetchCount: number
+}

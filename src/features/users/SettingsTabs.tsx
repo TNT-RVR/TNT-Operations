@@ -6,7 +6,7 @@
  * does. The Users tab stays in UsersHome.tsx — it's the biggest of the six.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   ASSIGNABLE_ROLES,
   MATRIX,
@@ -17,7 +17,6 @@ import {
   useSession,
 } from '@/auth/session'
 import { useData } from '@/data/context'
-import { supabase } from '@/data/supabaseClient'
 import { useTheme } from '@/styles/theme'
 import { Badge, Button, EmptyState, Input, Switch } from '@/components/ui'
 import { AlertTriangle, ArchiveRestore, CalendarDays, Check, ExternalLink, Lock, PenLine, RefreshCw, Save, Trash2 } from 'lucide-react'
@@ -337,7 +336,7 @@ export function IntegrationsTab() {
           Everything the app talks to. Server keys live in Netlify's environment, never in the browser.
         </p>
 
-        <GoogleCalendarCard />
+        <CalendarFeedCard />
 
         <ul className="grid gap-2 md:grid-cols-2">
           {cards.map((c) => (
@@ -636,68 +635,50 @@ function SignatureCard() {
 
 
 /**
- * Google Calendar — a live card rather than a static row, because unlike the
- * other integrations this one is connected PER PERSON. Each user links their
- * own Google account and gets their own copy of the incubation calendar, so
- * there is nothing here an admin can do on someone else's behalf.
+ * The subscribable calendar link.
+ *
+ * A plain .ics URL that Google, Apple or Outlook polls on its own schedule.
+ * No account needed at the other end, which is the point: an external grower
+ * subscribes once and never signs in.
+ *
+ * The URL IS the credential, so it is treated like one — hidden until asked
+ * for, and rotatable. "Stop sharing with someone" and "issue a new link" are
+ * the same action here, which is worth saying out loud on screen rather than
+ * leaving people to work out.
  */
-function GoogleCalendarCard() {
-  const { gcalStatus: gcal, setGcalSyncEnabled, loadSettings } = useData()
-  const [params, setParams] = useSearchParams()
-  const [busy, setBusy] = useState('')
+function CalendarFeedCard() {
+  const { calendarFeed: feed, regenerateFeedToken, setFeedEnabled } = useData()
+  const s = useSession()
+  const isAdmin = s.user.role === 'admin'
+  const [revealed, setRevealed] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [note, setNote] = useState('')
 
-  // The OAuth callback bounces back here with ?gcal=connected|denied|error.
-  const callback = params.get('gcal')
-  useEffect(() => {
-    if (!callback) return
-    if (callback === 'connected') setNote('Connected. Your first sync will run within the hour, or press Sync now.')
-    else setError(params.get('detail') ?? 'The Google Calendar connection was not completed.')
-    const next = new URLSearchParams(params)
-    next.delete('gcal')
-    next.delete('detail')
-    setParams(next, { replace: true })
-    void loadSettings()
-  }, [callback, params, setParams, loadSettings])
-
-  const call = async (path: string, body?: unknown) => {
-    if (!supabase) return { ok: false, error: 'Not connected' }
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (!token) return { ok: false, error: 'Sign in again' }
-    const r = await fetch(`/.netlify/functions/${path}`, {
-      method: body ? 'POST' : 'GET',
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    })
-    const json = await r.json().catch(() => ({}))
-    return r.ok ? { ok: true, ...json } : { ok: false, error: json.error ?? `Failed (${r.status})` }
+  if (!feed) {
+    return (
+      <div className="card mb-3">
+        <div className="flex items-center gap-2 font-medium text-primary">
+          <CalendarDays size={16} className="text-muted" /> Calendar subscription
+        </div>
+        <p className="mt-1 text-xs text-muted">Not set up yet — run migration 0023.</p>
+      </div>
+    )
   }
 
-  const connect = async () => {
-    setBusy('connect')
-    setError('')
-    const r = await call('gcal-auth?action=start')
-    setBusy('')
-    if (r.ok && typeof r.url === 'string') window.location.href = r.url
-    else setError(r.error ?? 'Could not start the connection')
-  }
+  const url = `${window.location.origin}/.netlify/functions/calendar-feed?token=${feed.token}`
 
-  const run = async (action: 'disconnect' | 'sync') => {
-    setBusy(action)
-    setError('')
-    setNote('')
-    const r = action === 'disconnect'
-      ? await call('gcal-auth', { action: 'disconnect' })
-      : await call('gcal-sync', { action: 'sync' })
-    setBusy('')
-    if (!r.ok) setError(r.error ?? 'Failed')
-    else if (action === 'sync') {
-      const { created = 0, updated = 0, removed = 0, unchanged = 0 } = r as Record<string, number>
-      setNote(`Synced — ${created} added, ${updated} updated, ${removed} removed, ${unchanged} already current.`)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch {
+      // Clipboard is blocked in some contexts; revealing the URL lets them
+      // select it by hand rather than leaving them stuck.
+      setRevealed(true)
+      setError('Could not copy automatically — select the link below instead.')
     }
-    await loadSettings()
   }
 
   return (
@@ -705,62 +686,88 @@ function GoogleCalendarCard() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 font-medium text-primary">
-            <CalendarDays size={16} className={gcal?.connected ? 'text-brand' : 'text-muted'} />
-            Google Calendar
-            <Badge tone={gcal?.connected ? 'green' : 'neutral'}>
-              {gcal?.connected ? 'Connected' : 'Not connected'}
-            </Badge>
+            <CalendarDays size={16} className={feed.enabled ? 'text-brand' : 'text-muted'} />
+            Calendar subscription
+            <Badge tone={feed.enabled ? 'green' : 'neutral'}>{feed.enabled ? 'On' : 'Off'}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted">
-            Puts incubation milestones on your own Google Calendar. One-way — the app owns the schedule, so
-            anything you change in Google is overwritten on the next sync.
+            Subscribe to this link in Google Calendar and incubation milestones appear there, staying current on
+            their own. Read-only, and no account needed — you can send it to anyone.
           </p>
-          {gcal?.connected && (
-            <p className="mt-1 text-xs text-faint">
-              {gcal.googleEmail || 'Google account'}
-              {gcal.lastSyncedAt
-                ? ` · last synced ${new Date(gcal.lastSyncedAt).toLocaleString('en-CA', {
-                    timeZone: 'America/Edmonton',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}`
-                : ' · not synced yet'}
-            </p>
-          )}
+          <p className="mt-1 text-xs text-faint">
+            {feed.fetchCount > 0
+              ? `Fetched ${feed.fetchCount} time${feed.fetchCount === 1 ? '' : 's'}${
+                  feed.lastFetchedAt
+                    ? `, last ${new Date(feed.lastFetchedAt).toLocaleString('en-CA', {
+                        timeZone: 'America/Edmonton',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}`
+                    : ''
+                }.`
+              : 'Nothing has subscribed yet.'}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {gcal?.connected ? (
-            <>
-              <Switch
-                checked={gcal.syncEnabled}
-                onChange={(v) => void setGcalSyncEnabled(v)}
-                label="Keep the calendar in sync"
-              />
-              <Button variant="ghost" onClick={() => void run('sync')} disabled={!!busy}>
-                <RefreshCw size={15} /> {busy === 'sync' ? 'Syncing…' : 'Sync now'}
-              </Button>
-              <Button variant="ghost" onClick={() => void run('disconnect')} disabled={!!busy}>
-                Disconnect
-              </Button>
-            </>
-          ) : (
-            <Button onClick={connect} disabled={busy === 'connect'}>
-              <CalendarDays size={15} /> {busy === 'connect' ? 'Opening Google…' : 'Connect'}
-            </Button>
+          {isAdmin && (
+            <Switch checked={feed.enabled} onChange={(v) => void setFeedEnabled(v)} label="Calendar feed on" />
           )}
+          <Button variant="ghost" onClick={copy}>
+            <Check size={15} className={copied ? '' : 'hidden'} />
+            {copied ? 'Copied' : 'Copy link'}
+          </Button>
+          <Button variant="ghost" onClick={() => setRevealed((v) => !v)}>
+            {revealed ? 'Hide' : 'Show'}
+          </Button>
         </div>
       </div>
 
-      {gcal?.lastError && <p className="text-xs text-danger">{gcal.lastError}</p>}
-      {error && <p className="text-xs text-danger">{error}</p>}
-      {note && (
-        <p className="flex items-center gap-1 text-xs text-brand">
-          <Check size={13} /> {note}
-        </p>
+      {revealed && (
+        <code className="block break-all rounded bg-inset p-2 text-xs text-secondary">{url}</code>
       )}
+
+      <details className="text-xs text-muted">
+        <summary className="cursor-pointer">How to subscribe</summary>
+        <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+          <li>Copy the link above.</li>
+          <li>
+            In Google Calendar, open <strong>Other calendars → + → From URL</strong>, paste it, and add.
+          </li>
+          <li>It appears within a few minutes and refreshes itself after that.</li>
+        </ol>
+        <p className="mt-1">
+          Google decides how often to re-poll — usually a few hours, occasionally up to a day. There is no way to
+          make that faster from this side; that is what the full API connection would fix.
+        </p>
+      </details>
+
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-subtle pt-2">
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true)
+              setError('')
+              const r = await regenerateFeedToken()
+              setBusy(false)
+              if (!r.ok) setError(r.error ?? 'Could not issue a new link')
+              else setRevealed(true)
+            }}
+          >
+            <RefreshCw size={15} /> {busy ? 'Working…' : 'Issue a new link'}
+          </Button>
+          <span className="text-xs text-faint">
+            Anyone holding the current link keeps access until you do. This is how you revoke it — everyone will
+            need the new one.
+          </span>
+        </div>
+      )}
+
+      {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   )
 }

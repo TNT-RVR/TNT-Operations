@@ -6,6 +6,7 @@ import type { Feature, FeatureCollection, Polygon, Point, Position } from 'geojs
 import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
+import { lldMatches } from '@/domain/lld'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
 import { Check, Undo2, X as XIcon } from 'lucide-react'
@@ -276,15 +277,29 @@ export default function MapsHome() {
   const [liveCrews, setLiveCrews] = useState<Record<string, LiveCrew>>({})
   const crewMarkersRef = useRef<maplibregl.Marker[]>([])
 
-  /** Field-list filter — name, client, region, and the field's company/year/LLD. */
+  /**
+   * Field-list filter — name, client, region, company, year, and the LLD.
+   *
+   * The LLD is matched SEPARATELY, ignoring separators, because a plain
+   * substring test made the land search unreliable: a field stored
+   * `SW-35-8-21-W4` was found by typing `35-8-21` but not `SW 35 8 21`, and
+   * which one someone types depends on whether they are copying from a title,
+   * a spray record or memory. See src/domain/lld.ts.
+   */
   const [fieldQuery, setFieldQuery] = useState('')
   const visibleFields = useMemo(() => {
     const q = fieldQuery.trim().toLowerCase()
     if (!q) return fields
-    return fields.filter((f) =>
-      [f.name, f.client, f.region, str(f.geometry?.company), str(f.geometry?.year), str(f.geometry?.lld)]
-        .some((v) => String(v ?? '').toLowerCase().includes(q)),
-    )
+    return fields.filter((f) => {
+      const plain = [f.name, f.client, f.region, str(f.geometry?.company), str(f.geometry?.year)].some((v) =>
+        String(v ?? '').toLowerCase().includes(q),
+      )
+      if (plain) return true
+      const lld = str(f.geometry?.lld)
+      // Try both: the loose land match, and a plain substring so an LLD typed
+      // exactly as stored still works even if it is an unusual format.
+      return lldMatches(lld, fieldQuery) || String(lld ?? '').toLowerCase().includes(q)
+    })
   }, [fields, fieldQuery])
 
   const selectedField: Field | null = useMemo(

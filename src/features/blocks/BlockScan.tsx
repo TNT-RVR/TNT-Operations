@@ -84,7 +84,9 @@ export default function BlockScan() {
   const [undoError, setUndoError] = useState<string | null>(null)
 
   // Weigh modes: the block that was scanned and is waiting for a number.
-  const [pending, setPending] = useState<{ label: string } | null>(null)
+  /** `needsField` marks a block with no placement on record — the only case
+   *  where anyone has to say which field it came out of. */
+  const [pending, setPending] = useState<{ label: string; needsField: boolean } | null>(null)
   const [weight, setWeight] = useState('')
   const [unit, setUnit] = useState<'lbs' | 'kg'>('lbs')
   const [saving, setSaving] = useState(false)
@@ -248,7 +250,10 @@ export default function BlockScan() {
 
     const caveat = decision.caveat
     flash(caveat ? 'warn' : 'ok', decision.label, caveat ?? 'Now weigh it')
-    setPending({ label: decision.label })
+    // Ask for the field ONLY when the block has no placement to take it from.
+    // A block scanned into a field already knows where it came from, and most
+    // do — a standing selector would be a question nobody needs to answer.
+    setPending({ label: decision.label, needsField: decision.caveat != null && /placement|registered/.test(decision.caveat) })
     setWeight('')
     setWeighError(null)
     setOpen(false)
@@ -522,7 +527,7 @@ export default function BlockScan() {
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => {
-                  setPending({ label: conflict.label })
+                  setPending({ label: conflict.label, needsField: false })
                   setWeight('')
                   setWeighError(null)
                   setConflict(null)
@@ -544,26 +549,6 @@ export default function BlockScan() {
           </div>
         )}
 
-        {mode !== 'place' && !pending && !conflict && (
-          <div className="card space-y-1">
-            <label className="text-sm font-medium">Field these blocks came from</label>
-            <Select value={weighFieldId} onChange={(e) => setWeighFieldId(e.target.value)}>
-              <option value="">Not set</option>
-              {fields.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </Select>
-            {/* Only a fallback: a block that was scanned into a field already
-                knows where it came from, and that record is not touched. */}
-            <p className="text-xs text-faint">
-              Optional. Used only for blocks with no placement on record — weighing happens away from
-              the field, so there is no location to read here.
-            </p>
-          </div>
-        )}
-
         {/* Weigh entry. Replaces the camera while a number is expected. */}
         {pending ? (
           <div className="card space-y-3">
@@ -574,6 +559,27 @@ export default function BlockScan() {
                 {mode === 'retrieve' ? 'Full weight' : 'Empty weight'}
               </Badge>
             </div>
+
+            {/* No placement on record, so nothing knows the field. Asked here
+                rather than guessed: weighing happens away from the field, so
+                there is no location to read. */}
+            {pending.needsField && (
+              <div className="rounded-sm border border-default bg-inset p-2">
+                <label className="label">Field this block came from</label>
+                <Select value={weighFieldId} onChange={(e) => setWeighFieldId(e.target.value)}>
+                  <option value="">Not recorded</option>
+                  {fields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-1 text-xs text-faint">
+                  This block has no placement on record. Optional — without it the weight is kept but
+                  counts toward no field's returns.
+                </p>
+              </div>
+            )}
             <div className="flex gap-2">
               <Input
                 ref={weightRef}

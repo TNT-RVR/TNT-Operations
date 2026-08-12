@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import runGrantsPull from './grants-pull.mjs'
 import runGoveePoll from './poll-govee.mjs'
 import runTasksTick from './tasks-tick.mjs'
+import runWatchdog from './watchdog.mjs'
 import runGcalSync from './gcal-sync.mjs'
 
 /**
@@ -36,6 +37,7 @@ const JOBS = {
   'grants-pull': runGrantsPull,
   'poll-govee': runGoveePoll,
   'tasks-tick': runTasksTick,
+  watchdog: runWatchdog,
   'gcal-sync': runGcalSync,
 }
 

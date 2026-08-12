@@ -1,0 +1,59 @@
+# Outside-the-building check that the incubator monitoring is alive.
+#
+# Everything else that watches these incubators runs on Netlify. If Netlify
+# stops running scheduled functions, every one of those checks stops with it —
+# and stops silently, because silence is also what healthy looks like. That is
+# exactly what happened between 2026-07-23 and 2026-08-05.
+#
+# So this runs on GitHub instead. It asks the health endpoint how fresh the
+# newest sensor reading is and fails the workflow on anything but 200, which
+# GitHub mails to whoever owns the repo. For silence to look healthy now, two
+# separate providers have to be broken at the same time.
+#
+# Setup — two repository secrets (Settings → Secrets and variables → Actions):
+#   SITE_URL       e.g. https://tnt-operations.netlify.app   (no trailing slash)
+#   FN_RUN_TOKEN   the same value as the Netlify env var of that name
+#
+# Without them the job is skipped rather than failing every 30 minutes, since a
+# constantly-red workflow is one nobody reads.
+
+name: Monitoring heartbeat
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub's scheduler is best-effort and can run late under
+    # load, which is fine: the endpoint's own staleness bar decides pass or fail,
+    # not how punctual this is.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the health endpoint how fresh the readings are
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          FN_RUN_TOKEN: ${{ secrets.FN_RUN_TOKEN }}
+        run: |
+          if [ -z "$SITE_URL" ] || [ -z "$FN_RUN_TOKEN" ]; then
+            echo "SITE_URL or FN_RUN_TOKEN not set — skipping (see the comment at the top of this file)."
+            exit 0
+          fi
+
+          # --max-time so a hung endpoint fails rather than holding the runner.
+          body=$(curl -sS --max-time 30 -w '\n%{http_code}' \
+            "$SITE_URL/.netlify/functions/health?token=$FN_RUN_TOKEN") || {
+            echo "Could not reach the health endpoint at all."
+            exit 1
+          }
+
+          code=$(echo "$body" | tail -n1)
+          payload=$(echo "$body" | sed '$d')
+          echo "$payload"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Incubator monitoring is not healthy (HTTP $code). Nobody is watching the temperatures."
+            exit 1
+          fi
+          echo "Monitoring is alive."

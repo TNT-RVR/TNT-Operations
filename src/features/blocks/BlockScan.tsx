@@ -323,13 +323,14 @@ export default function BlockScan() {
             {confirmingManual && (
               <div className="rounded-sm border border-amber-500 bg-amber-500/10 p-3">
                 <p className="text-sm font-medium text-primary">
-                  Pick the field by hand instead of using your location?
+                  {detectedFieldId
+                    ? `Pick the field by hand instead of using your location (${detectedName})?`
+                    : 'Pick the field by hand, with nothing to check it against?'}
                 </p>
                 <p className="mt-1 text-xs text-muted">
-                  Blocks will be filed under whatever you choose, even if your phone says you are
-                  somewhere else. If the field is wrong, the returns for both fields are wrong, and
-                  nobody finds out until the weights come in. Only do this if you know the GPS is
-                  lying — under trees, on a bad fix, or standing on a boundary.
+                  {detectedFieldId
+                    ? 'Blocks will be filed under whatever you choose, even if your phone says you are somewhere else. If the field is wrong, the returns for both fields are wrong, and nobody finds out until the weights come in. Only do this if you know the GPS is lying — under trees, on a bad fix, or standing on a boundary.'
+                    : 'Your location has not placed you inside a field, so nothing will catch a wrong choice here. Blocks are filed under whatever you pick and the mistake stays invisible until the weights come in. If you can, wait for a fix instead.'}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Button
@@ -385,15 +386,14 @@ export default function BlockScan() {
                         : 'You are outside every boundary — choose the field below so scans can be attributed.'
                       : 'Checking which field you are standing in.'}
                 </p>
+                {/* No dropdown here. EVERY hand-picked field goes through the
+                    same warning, including this one: "the GPS hasn't placed
+                    you" is precisely when a wrong field is easiest to enter
+                    and hardest to notice. */}
                 {!detectedFieldId && (
-                  <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
-                    <option value="">Select a field…</option>
-                    {fields.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </Select>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmingManual(true)}>
+                    Choose a field by hand
+                  </Button>
                 )}
               </>
             ) : (

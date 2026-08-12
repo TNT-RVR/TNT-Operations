@@ -112,6 +112,8 @@ functions read them) and must never be committed or `VITE_`-prefixed — a
 | `GOVEE_API_KEY` | `poll-govee.mjs` — sensor polling |
 | `ANTHROPIC_API_KEY` | `grants-pull.mjs` — weekly grant discovery |
 | `FN_RUN_TOKEN` | `run.mjs` — manual trigger for the scheduled jobs |
+| `HEALTH_TOKEN` | `health.mjs` — the monitoring heartbeat (falls back to `FN_RUN_TOKEN`) |
+| `SENSIBO_API_KEY` | `sensibo.mjs` — incubator heat-pump control |
 
 The only browser-safe values are `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_ANON_KEY` (the anon key is public by design; RLS is what protects
@@ -187,16 +189,52 @@ exercises the data seam, the design tokens, and the quality gate in one go.
 
 ### Scheduled jobs
 
-Two functions run on cron in Netlify: `poll-govee` (sensor polling) and
-`grants-pull` (Mondays). Netlify **refuses direct HTTP invocation of scheduled
-functions** (403). To run one manually:
+Several functions run on cron in Netlify — `poll-govee` (sensor polling, every
+15 min), `watchdog` (hourly), `grants-pull` (Mondays), `tasks-tick`,
+`notify-milestones`, `gcal-sync`. Netlify **refuses direct HTTP invocation of
+scheduled functions** (403). To run one manually:
 
 ```bash
 curl "https://tntoperations.netlify.app/.netlify/functions/run?fn=grants-pull&token=$FN_RUN_TOKEN"
 ```
 
-…or use **Run now** on the Netlify Functions page. Both jobs are background
-functions (15-minute limit) because the work exceeds the ~10 s synchronous cap.
+…or use **Run now** on the Netlify Functions page. `run.mjs` is a background
+function (15-minute limit) because some jobs exceed the ~10 s synchronous cap.
+
+### How the incubator monitoring fails safe
+
+Worth understanding before changing any of it, because the failure this guards
+against is a silent one. Alerts only fire when a reading ARRIVES, so a dead
+sensor, a flat battery, a revoked Govee key or a crashed poller all look
+identical to "everything is fine". Nothing watched these incubators between
+2026-07-23 and 2026-08-05 and nobody noticed.
+
+Three layers, each catching what the one before it cannot:
+
+| Layer | Where | Catches |
+|---|---|---|
+| Temperature rules | `poll-govee.mjs`, every 15 min | readings outside the mode's band |
+| `watchdog.mjs` | its own hourly schedule | an incubator that has gone quiet — 60 min while running, 24 h while idle. Pushes, and posts an all-clear |
+| `health.mjs` + GitHub Actions | `.github/workflows/monitor-heartbeat.yml`, every 30 min | Netlify not running scheduled functions AT ALL — the one thing nothing inside Netlify can report |
+
+The watchdog is deliberately NOT inside the poller: a health check that stops
+when the thing it checks stops is decoration. Likewise the heartbeat lives on
+GitHub, so silence now needs two providers broken at once.
+
+`health.mjs` answers in a status code — 200 healthy, 503 stale — and its
+staleness bar follows whether anything is actually running (60 min if so, 7 h
+if every incubator is off, since idle ones only poll every 6 hours). Check it
+by hand, and check that it can still FAIL:
+
+```bash
+curl -sS "https://tntoperations.netlify.app/.netlify/functions/health?token=$HEALTH_TOKEN"
+curl -sS "https://tntoperations.netlify.app/.netlify/functions/health?token=$HEALTH_TOKEN&staleMinutes=1"
+```
+
+The GitHub side needs two repository secrets — `SITE_URL` and `HEALTH_TOKEN`
+(Settings → Secrets and variables → Actions). Without them the workflow skips
+rather than failing every 30 minutes, because a permanently red workflow is one
+nobody reads.
 
 ---
 

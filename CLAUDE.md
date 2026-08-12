@@ -199,10 +199,17 @@ _Last reviewed 2026-08-03._
           `shelter_tray_links`) are populated by crews in Field Mode.
 - [~] Phase 6 — integrations:
       - [x] **Govee poller** — `netlify/functions/poll-govee.mjs`, scheduled every
-        5 min. Polls every incubator that has a Govee device; deliberately does
-        NOT gate on `temp_mode` (that value is frozen at import in Supabase and
-        can't be trusted server-side). Also raises deduped `sensor_feed_stale`
-        notifications when a feed goes quiet.
+        15 min. A running incubator polls every cycle; an idle one gets a
+        heartbeat poll every 6 h, throttled per incubator on `temp_mode` (which
+        the app now writes, so it can be trusted). Raises temperature alerts
+        against the mode's band, with an all-clear on recovery.
+      - [x] **Monitoring watchdog** — `netlify/functions/watchdog.mjs`, hourly.
+        Asks when each incubator last reported ANYTHING (60 min running, 24 h
+        idle) and alerts as `sensor_offline`, with an all-clear. Its own
+        schedule on purpose: this check used to live inside the poller, which
+        is the one place it cannot work — it died with the thing it watched.
+        `health.mjs` plus `.github/workflows/monitor-heartbeat.yml` sit outside
+        Netlify entirely and catch scheduled functions not running at all.
       - [x] **Exports** (`exports.ts`, unit-tested) — shelter-pin KML, GeoJSON
         bundle, coordinate CSV, field PDF (jspdf), and shapefile (shp-write).
       - [ ] **ESP32 endpoint** — not built. `'esp32'` exists only as a

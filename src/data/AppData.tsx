@@ -138,6 +138,9 @@ function MockProvider({ children }: { children: ReactNode }) {
           ])
         }
       },
+      // Mock seeds everything already — nothing older to fetch.
+      loadEarlierInspections: async () => {},
+      earlierInspectionsLoaded: true,
       latestReading: (incubatorId) =>
         readings
           .filter((r) => r.incubatorId === incubatorId)

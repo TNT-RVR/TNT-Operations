@@ -56,7 +56,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings, loadEarlierInspections, earlierInspectionsLoaded } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -147,6 +147,12 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   const [showAllInspections, setShowAllInspections] = useState(false)
   /** Reach past this run's boundary into earlier ones. */
   const [showEarlierRuns, setShowEarlierRuns] = useState(false)
+  // Only this season is hydrated, so reaching further back is a fetch, not a
+  // filter. Without this the toggle would show an empty list and read as "there
+  // is no earlier history" — a lie told by a loading state.
+  useEffect(() => {
+    if (showEarlierRuns && !earlierInspectionsLoaded) void loadEarlierInspections()
+  }, [showEarlierRuns, earlierInspectionsLoaded, loadEarlierInspections])
   const mine = showEarlierRuns ? allMine : sinceRun
   const [period, setPeriod] = useState<'morning' | 'evening' | 'manual'>('manual')
   const [thermTemp, setThermTemp] = useState('')
@@ -539,12 +545,16 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   {showAllInspections ? 'Show recent' : `Show all ${mine.length}`}
                 </button>
               )}
-              {earlierCount > 0 && (
+              {(earlierCount > 0 || !earlierInspectionsLoaded) && (
                 <button
                   className="text-xs text-muted underline"
                   onClick={() => setShowEarlierRuns((v) => !v)}
                 >
-                  {showEarlierRuns ? `${scopeLabel === 'this run' ? 'This run' : 'This season'} only` : `${earlierCount} earlier`}
+                  {showEarlierRuns
+                    ? `${scopeLabel === 'this run' ? 'This run' : 'This season'} only`
+                    : earlierInspectionsLoaded
+                      ? `${earlierCount} earlier`
+                      : 'Earlier runs'}
                 </button>
               )}
             </span>

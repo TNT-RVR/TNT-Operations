@@ -93,6 +93,16 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   addInspection: (input: Omit<Inspection, 'id'>, trayObservations?: TrayObservation[]) => void
   /** Trays examined during inspections (position, cells opened, stage seen). */
   trayInspections: TrayInspection[]
+  /**
+   * Pull inspections (and their tray observations) from BEFORE this season.
+   * Hydration loads the current season only, so anything reaching further back
+   * — a block's earlier runs, last year's rounds — has to ask.
+   * Idempotent: the second call resolves without refetching.
+   */
+  loadEarlierInspections: () => Promise<void>
+  /** True while that older window is being fetched. */
+  earlierInspectionsLoaded: boolean
+
   latestReading: (incubatorId: string) => SensorReading | undefined
   /**
    * Pull this incubator's readings back to `sinceIso` and merge them in.

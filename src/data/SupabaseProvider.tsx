@@ -107,13 +107,17 @@ const PAGE_SIZE = 1000
 async function fetchAllRows<T>(
   table: string,
   order: { column: string; ascending: boolean },
-  filter?: { column: string; value: unknown } | { column: string; in: string[] },
+  filter?:
+    | { column: string; value: unknown }
+    | { column: string; in: string[] }
+    | { column: string; gte: string },
 ): Promise<{ rows: T[]; error?: string }> {
   if (!supabase) return { rows: [], error: 'No backend connection.' }
   const rows: T[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     let q = supabase.from(table).select('*')
     if (filter && 'in' in filter) q = q.in(filter.column, filter.in)
+    else if (filter && 'gte' in filter) q = q.gte(filter.column, filter.gte)
     else if (filter) q = q.eq(filter.column, filter.value)
     const { data, error } = await q
       .order(order.column, { ascending: order.ascending })
@@ -149,6 +153,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   /** One row per season (see migration 0021) — fills the season picker without
    *  loading a single placement. */
   const [blockSeasons, setBlockSeasons] = useState<BlockSeason[]>([])
+  /** Whether the pre-season inspection history has been pulled in. */
+  const [earlierInspectionsLoaded, setEarlierInspectionsLoaded] = useState(false)
+  const earlierInspPromiseRef = useRef<Promise<void> | null>(null)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -230,23 +237,34 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         )
       }
 
+      // Inspections: THIS SEASON, paged. The old `.limit(500)` was a silent
+      // truncation across every incubator at once — the same shape of bug that
+      // hid a third of the blocks — and at two rounds a day on eight
+      // incubators it starts dropping records within a month.
+      //
+      // Scoped rather than unbounded because the screens show one run or one
+      // season anyway; `loadEarlierInspections()` fetches the rest on demand.
+      const seasonStart = `${new Date().getFullYear()}-01-01T00:00:00.000Z`
       const [f, i, insp, notif] = await Promise.all([
         sb.from('shelter_fields').select('*').order('updated_at', { ascending: false }),
         sb.from('incubators').select('*').order('name', { ascending: true }),
-        sb.from('inspections').select('*').order('at', { ascending: false }).limit(500),
+        fetchAllRows<InspectionRow>('inspections', { column: 'at', ascending: false }, {
+          column: 'at',
+          gte: seasonStart,
+        }),
         sb.from('app_notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
       ])
       if (cancelled) return
 
       if (f.error) console.error('[data] load fields:', f.error.message)
       if (i.error) console.error('[data] load incubators:', i.error.message)
-      if (insp.error) console.error('[data] load inspections:', insp.error.message)
+      if (insp.error) console.error('[data] load inspections:', insp.error)
       if (notif.error) console.error('[data] load notifications:', notif.error.message)
 
       const incs = ((i.data as IncubatorRow[]) ?? []).map(toIncubator)
       setFields(((f.data as FieldRow[]) ?? []).map(toField))
       setIncubators(incs)
-      setInspections(((insp.data as InspectionRow[]) ?? []).map(toInspection))
+      setInspections(insp.rows.map(toInspection))
       setNotifications(((notif.data as NotificationRow[]) ?? []).map(toNotification))
 
       // Samples (~61) + batches load whole; trays (~4.6k) exceed PostgREST's
@@ -292,15 +310,18 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       if (al.error) console.warn('[data] load alerts:', al.error.message)
       else setAlerts(((al.data as AlertRow[]) ?? []).map(toAlert))
 
-      // Tray observations belonging to those inspections.
-      const ti = await sb
-        .from('tray_inspections')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(1000)
+      // Tray observations belonging to those inspections — same window, same
+      // paging. A capped fetch here silently drops the tray rows off the
+      // OLDEST inspections still on screen, which reads as "nobody looked at
+      // any trays that day" rather than as missing data.
+      const ti = await fetchAllRows<TrayInspectionRow>(
+        'tray_inspections',
+        { column: 'timestamp', ascending: false },
+        { column: 'timestamp', gte: seasonStart },
+      )
       if (cancelled) return
-      if (ti.error) console.warn('[data] load tray_inspections:', ti.error.message)
-      else setTrayInspections(((ti.data as TrayInspectionRow[]) ?? []).map(toTrayInspection))
+      if (ti.error) console.warn('[data] load tray_inspections:', ti.error)
+      else setTrayInspections(ti.rows.map(toTrayInspection))
 
       // Cost-estimator pricing forms (one row per year). Missing table (0007
       // not yet applied) degrades to an empty store — the UI uses defaults.
@@ -500,6 +521,44 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           ])
         })()
       },
+      loadEarlierInspections: () => {
+        if (earlierInspPromiseRef.current) return earlierInspPromiseRef.current
+        if (!supabase) return Promise.resolve()
+        const run = (async () => {
+          // Everything, not just the older slice: one paged read is simpler
+          // than two windows to keep straight, and the merge below makes the
+          // overlap harmless.
+          const [older, olderTrays] = await Promise.all([
+            fetchAllRows<InspectionRow>('inspections', { column: 'at', ascending: false }),
+            fetchAllRows<TrayInspectionRow>('tray_inspections', {
+              column: 'timestamp',
+              ascending: false,
+            }),
+          ])
+          if (older.error || olderTrays.error) {
+            console.error('[data] loadEarlierInspections:', older.error ?? olderTrays.error)
+            earlierInspPromiseRef.current = null // let it retry
+            return
+          }
+          // Merge rather than replace: this season is already loaded and is
+          // the half people are actually looking at.
+          setInspections((prev) => {
+            const byId = new Map(prev.map((x) => [x.id, x]))
+            for (const r of older.rows.map(toInspection)) byId.set(r.id, r)
+            return [...byId.values()].sort((a, b) => b.at.localeCompare(a.at))
+          })
+          setTrayInspections((prev) => {
+            const byId = new Map(prev.map((x) => [x.id, x]))
+            for (const r of olderTrays.rows.map(toTrayInspection)) byId.set(r.id, r)
+            return [...byId.values()]
+          })
+          setEarlierInspectionsLoaded(true)
+        })()
+        earlierInspPromiseRef.current = run
+        return run
+      },
+      earlierInspectionsLoaded,
+
       latestReading: (incubatorId: string) =>
         readings
           .filter((r) => r.incubatorId === incubatorId)

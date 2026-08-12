@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Camera, MapPin, Scale, Check, Undo2, X } from 'lucide-react'
+import { Camera, MapPin, Scale, Check, Undo2, X, Crosshair } from 'lucide-react'
 import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
 import { findBlock, blockStage, kgToLbsWeight, checkWeight } from '@/domain/blocks'
+import { fieldForPoint } from '@/domain/blockImport'
 import { useGps } from './useGps'
 
 type Mode = 'place' | 'retrieve' | 'strip'
@@ -26,6 +27,19 @@ export default function BlockScan() {
   const { fields, blocks, blockPlacements, loadBlocks, placeBlock, weighBlock, undoPlacement } = useData()
   const [mode, setMode] = useState<Mode>('place')
   const [fieldId, setFieldId] = useState<string>('')
+  /**
+   * Which field a scan is attributed to.
+   *
+   * 'auto' takes it from where the phone actually IS — the boundary the fix
+   * falls inside — so a crew that forgot to change the dropdown after driving
+   * to the next field doesn't spend a morning filing blocks under the last
+   * one. That is the mistake this is here to stop.
+   *
+   * 'manual' exists because GPS is not always right: under trees, on a bad
+   * fix, or standing on a boundary line, the person holding the phone knows
+   * better than the phone.
+   */
+  const [fieldMode, setFieldMode] = useState<'auto' | 'manual'>('auto')
   const [open, setOpen] = useState(false)
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
   /**
@@ -62,7 +76,20 @@ export default function BlockScan() {
   const { fix, error: gpsError } = useGps(mode === 'place' && open)
 
   const season = new Date().getFullYear()
-  const canPlace = mode !== 'place' || !!fieldId
+
+  /** The field the current fix falls inside, if any. */
+  const detectedFieldId = useMemo(
+    () => (fix ? fieldForPoint(fields, fix.lat, fix.lng) : null),
+    [fields, fix],
+  )
+  /**
+   * What a scan will actually be filed under. In auto mode a detection wins;
+   * with no detection it falls back to whatever is picked, so being outside
+   * every boundary — which happens constantly on poor fixes — doesn't stop the
+   * work.
+   */
+  const effectiveFieldId = fieldMode === 'auto' ? (detectedFieldId ?? fieldId) : fieldId
+  const canPlace = mode !== 'place' || !!effectiveFieldId
 
   const note = (label: string, text: string, ok: boolean, placementId?: string) =>
     setLog((prev) => [{ label, text, ok, at: Date.now(), placementId }, ...prev].slice(0, 30))
@@ -103,8 +130,14 @@ export default function BlockScan() {
 
     if (mode === 'place') {
       // Refuse rather than record a placement we can't attribute to a field.
-      if (!fieldId) return flash('error', label, 'Pick a field first.')
-      const r = await placeBlock({ label, fieldId, lat: fix?.lat ?? null, lng: fix?.lng ?? null, season })
+      if (!effectiveFieldId) return flash('error', label, 'Pick a field first.')
+      const r = await placeBlock({
+        label,
+        fieldId: effectiveFieldId,
+        lat: fix?.lat ?? null,
+        lng: fix?.lng ?? null,
+        season,
+      })
       if (!r.ok) {
         flash('error', label, r.error ?? 'Could not save.')
         return note(label, r.error ?? 'Could not save.', false)
@@ -120,8 +153,8 @@ export default function BlockScan() {
         return note(label, `MOVED from ${from}`, false)
       }
 
-      flash('ok', label, r.created ? `Placed · ${where}` : `Location updated · ${where}`)
-      return note(label, r.created ? `Placed (${where})` : `Moved (${where})`, true, r.placementId)
+      flash('ok', label, r.created ? `Placed in ${fieldName} · ${where}` : `Location updated · ${where}`)
+      return note(label, `${r.created ? 'Placed' : 'Moved'} → ${fieldName}`, true, r.placementId)
     }
 
     // Weigh modes: check the block makes sense BEFORE stopping to type a
@@ -188,7 +221,14 @@ export default function BlockScan() {
     if (pending) weightRef.current?.focus()
   }, [pending])
 
-  const fieldName = useMemo(() => fields.find((f) => f.id === fieldId)?.name ?? '', [fields, fieldId])
+  const fieldName = useMemo(
+    () => fields.find((f) => f.id === effectiveFieldId)?.name ?? '',
+    [fields, effectiveFieldId],
+  )
+  const detectedName = useMemo(
+    () => fields.find((f) => f.id === detectedFieldId)?.name ?? '',
+    [fields, detectedFieldId],
+  )
 
   /** What the block being stripped weighed full — shown so the pair can be eyeballed. */
   const pendingGross = useMemo(() => {
@@ -224,15 +264,78 @@ export default function BlockScan() {
         {mode === 'place' && (
           <div className="card space-y-2">
             <label className="text-sm font-medium">Field these blocks are going into</label>
-            <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
-              <option value="">Select a field…</option>
-              {fields.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </Select>
-            {!fieldId && <p className="text-xs text-muted">Needed before scanning — it's how returns get attributed.</p>}
+
+            {fieldMode === 'auto' ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <Crosshair size={16} className={detectedFieldId ? 'text-green-600' : 'text-faint'} />
+                  <span className="font-medium text-primary">
+                    {detectedFieldId
+                      ? detectedName
+                      : fix
+                        ? fieldId
+                          ? fieldName
+                          : 'Not inside any field'
+                        : 'Waiting for GPS…'}
+                  </span>
+                  <button
+                    className="ml-auto text-xs text-muted underline"
+                    onClick={() => setFieldMode('manual')}
+                  >
+                    Choose manually
+                  </button>
+                </div>
+                {/* Say plainly which of the two ways it decided. Someone
+                    checking their work needs to know whether the phone or the
+                    dropdown picked this field. */}
+                <p className="text-xs text-muted">
+                  {detectedFieldId
+                    ? `From your location${fix ? ` · ±${Math.round(fix.acc)} m` : ''}. Blocks scanned here are filed under this field.`
+                    : fix
+                      ? fieldId
+                        ? `Your fix is outside every boundary, so scans fall back to ${fieldName}.`
+                        : 'Your fix is outside every boundary — pick a field manually so scans can be attributed.'
+                      : 'Open the camera to get a fix, or choose a field manually.'}
+                </p>
+                {!detectedFieldId && (
+                  <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
+                    <option value="">Select a field…</option>
+                    {fields.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </>
+            ) : (
+              <>
+                <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
+                  <option value="">Select a field…</option>
+                  {fields.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </Select>
+                <div className="flex items-center gap-2">
+                  <button className="text-xs text-muted underline" onClick={() => setFieldMode('auto')}>
+                    Use my location instead
+                  </button>
+                  {/* Disagreement is worth saying out loud rather than
+                      quietly filing blocks where the phone says they aren't. */}
+                  {detectedFieldId && fieldId && detectedFieldId !== fieldId && (
+                    <span className="text-xs text-amber-600">
+                      Your location says {detectedName}.
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {!effectiveFieldId && (
+              <p className="text-xs text-muted">Needed before scanning — it's how returns get attributed.</p>
+            )}
           </div>
         )}
 
@@ -369,15 +472,28 @@ export default function BlockScan() {
         onClose={() => setOpen(false)}
         footer={
           mode === 'place' ? (
-            <div className="flex items-center gap-2 text-sm text-white/80">
-              <MapPin size={14} />
-              {fix ? (
+            <div className="flex flex-col gap-0.5 text-sm text-white/80">
+              <div className="flex items-center gap-2">
+                <MapPin size={14} />
+                {fix ? (
+                  <span>
+                    {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)} · ±{Math.round(fix.acc)} m
+                  </span>
+                ) : (
+                  <span>{gpsError ?? 'Getting a GPS fix…'}</span>
+                )}
+              </div>
+              {/* The field can change under you while walking in auto mode, so
+                  the camera says where the NEXT scan will be filed. */}
+              <div className="flex items-center gap-2">
+                <Crosshair size={14} />
                 <span>
-                  {fix.lat.toFixed(5)}, {fix.lng.toFixed(5)} · ±{Math.round(fix.acc)} m
+                  Filing under {fieldName || '—'}
+                  {fieldMode === 'auto' && detectedFieldId ? ' (from your location)' : ''}
+                  {fieldMode === 'auto' && !detectedFieldId ? ' (outside every boundary)' : ''}
+                  {fieldMode === 'manual' ? ' (chosen by hand)' : ''}
                 </span>
-              ) : (
-                <span>{gpsError ?? 'Getting a GPS fix…'}</span>
-              )}
+              </div>
             </div>
           ) : null
         }

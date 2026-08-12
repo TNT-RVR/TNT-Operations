@@ -91,8 +91,10 @@ export default function BlockScan() {
     void loadBlocks(new Date().getFullYear())
   }, [loadBlocks])
 
-  // GPS only matters while placing, and only while the camera is up.
-  const { fix, error: gpsError } = useGps(mode === 'place' && open)
+  // GPS runs as soon as the Place tab is open, not just while the camera is
+  // up: the screen's job is to tell you which field it thinks you are in
+  // BEFORE you start scanning, and a fix takes seconds to arrive.
+  const { fix, error: gpsError } = useGps(mode === 'place')
 
   const season = new Date().getFullYear()
 
@@ -358,28 +360,30 @@ export default function BlockScan() {
                         ? effectiveFieldId
                           ? fieldName
                           : 'Not inside any field'
-                        : 'Waiting for GPS…'}
+                        : (gpsError ?? 'Finding your location…')}
                   </span>
-                  <button
-                    className="ml-auto text-xs text-muted underline"
-                    onClick={() => setConfirmingManual(true)}
-                  >
-                    Choose manually
-                  </button>
+                  {detectedFieldId && (
+                    <button
+                      className="ml-auto text-xs text-muted underline"
+                      onClick={() => setConfirmingManual(true)}
+                    >
+                      Not right?
+                    </button>
+                  )}
                 </div>
                 {/* Say plainly which of the two ways it decided. Someone
                     checking their work needs to know whether the phone or the
                     dropdown picked this field. */}
                 <p className="text-xs text-muted">
                   {detectedFieldId
-                    ? `From your location${fix ? ` · ±${Math.round(fix.acc)} m` : ''}. Blocks scanned here are filed under this field.`
+                    ? `From your location · ±${Math.round(fix!.acc)} m. Blocks scanned here are filed under this field.`
                     : fix
                       ? effectiveFieldId
-                        ? `Your fix is outside every boundary, so scans fall back to ${fieldName}${
+                        ? `You are outside every boundary, so scans go to ${fieldName}${
                             effectiveFieldId === lastFieldId && !fieldId ? ' — the last field you used' : ''
-                          }.`
-                        : 'Your fix is outside every boundary — pick a field manually so scans can be attributed.'
-                      : 'Open the camera to get a fix, or choose a field manually.'}
+                          }. Change it below if that's wrong.`
+                        : 'You are outside every boundary — choose the field below so scans can be attributed.'
+                      : 'Checking which field you are standing in.'}
                 </p>
                 {!detectedFieldId && (
                   <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>

@@ -13,6 +13,11 @@
  * So this asks the opposite question: when did each incubator last say
  * ANYTHING? Stale means alert, whatever the last temperature was.
  *
+ * REPLACES the `sensor_feed_stale` check that used to live inside
+ * poll-govee.mjs, which watched only running incubators and only ever wrote to
+ * the bell inbox — nothing reached a phone, and it could not report the one
+ * failure that matters most, the poller itself not running.
+ *
  * DELIBERATELY A SEPARATE FUNCTION from poll-govee. If the poller throws
  * partway through — on one bad device, say — anything living inside it dies
  * with it, and a health check that stops when the thing it checks stops is

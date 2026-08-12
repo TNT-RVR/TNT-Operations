@@ -322,54 +322,13 @@ export default async () => {
     pushesSent += res.sent
   }
 
-  // ── Integration health: alert when a sensor feed goes stale ────────────────
-  // Only RUNNING incubators are watched. An idle one is polled just once every
-  // IDLE_HEARTBEAT_H by design, so its readings are legitimately hours apart —
-  // watching it here would fire a "stale feed" alert on every single cycle.
-  // A running incubator is the one whose data actually matters.
-  const STALE_MIN = 30
-  const DEDUPE_H = 6
-  let alerts = 0
-  const failed = plan
-    .filter((p) => p.running)
-    .map((p) => p.inc)
-    .filter((i) => !readings.some((r) => r.incubator_id === i.id))
-  for (const inc of failed) {
-    try {
-      const last = await fetch(
-        `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at&order=at.desc&limit=1`,
-        { headers: sb },
-      ).then((r) => r.json())
-      const lastAt = Array.isArray(last) && last[0]?.at ? new Date(last[0].at).getTime() : 0
-      const ageMin = (Date.now() - lastAt) / 60000
-      if (ageMin < STALE_MIN) continue
-
-      const since = new Date(Date.now() - DEDUPE_H * 3600_000).toISOString()
-      const dupe = await fetch(
-        `${SB_URL}/rest/v1/app_notifications?type=eq.sensor_feed_stale&source=eq.govee_poller&deleted_at=is.null` +
-          `&created_at=gte.${since}&body=like.*${encodeURIComponent(inc.name)}*&select=id&limit=1`,
-        { headers: sb },
-      ).then((r) => r.json())
-      if (Array.isArray(dupe) && dupe.length > 0) continue
-
-      const ageTxt = lastAt ? `${Math.round(ageMin)} minutes` : 'ever (no readings on record)'
-      await fetch(`${SB_URL}/rest/v1/app_notifications`, {
-        method: 'POST',
-        headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          category: 'integration',
-          type: 'sensor_feed_stale',
-          severity: 'critical',
-          title: `${inc.name} sensor feed is stale`,
-          body: `No reading from ${inc.name} in ${ageTxt} — the Govee sensor or gateway may be offline.`,
-          source: 'govee_poller',
-        }),
-      })
-      alerts++
-    } catch {
-      /* health check must never break the poll */
-    }
-  }
+  // Staleness is NOT checked here any more — watchdog.mjs owns it.
+  //
+  // This check used to live in the poller, which is the one place it cannot
+  // do its job: if this function crashes or stops being scheduled, the check
+  // that would have reported that goes down with it. It also only ever wrote
+  // to the bell inbox, so a feed could go quiet mid-run with nothing on
+  // anyone's phone.
 
   const total = Array.isArray(incs) ? incs.length : 0
   const runningNames = plan.filter((p) => p.running).map((p) => p.inc.name)
@@ -378,8 +337,7 @@ export default async () => {
     `poll-govee: ${total} incubators, ${withDevice.length} with a Govee device, ` +
       `${runningNames.length} running [${runningNames.join(', ') || 'none'}], ` +
       `${heartbeats} idle heartbeat(s), ${readings.length} readings written, ` +
-      `${tempAlerts} temp alerts raised, ${recoveries} recovered, ${pushesSent} push(es) sent, ` +
-      `${alerts} stale alerts raised`,
+      `${tempAlerts} temp alerts raised, ${recoveries} recovered, ${pushesSent} push(es) sent`,
     { status: 200 },
   )
 }

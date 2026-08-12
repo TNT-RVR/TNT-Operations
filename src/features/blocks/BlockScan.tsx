@@ -4,8 +4,9 @@ import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
-import { findBlock, blockStage, kgToLbsWeight, checkWeight, lbsToKgWeight } from '@/domain/blocks'
+import { findBlock, kgToLbsWeight, checkWeight, lbsToKgWeight } from '@/domain/blocks'
 import { fieldForPoint } from '@/domain/blockImport'
+import { resolveScanField, decideWeighScan } from '@/domain/blockScan'
 import { useGps } from './useGps'
 
 type Mode = 'place' | 'retrieve' | 'strip'
@@ -123,16 +124,25 @@ export default function BlockScan() {
    * every boundary — which happens constantly on poor fixes — doesn't stop the
    * work.
    */
-  const effectiveFieldId =
-    fieldMode === 'auto' ? (detectedFieldId ?? fieldId ?? '') || lastFieldId : fieldId
+  /** Where a placement scan is filed, and whether it may go ahead. Pure and
+   *  tested — see src/domain/blockScan.ts. */
+  const fieldChoice = useMemo(
+    () =>
+      resolveScanField({
+        mode: fieldMode,
+        detectedFieldId,
+        pickedFieldId: fieldId,
+        lastFieldId,
+        overrideConfirmed: overrideOkFor === `${fieldId}:${detectedFieldId}`,
+      }),
+    [fieldMode, detectedFieldId, fieldId, lastFieldId, overrideOkFor],
+  )
+  const effectiveFieldId = fieldChoice.fieldId
   /** Manual pick that contradicts where the phone says it is. */
   const disagreeing =
     fieldMode === 'manual' && !!fieldId && !!detectedFieldId && fieldId !== detectedFieldId
   const overrideConfirmed = overrideOkFor === `${fieldId}:${detectedFieldId}`
-  // Scanning is BLOCKED while a disagreement is unconfirmed. Filing blocks
-  // under a field the phone says you are not standing in is the exact mistake
-  // this screen exists to prevent, so it has to be a deliberate act.
-  const canPlace = mode !== 'place' || (!!effectiveFieldId && (!disagreeing || overrideConfirmed))
+  const canPlace = mode !== 'place' || fieldChoice.canScan
 
   // A confirmation covers one specific disagreement, not manual mode forever.
   useEffect(() => {
@@ -221,44 +231,24 @@ export default function BlockScan() {
       return note(label, `${r.created ? 'Placed' : 'Moved'} → ${fieldName}`, true, r.placementId)
     }
 
-    // Weigh modes.
-    //
-    // NOTHING here refuses a scan. A crew standing at a trailer with blocks to
-    // get through cannot stop to fix records, and a screen that says no is a
-    // screen that gets abandoned — losing the whole day's data rather than one
-    // block's. Missing history is reported as a warning and the weight is
-    // taken anyway; a block with only half its weigh-ins simply contributes no
-    // return, which is a known small loss instead of a blocked crew.
-    const block = findBlock(blocks, label)
-    const placement = block
-      ? blockPlacements.find((p) => p.blockId === block.id && p.season === season)
-      : undefined
-    const stage = placement ? blockStage(placement) : null
+    // Weigh modes. The decision itself is pure and tested — this only reacts
+    // to it (see src/domain/blockScan.ts).
+    const decision = decideWeighScan({ label, mode, season, blocks, placements: blockPlacements })
 
-    // A block that already has a weight at this stage STOPS and asks. Scanners
-    // catch labels nobody meant to scan — a block sitting on the next pallet,
-    // a sheet of them in a bin — and silently replacing a good weight with a
-    // stray one is the kind of loss nobody can spot afterwards.
-    const already =
-      placement && (mode === 'retrieve' ? placement.grossWeightLbs : placement.strippedWeightLbs)
-    if (already != null) {
-      flash('warn', block!.label, 'Already weighed — replace or skip?')
+    if (decision.action === 'confirm-replace') {
+      flash('warn', decision.label, 'Already weighed — replace or skip?')
       setConflict({
-        label: block!.label,
-        existingLbs: already,
-        stage: mode === 'retrieve' ? 'weigh-in' : 'weigh-out',
+        label: decision.label,
+        existingLbs: decision.existingLbs,
+        stage: decision.stageLabel,
       })
       setOpen(false)
       return
     }
 
-    let caveat: string | null = null
-    if (!block) caveat = 'New label — it will be registered.'
-    else if (!placement) caveat = `No ${season} placement on record — it will be created.`
-    else if (mode === 'strip' && stage === 'placed') caveat = 'Never weighed in, so this block gives no return.'
-
-    flash(caveat ? 'warn' : 'ok', block?.label ?? label, caveat ?? 'Now weigh it')
-    setPending({ label: block?.label ?? label })
+    const caveat = decision.caveat
+    flash(caveat ? 'warn' : 'ok', decision.label, caveat ?? 'Now weigh it')
+    setPending({ label: decision.label })
     setWeight('')
     setWeighError(null)
     setOpen(false)

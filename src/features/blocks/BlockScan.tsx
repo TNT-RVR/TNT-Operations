@@ -48,6 +48,14 @@ export default function BlockScan() {
    * polygon for a few scans, and the honest answer to "where is this block?"
    * is "the field you have been putting blocks in all morning", not "nowhere".
    */
+  /** Manual override is a two-step: ask before switching out of auto. */
+  const [confirmingManual, setConfirmingManual] = useState(false)
+  /**
+   * A hand-picked field the GPS disagrees with, that someone has explicitly
+   * stood behind. Cleared whenever either side changes, so a confirmation
+   * never carries over to a different disagreement.
+   */
+  const [overrideOkFor, setOverrideOkFor] = useState<string | null>(null)
   const [lastFieldId, setLastFieldId] = useState<string>(
     () => localStorage.getItem('blockscan.lastField') ?? '',
   )
@@ -101,7 +109,19 @@ export default function BlockScan() {
    */
   const effectiveFieldId =
     fieldMode === 'auto' ? (detectedFieldId ?? fieldId ?? '') || lastFieldId : fieldId
-  const canPlace = mode !== 'place' || !!effectiveFieldId
+  /** Manual pick that contradicts where the phone says it is. */
+  const disagreeing =
+    fieldMode === 'manual' && !!fieldId && !!detectedFieldId && fieldId !== detectedFieldId
+  const overrideConfirmed = overrideOkFor === `${fieldId}:${detectedFieldId}`
+  // Scanning is BLOCKED while a disagreement is unconfirmed. Filing blocks
+  // under a field the phone says you are not standing in is the exact mistake
+  // this screen exists to prevent, so it has to be a deliberate act.
+  const canPlace = mode !== 'place' || (!!effectiveFieldId && (!disagreeing || overrideConfirmed))
+
+  // A confirmation covers one specific disagreement, not manual mode forever.
+  useEffect(() => {
+    if (!disagreeing) setOverrideOkFor(null)
+  }, [disagreeing])
 
   const note = (label: string, text: string, ok: boolean, placementId?: string) =>
     setLog((prev) => [{ label, text, ok, at: Date.now(), placementId }, ...prev].slice(0, 30))
@@ -143,6 +163,12 @@ export default function BlockScan() {
     if (mode === 'place') {
       // Refuse rather than record a placement we can't attribute to a field.
       if (!effectiveFieldId) return flash('error', label, 'Pick a field first.')
+      // The camera may already be open when a disagreement appears — walking
+      // into the next field with a hand-picked one still selected. Refuse the
+      // scan rather than filing it somewhere nobody has agreed to.
+      if (disagreeing && !overrideConfirmed) {
+        return flash('error', label, `Location says ${detectedName}. Confirm the field first.`)
+      }
       const r = await placeBlock({
         label,
         fieldId: effectiveFieldId,
@@ -287,6 +313,40 @@ export default function BlockScan() {
           <div className="card space-y-2">
             <label className="text-sm font-medium">Field these blocks are going into</label>
 
+            {/* Switching off GPS attribution is asked about, not just done.
+                Everything downstream — returns per field, the map, next year's
+                decisions — rests on blocks being filed where they actually
+                are, and a wrong field is invisible until the numbers are
+                wrong months later. */}
+            {confirmingManual && (
+              <div className="rounded-sm border border-amber-500 bg-amber-500/10 p-3">
+                <p className="text-sm font-medium text-primary">
+                  Pick the field by hand instead of using your location?
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Blocks will be filed under whatever you choose, even if your phone says you are
+                  somewhere else. If the field is wrong, the returns for both fields are wrong, and
+                  nobody finds out until the weights come in. Only do this if you know the GPS is
+                  lying — under trees, on a bad fix, or standing on a boundary.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setFieldMode('manual')
+                      setConfirmingManual(false)
+                    }}
+                  >
+                    Yes, let me choose
+                  </Button>
+                  <Button size="sm" onClick={() => setConfirmingManual(false)}>
+                    Keep using my location
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {fieldMode === 'auto' ? (
               <>
                 <div className="flex items-center gap-2">
@@ -302,7 +362,7 @@ export default function BlockScan() {
                   </span>
                   <button
                     className="ml-auto text-xs text-muted underline"
-                    onClick={() => setFieldMode('manual')}
+                    onClick={() => setConfirmingManual(true)}
                   >
                     Choose manually
                   </button>
@@ -346,14 +406,47 @@ export default function BlockScan() {
                   <button className="text-xs text-muted underline" onClick={() => setFieldMode('auto')}>
                     Use my location instead
                   </button>
-                  {/* Disagreement is worth saying out loud rather than
-                      quietly filing blocks where the phone says they aren't. */}
-                  {detectedFieldId && fieldId && detectedFieldId !== fieldId && (
-                    <span className="text-xs text-amber-600">
-                      Your location says {detectedName}.
-                    </span>
-                  )}
+                  <span className="text-xs text-amber-600">Picking by hand — GPS is not being used.</span>
                 </div>
+
+                {/* A specific disagreement STOPS scanning until answered. Not a
+                    warning to read past: the wrong answer here quietly ruins a
+                    season of returns for two fields at once. */}
+                {disagreeing && !overrideConfirmed && (
+                  <div className="rounded-sm border border-amber-500 bg-amber-500/10 p-3">
+                    <p className="text-sm font-medium text-primary">
+                      Your location says you are in {detectedName}, not {fieldName}.
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      Scanning is paused until you say which is right. Filing these blocks under{' '}
+                      {fieldName} while standing in {detectedName} makes both fields' returns wrong.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setFieldMode('auto')
+                          setOverrideOkFor(null)
+                        }}
+                      >
+                        Use {detectedName} — I'm standing in it
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOverrideOkFor(`${fieldId}:${detectedFieldId}`)}
+                      >
+                        Keep {fieldName} — the GPS is wrong
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {disagreeing && overrideConfirmed && (
+                  <p className="text-xs text-amber-600">
+                    Filing under {fieldName} against the GPS, as confirmed.
+                  </p>
+                )}
               </>
             )}
 

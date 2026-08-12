@@ -40,6 +40,17 @@ export default function BlockScan() {
    * better than the phone.
    */
   const [fieldMode, setFieldMode] = useState<'auto' | 'manual'>('auto')
+  /**
+   * The last field a block actually went into, remembered across reloads.
+   *
+   * This is the fallback when the fix lands outside every boundary — which is
+   * routine on a poor signal. Walking one field, the fix drops out of the
+   * polygon for a few scans, and the honest answer to "where is this block?"
+   * is "the field you have been putting blocks in all morning", not "nowhere".
+   */
+  const [lastFieldId, setLastFieldId] = useState<string>(
+    () => localStorage.getItem('blockscan.lastField') ?? '',
+  )
   const [open, setOpen] = useState(false)
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
   /**
@@ -88,7 +99,8 @@ export default function BlockScan() {
    * every boundary — which happens constantly on poor fixes — doesn't stop the
    * work.
    */
-  const effectiveFieldId = fieldMode === 'auto' ? (detectedFieldId ?? fieldId) : fieldId
+  const effectiveFieldId =
+    fieldMode === 'auto' ? (detectedFieldId ?? fieldId ?? '') || lastFieldId : fieldId
   const canPlace = mode !== 'place' || !!effectiveFieldId
 
   const note = (label: string, text: string, ok: boolean, placementId?: string) =>
@@ -153,6 +165,16 @@ export default function BlockScan() {
         return note(label, `MOVED from ${from}`, false)
       }
 
+      // Remember where blocks are actually going, for the next fix that drops
+      // outside every boundary.
+      if (effectiveFieldId !== lastFieldId) {
+        setLastFieldId(effectiveFieldId)
+        try {
+          localStorage.setItem('blockscan.lastField', effectiveFieldId)
+        } catch {
+          /* private mode — the in-memory fallback still works */
+        }
+      }
       flash('ok', label, r.created ? `Placed in ${fieldName} · ${where}` : `Location updated · ${where}`)
       return note(label, `${r.created ? 'Placed' : 'Moved'} → ${fieldName}`, true, r.placementId)
     }
@@ -273,7 +295,7 @@ export default function BlockScan() {
                     {detectedFieldId
                       ? detectedName
                       : fix
-                        ? fieldId
+                        ? effectiveFieldId
                           ? fieldName
                           : 'Not inside any field'
                         : 'Waiting for GPS…'}
@@ -292,8 +314,10 @@ export default function BlockScan() {
                   {detectedFieldId
                     ? `From your location${fix ? ` · ±${Math.round(fix.acc)} m` : ''}. Blocks scanned here are filed under this field.`
                     : fix
-                      ? fieldId
-                        ? `Your fix is outside every boundary, so scans fall back to ${fieldName}.`
+                      ? effectiveFieldId
+                        ? `Your fix is outside every boundary, so scans fall back to ${fieldName}${
+                            effectiveFieldId === lastFieldId && !fieldId ? ' — the last field you used' : ''
+                          }.`
                         : 'Your fix is outside every boundary — pick a field manually so scans can be attributed.'
                       : 'Open the camera to get a fix, or choose a field manually.'}
                 </p>
@@ -490,7 +514,11 @@ export default function BlockScan() {
                 <span>
                   Filing under {fieldName || '—'}
                   {fieldMode === 'auto' && detectedFieldId ? ' (from your location)' : ''}
-                  {fieldMode === 'auto' && !detectedFieldId ? ' (outside every boundary)' : ''}
+                  {fieldMode === 'auto' && !detectedFieldId
+                    ? effectiveFieldId === lastFieldId && !fieldId
+                      ? ' (outside every boundary — last field used)'
+                      : ' (outside every boundary)'
+                    : ''}
                   {fieldMode === 'manual' ? ' (chosen by hand)' : ''}
                 </span>
               </div>

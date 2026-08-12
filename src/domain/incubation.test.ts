@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  sampleMatchesYear,
   heatPumpSetting,
   incubationProgress,
   DEFAULT_INCUBATION_DAYS,
@@ -527,5 +528,31 @@ describe('heatPumpSetting', () => {
   it('has nothing to set when the incubator is off or the mode is unknown', () => {
     expect(heatPumpSetting('off').targetF).toBeNull()
     expect(heatPumpSetting('nonsense').targetF).toBeNull()
+  })
+})
+
+describe('sampleMatchesYear', () => {
+  it('matches the year a lot was harvested, before it has any trays', () => {
+    // The case that made a freshly created lot invisible: no trays yet, and a
+    // filter that defaults to the current year.
+    expect(sampleMatchesYear({ harvestSeason: 2026 }, [], 2026)).toBe(true)
+  })
+
+  it('matches the year it was imported', () => {
+    expect(sampleMatchesYear({ importDate: '2026-06-15T00:00:00Z' }, [], 2026)).toBe(true)
+  })
+
+  it('matches a year one of its trays was started', () => {
+    expect(sampleMatchesYear({}, [2025, 2026], 2026)).toBe(true)
+  })
+
+  it('does not match a year it has nothing to do with', () => {
+    expect(sampleMatchesYear({ harvestSeason: 2026, importDate: '2026-06-15T00:00:00Z' }, [2026], 2024)).toBe(
+      false,
+    )
+  })
+
+  it('ignores null tray years', () => {
+    expect(sampleMatchesYear({}, [null, null], 2026)).toBe(false)
   })
 })

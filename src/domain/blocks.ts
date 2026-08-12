@@ -111,9 +111,21 @@ export function returnsByField(placements: BlockPlacement[]): FieldReturns[] {
 
 export interface SeasonSummary {
   blocks: number
+  /** Blocks at each CURRENT stage — mutually exclusive, so they sum to `blocks`. */
   placed: number
   retrieved: number
   stripped: number
+  /**
+   * How many weigh-ins have actually HAPPENED. Cumulative, not exclusive: a
+   * block weighed in and out counts in both.
+   *
+   * The stage counts above cannot answer "how many have we weighed in?" — a
+   * finished block leaves `retrieved` and lands in `stripped`, so a fully
+   * processed season reports zero weigh-ins, which is plainly false to anyone
+   * reading it.
+   */
+  weighedIn: number
+  weighedOut: number
   totalReturnLbs: number
   avgReturnLbs: number | null
 }
@@ -125,12 +137,16 @@ export function seasonSummary(placements: BlockPlacement[]): SeasonSummary {
     placed: 0,
     retrieved: 0,
     stripped: 0,
+    weighedIn: 0,
+    weighedOut: 0,
     totalReturnLbs: 0,
     avgReturnLbs: null,
   }
   let weighed = 0
   for (const p of placements) {
     s[blockStage(p)] += 1
+    if (p.grossWeightLbs != null) s.weighedIn += 1
+    if (p.strippedWeightLbs != null) s.weighedOut += 1
     const ret = beeReturnLbs(p)
     if (ret != null) {
       weighed += 1

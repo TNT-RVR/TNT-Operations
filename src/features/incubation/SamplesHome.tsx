@@ -9,6 +9,7 @@ import {
   daysFromNow,
   BATCH_EVENT_FIELDS,
   trayYear,
+  sampleMatchesYear,
   lbsToKg,
   perLbToPerKg,
   trayWeightKg,
@@ -128,8 +129,17 @@ export default function SamplesHome() {
       const y = trayYear(t)
       if (y != null) ys.add(y)
     }
+    // A lot harvested or imported this year has no trays yet, and its year
+    // still has to be offered — otherwise it cannot be filtered to at all.
+    for (const s of samples) {
+      if (s.harvestSeason != null) ys.add(s.harvestSeason)
+      if (s.importDate) {
+        const y = new Date(s.importDate).getUTCFullYear()
+        if (Number.isFinite(y)) ys.add(y)
+      }
+    }
     return [...ys].sort((a, b) => b - a)
-  }, [trays])
+  }, [trays, samples])
 
 
   // Default to the current year once the data is in, matching the desktop app:
@@ -149,9 +159,9 @@ export default function SamplesHome() {
       .filter((s) => {
         if (q && !s.name.toLowerCase().includes(q)) return false
         if (year !== ALL) {
-          // Keep samples used by a tray started in the chosen year.
+          // Harvested, imported, OR trayed that year — see sampleMatchesYear.
           const used = traysBySample.get(s.id) ?? []
-          if (!used.some((t) => trayYear(t) === Number(year))) return false
+          if (!sampleMatchesYear(s, used.map(trayYear), Number(year))) return false
         }
         return true
       })

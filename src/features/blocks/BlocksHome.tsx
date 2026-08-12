@@ -50,7 +50,7 @@ export default function BlocksHome() {
   const byField = useMemo(() => returnsByField(forSeason), [forSeason])
   const fieldName = (id: string | null) => fields.find((f) => f.id === id)?.name ?? 'Unassigned'
 
-  const done = summary.blocks > 0 ? Math.round((summary.stripped / summary.blocks) * 100) : 0
+  const done = summary.blocks > 0 ? Math.round((summary.weighedOut / summary.blocks) * 100) : 0
 
   return (
     <div>
@@ -82,8 +82,8 @@ export default function BlocksHome() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <StatTile label="Blocks out" value={summary.blocks} hint={`Season ${active}`} />
               <StatTile label="In field" value={summary.placed} tone={summary.placed > 0 ? 'warn' : 'default'} />
-              <StatTile label="Weighed in" value={summary.retrieved} hint="Full weight taken" />
-              <StatTile label="Weighed out" value={summary.stripped} tone="good" hint="Cycle complete" />
+              <StatTile label="Weighed in" value={summary.weighedIn} hint="Full weight taken" />
+              <StatTile label="Weighed out" value={summary.weighedOut} tone="good" hint="Cycle complete" />
             </div>
 
             <div className="card">
@@ -102,7 +102,8 @@ export default function BlocksHome() {
                   <dd className="text-xl font-bold">{both(summary.avgReturnLbs)}</dd>
                   {/* Say what the average is over, so a part-done season isn't misread. */}
                   <p className="text-xs text-faint">
-                    over {summary.stripped} weighed block{summary.stripped === 1 ? '' : 's'}
+                    over {byField.reduce((n, r) => n + r.weighed, 0)} block
+                    {byField.reduce((n, r) => n + r.weighed, 0) === 1 ? '' : 's'} with both weights
                   </p>
                 </div>
               </dl>

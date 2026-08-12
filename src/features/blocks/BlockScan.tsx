@@ -434,7 +434,9 @@ export default function BlockScan() {
                             effectiveFieldId === lastFieldId && !fieldId ? ' — the last field you used' : ''
                           }. Change it below if that's wrong.`
                         : 'You are outside every boundary — choose the field below so scans can be attributed.'
-                      : 'Checking which field you are standing in.'}
+                      : gpsError
+                        ? `${gpsError} Choose the field by hand to carry on.`
+                        : 'Checking which field you are standing in.'}
                 </p>
                 {/* No dropdown here. EVERY hand-picked field goes through the
                     same warning, including this one: "the GPS hasn't placed

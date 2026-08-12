@@ -313,3 +313,26 @@ describe('proposeLotFromReturns', () => {
     expect(problem).toMatch(/cannot be a lot/)
   })
 })
+
+describe('seasonSummary weigh counts', () => {
+  it('counts weigh-ins that happened, not blocks sitting at a stage', () => {
+    // A finished block LEAVES the retrieved stage for stripped. Counting by
+    // stage therefore reported "weighed in: 0" for a fully processed season —
+    // true of the stage, false of the work.
+    const done = {
+      ...({} as BlockPlacement),
+      id: 'p1', blockId: 'b1', season: 2026, fieldId: 'f1', shelterId: null,
+      lat: null, lng: null, placedAt: null, placedBy: '', retrievedAt: null,
+      grossWeightLbs: 10, retrievedBy: '', strippedAt: null, strippedWeightLbs: 4,
+      strippedBy: '', notes: '',
+    } as BlockPlacement
+    const halfway: BlockPlacement = { ...done, id: 'p2', strippedWeightLbs: null }
+    const untouched: BlockPlacement = { ...done, id: 'p3', grossWeightLbs: null, strippedWeightLbs: null }
+
+    const s = seasonSummary([done, halfway, untouched])
+    expect(s.weighedIn).toBe(2)
+    expect(s.weighedOut).toBe(1)
+    // The stage counts still partition the blocks.
+    expect(s.placed + s.retrieved + s.stripped).toBe(3)
+  })
+})

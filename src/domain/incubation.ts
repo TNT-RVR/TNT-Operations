@@ -772,3 +772,27 @@ export function stageDelta(observed: string, day: number | null | undefined): nu
   if (oi < 0 || ei < 0) return null
   return oi - ei
 }
+
+/**
+ * Does a sample belong to a given year?
+ *
+ * A sample's year used to mean ONLY "has a tray started that year", which is
+ * true of a lot in incubation and false of one that has just arrived. A lot
+ * created from a field's block returns has no trays for months — so it matched
+ * no year at all and was invisible behind a filter that defaults to the current
+ * one. The screen said "it's on the Samples tab"; it wasn't.
+ *
+ * Three ways to belong, in the order they become true through a lot's life:
+ *   1. it was harvested that year (from block returns),
+ *   2. it was imported that year (the x-ray sheet's own date),
+ *   3. a tray of it was started that year.
+ */
+export function sampleMatchesYear(
+  sample: { harvestSeason?: number | null; importDate?: string | null },
+  trayYears: Array<number | null>,
+  year: number,
+): boolean {
+  if (sample.harvestSeason === year) return true
+  if (sample.importDate && new Date(sample.importDate).getUTCFullYear() === year) return true
+  return trayYears.some((y) => y === year)
+}

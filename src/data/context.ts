@@ -123,6 +123,22 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   /** Persist edits to a sample (x-ray figures, per-tray weight, notes…). */
   saveSample: (id: string, patch: Partial<Sample>) => Promise<{ ok: boolean; error?: string }>
   /**
+   * Create next season's lot from a field's block returns, closing the cycle
+   * from placed blocks back to the bees that go into the incubators.
+   *
+   * Idempotent per field and harvest season (a unique index backs it): calling
+   * it twice UPDATES the lot's weight rather than making a second one, so
+   * running it again after the last blocks are weighed is the intended way to
+   * finish an early lot.
+   */
+  createLotFromReturns: (input: {
+    fieldId: string
+    harvestSeason: number
+    name: string
+    totalWeightLbs: number
+    notes?: string
+  }) => Promise<{ ok: boolean; sampleId?: string; created?: boolean; error?: string }>
+  /**
    * Import x-ray rows, matching each BY NAME: an existing sample is updated
    * (keeping its tray links), an unknown name creates one. Mirrors the desktop
    * app's `upsert_sample_by_name`.

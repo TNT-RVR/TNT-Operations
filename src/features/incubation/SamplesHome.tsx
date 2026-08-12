@@ -457,7 +457,7 @@ function SampleDetail({
   canEdit: boolean
   onClose: () => void
 }) {
-  const { saveSample } = useData()
+  const { saveSample, fields } = useData()
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -493,7 +493,19 @@ function SampleDetail({
     }
     setEditing(false)
   }
+  // Where these bees came from, when the lot was made from block returns.
+  // Shown first: a lot's origin is the thing you cannot recover later if the
+  // link is missing, and it is what makes a field's performance checkable.
+  const originField = s.fieldId ? fields.find((f) => f.id === s.fieldId)?.name : null
   const rows: Array<[string, string]> = [
+    ...(originField
+      ? ([
+          [
+            'Harvested from',
+            s.harvestSeason ? `${originField} (${s.harvestSeason})` : originField,
+          ],
+        ] as Array<[string, string]>)
+      : []),
     ['Source', s.source || '—'],
     ['Lot number', s.lotNumber || '—'],
     ['Total Kg', num(lbsToKg(s.totalWeightLbs), 1)],

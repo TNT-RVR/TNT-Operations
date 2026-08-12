@@ -236,6 +236,7 @@ export const seedAlerts: IncubatorAlert[] = [
 const nullSampleStats = {
   xrayParasitePct: null, xrayDeadPct: null, totalWeightKg: null, liveBeesPerKg: null,
   parasites: null, chalkbrood: null, incubatorSpace: null, kgPer2Gal: null,
+  fieldId: null, harvestSeason: null,
 }
 
 export const seedSamples: Sample[] = [

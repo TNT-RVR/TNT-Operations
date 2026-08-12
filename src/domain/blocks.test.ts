@@ -9,6 +9,8 @@ import {
   seasonSummary,
   blockHistory,
   seasonsOf,
+  proposeLotFromReturns,
+  type FieldReturns,
   findBlock,
   lbsToKgWeight,
   checkWeight,
@@ -250,5 +252,64 @@ describe('checkWeight', () => {
 
   it('reports in kg, which is how these are actually thought about', () => {
     expect(checkWeight(kg(40), 'retrieve', null, peers)?.message).toMatch(/kg/)
+  })
+})
+
+describe('proposeLotFromReturns', () => {
+  const returns = (over: Partial<FieldReturns> = {}): FieldReturns => ({
+    fieldId: 'f1',
+    blocks: 10,
+    weighed: 10,
+    totalReturnLbs: 42.5,
+    avgReturnLbs: 4.25,
+    ...over,
+  })
+
+  it('turns a finished field into next season’s lot', () => {
+    const { lot, problem, warning } = proposeLotFromReturns(returns(), 'BASF 1st Test Plot', 2026)
+    expect(problem).toBeNull()
+    expect(warning).toBeNull()
+    expect(lot).toMatchObject({
+      name: 'BASF 1st Test Plot 2026',
+      fieldId: 'f1',
+      // The HARVEST year, not the year it goes back out — that is what ties the
+      // lot to the returns it can be checked against.
+      harvestSeason: 2026,
+      totalWeightLbs: 42.5,
+    })
+  })
+
+  it('refuses a field with nothing weighed', () => {
+    const { lot, problem } = proposeLotFromReturns(
+      returns({ weighed: 0, totalReturnLbs: 0 }),
+      'South Quarter',
+      2026,
+    )
+    expect(lot).toBeNull()
+    expect(problem).toMatch(/weighed both in and out/)
+  })
+
+  it('refuses blocks that belong to no field', () => {
+    const { lot, problem } = proposeLotFromReturns(returns({ fieldId: null }), 'Unassigned', 2026)
+    expect(lot).toBeNull()
+    expect(problem).toMatch(/not attributed to a field/)
+  })
+
+  it('warns, but still proposes, while collection is unfinished', () => {
+    // Making the lot early is legitimate — but it must say what it is leaving
+    // behind, because the rest will not be added later.
+    const { lot, warning } = proposeLotFromReturns(returns({ weighed: 6 }), 'King Hill', 2026)
+    expect(lot?.totalWeightLbs).toBe(42.5)
+    expect(warning).toMatch(/4 of 10 blocks/)
+  })
+
+  it('refuses a total that is zero or negative', () => {
+    const { lot, problem } = proposeLotFromReturns(
+      returns({ totalReturnLbs: -3 }),
+      'Bad Scales',
+      2026,
+    )
+    expect(lot).toBeNull()
+    expect(problem).toMatch(/cannot be a lot/)
   })
 })

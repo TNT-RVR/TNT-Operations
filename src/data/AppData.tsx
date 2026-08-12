@@ -155,6 +155,32 @@ function MockProvider({ children }: { children: ReactNode }) {
         setSamples((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
         return { ok: true }
       },
+      createLotFromReturns: async ({ fieldId, harvestSeason, name, totalWeightLbs, notes }) => {
+        const existing = samples.find(
+          (x) => x.fieldId === fieldId && x.harvestSeason === harvestSeason,
+        )
+        if (existing) {
+          setSamples((prev) =>
+            prev.map((x) =>
+              x.id === existing.id ? { ...x, totalWeightLbs, notes: notes ?? '' } : x,
+            ),
+          )
+          return { ok: true, sampleId: existing.id, created: false }
+        }
+        const id = nextId('s')
+        setSamples((prev) => [
+          ...prev,
+          {
+            id, name, fieldId, harvestSeason, totalWeightLbs, notes: notes ?? '',
+            source: '', lotNumber: '', xrayLivePct: null, xrayParasitePct: null, xrayDeadPct: null,
+            totalVolumeGal: null, totalWeightKg: null, liveBeesPerLb: null, liveBeesPerKg: null,
+            parasites: null, chalkbrood: null, totalTrays: null, incubatorSpace: null,
+            lbsPer2Gal: null, kgPer2Gal: null, importDate: nowIso(),
+          },
+        ])
+        return { ok: true, sampleId: id, created: true }
+      },
+
       importSamples: async (rows) => {
         let updated = 0
         let created = 0
@@ -171,6 +197,7 @@ function MockProvider({ children }: { children: ReactNode }) {
                 totalVolumeGal: null, totalWeightLbs: null, totalWeightKg: null, liveBeesPerLb: null,
                 liveBeesPerKg: null, parasites: null, chalkbrood: null, totalTrays: null,
                 incubatorSpace: null, lbsPer2Gal: null, kgPer2Gal: null, notes: '',
+                fieldId: null, harvestSeason: null,
                 importDate: new Date().toISOString(),
                 ...r,
                 id: nextId('s'),

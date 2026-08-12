@@ -111,6 +111,16 @@ export interface Sample {
   kgPer2Gal: number | null
   notes: string
   importDate: string | null
+  /**
+   * The field whose block returns produced this lot, and the season they were
+   * harvested. Null on bought-in lots and on everything imported from the old
+   * app — "not recorded", never "unknown field".
+   *
+   * A lot harvested in 2026 goes out in 2027; the harvest year is stored
+   * because that is what ties it to the returns it can be checked against.
+   */
+  fieldId: string | null
+  harvestSeason: number | null
 }
 
 /** A single incubation tray (mostly historical/released in the current data). */

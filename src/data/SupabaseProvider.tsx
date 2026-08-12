@@ -650,6 +650,61 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         setSamples((prev) => prev.map((x) => (x.id === id ? saved : x)))
         return { ok: true }
       },
+      createLotFromReturns: async ({
+        fieldId,
+        harvestSeason,
+        name,
+        totalWeightLbs,
+        notes,
+      }: {
+        fieldId: string
+        harvestSeason: number
+        name: string
+        totalWeightLbs: number
+        notes?: string
+      }) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Match on the ORIGIN, not the name: renaming a lot must not make the
+        // next run create a duplicate for the same field and harvest year.
+        const existing = samples.find(
+          (x) => x.fieldId === fieldId && x.harvestSeason === harvestSeason,
+        )
+        const { data, error } = existing
+          ? await supabase
+              .from('samples')
+              // Weight and notes ONLY. An existing lot may have been x-rayed
+              // and split into trays since; rewriting its name or grading
+              // because someone re-ran this would destroy real work.
+              .update({ total_weight_lbs: totalWeightLbs, notes: notes ?? '' })
+              .eq('id', existing.id)
+              .select()
+              .single()
+          : await supabase
+              .from('samples')
+              .insert({
+                name,
+                field_id: fieldId,
+                harvest_season: harvestSeason,
+                total_weight_lbs: totalWeightLbs,
+                notes: notes ?? '',
+              })
+              .select()
+              .single()
+        if (error) {
+          console.error('[data] createLotFromReturns:', error.message)
+          return { ok: false, error: error.message }
+        }
+        const saved = toSample(data as SampleRow)
+        setSamples((prev) => {
+          const i = prev.findIndex((x) => x.id === saved.id)
+          if (i < 0) return [...prev, saved].sort((a, z) => a.name.localeCompare(z.name))
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, sampleId: saved.id, created: !existing }
+      },
+
       importSamples: async (rows: Array<Partial<Sample> & { name: string }>) => {
         if (!supabase) return { updated: 0, created: 0, error: 'No backend connection.' }
         // Match by name like the desktop importer, so an update keeps the

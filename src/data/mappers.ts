@@ -261,6 +261,8 @@ export interface SampleRow {
   total_volume_gal: Num
   total_weight_lbs: Num
   total_weight_kg: Num
+  field_id?: string | null
+  harvest_season?: Num
   live_bees_per_lb: Num
   live_bees_per_kg: Num
   parasites: Num
@@ -295,6 +297,8 @@ export function toSample(row: SampleRow): Sample {
     kgPer2Gal: numOrNull(row.kg_per_2gal),
     notes: row.notes,
     importDate: row.import_date,
+    fieldId: row.field_id ?? null,
+    harvestSeason: numOrNull(row.harvest_season),
   }
 }
 
@@ -462,6 +466,8 @@ export function samplePatch(patch: Partial<Sample>): Record<string, unknown> {
   if (patch.totalVolumeGal !== undefined) row.total_volume_gal = patch.totalVolumeGal
   if (patch.totalWeightLbs !== undefined) row.total_weight_lbs = patch.totalWeightLbs
   if (patch.totalWeightKg !== undefined) row.total_weight_kg = patch.totalWeightKg
+  if (patch.fieldId !== undefined) row.field_id = patch.fieldId
+  if (patch.harvestSeason !== undefined) row.harvest_season = patch.harvestSeason
   if (patch.liveBeesPerLb !== undefined) row.live_bees_per_lb = patch.liveBeesPerLb
   if (patch.liveBeesPerKg !== undefined) row.live_bees_per_kg = patch.liveBeesPerKg
   if (patch.parasites !== undefined) row.parasites = patch.parasites

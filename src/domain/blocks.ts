@@ -256,3 +256,80 @@ export function findBlock(blocks: Block[], label: string): Block | undefined {
   if (!want) return undefined
   return blocks.find((b) => b.label.trim().toLowerCase() === want)
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Closing the cycle: a field's returns become next season's lot
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** What a field's returns look like once they become a sample lot. */
+export interface LotFromReturns {
+  name: string
+  fieldId: string
+  harvestSeason: number
+  totalWeightLbs: number
+  notes: string
+}
+
+export interface LotProposal {
+  lot: LotFromReturns | null
+  /** Why a lot can't be made yet, or a caveat worth reading before it is. */
+  problem: string | null
+  warning: string | null
+}
+
+/**
+ * Turn one field's season of block returns into the lot those bees become.
+ *
+ * The bee cycle closes here: blocks go out, come back, are weighed in full and
+ * out empty, and the difference is the bees that go into next season's
+ * incubators. Until this existed the link was a person typing a field name
+ * into a sample, which is why no lot could be traced back to the ground it
+ * came from.
+ *
+ * Refuses rather than guesses. A field with nothing weighed has no lot; a
+ * field still part-way through collection gets a warning with the number,
+ * because "make the lot now and add to it later" quietly loses the rest.
+ */
+export function proposeLotFromReturns(
+  returns: FieldReturns,
+  fieldName: string,
+  season: number,
+): LotProposal {
+  if (!returns.fieldId) {
+    return { lot: null, problem: 'These blocks are not attributed to a field.', warning: null }
+  }
+  if (returns.weighed === 0) {
+    return {
+      lot: null,
+      problem: `No blocks from ${fieldName} have been weighed both in and out yet, so there is no return to record.`,
+      warning: null,
+    }
+  }
+  if (returns.totalReturnLbs <= 0) {
+    return {
+      lot: null,
+      problem: `${fieldName}'s returns add up to ${returns.totalReturnLbs.toFixed(1)} lbs, which cannot be a lot.`,
+      warning: null,
+    }
+  }
+
+  const outstanding = returns.blocks - returns.weighed
+  return {
+    lot: {
+      // Field and harvest year, because a lot is read a year later by someone
+      // who wasn't there — and it goes out the season AFTER it is harvested.
+      name: `${fieldName} ${season}`,
+      fieldId: returns.fieldId,
+      harvestSeason: season,
+      totalWeightLbs: Math.round(returns.totalReturnLbs * 100) / 100,
+      notes: `Bee returns from ${fieldName}, ${season} — ${returns.weighed} block${
+        returns.weighed === 1 ? '' : 's'
+      } weighed.`,
+    },
+    problem: null,
+    warning:
+      outstanding > 0
+        ? `${outstanding} of ${returns.blocks} blocks from ${fieldName} are not weighed yet. The lot will hold only the ${returns.weighed} that are.`
+        : null,
+  }
+}

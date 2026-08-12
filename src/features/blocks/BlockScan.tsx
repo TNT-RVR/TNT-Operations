@@ -4,7 +4,7 @@ import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
-import { findBlock, blockStage, kgToLbsWeight, checkWeight, STAGE_LABEL } from '@/domain/blocks'
+import { findBlock, blockStage, kgToLbsWeight, checkWeight, lbsToKgWeight } from '@/domain/blocks'
 import { fieldForPoint } from '@/domain/blockImport'
 import { useGps } from './useGps'
 
@@ -56,6 +56,16 @@ export default function BlockScan() {
    * never carries over to a different disagreement.
    */
   const [overrideOkFor, setOverrideOkFor] = useState<string | null>(null)
+  /**
+   * The field a batch being weighed came out of.
+   *
+   * Asked rather than inferred: weighing happens at the shop, so there is no
+   * location to read. Only used when a block has no placement on record —
+   * otherwise the placement already knows its field.
+   */
+  const [weighFieldId, setWeighFieldId] = useState<string>('')
+  /** A block already weighed at this stage, waiting on replace-or-skip. */
+  const [conflict, setConflict] = useState<{ label: string; existingLbs: number; stage: string } | null>(null)
   const [lastFieldId, setLastFieldId] = useState<string>(
     () => localStorage.getItem('blockscan.lastField') ?? '',
   )
@@ -94,6 +104,10 @@ export default function BlockScan() {
   // GPS runs as soon as the Place tab is open, not just while the camera is
   // up: the screen's job is to tell you which field it thinks you are in
   // BEFORE you start scanning, and a fix takes seconds to arrive.
+  //
+  // PLACING ONLY. Blocks are weighed back at the shop, so a fix taken during a
+  // weigh-in says where the scale is, not where the bees worked — recording it
+  // would be worse than recording nothing, because it looks like data.
   const { fix, error: gpsError } = useGps(mode === 'place')
 
   const season = new Date().getFullYear()
@@ -221,10 +235,26 @@ export default function BlockScan() {
       : undefined
     const stage = placement ? blockStage(placement) : null
 
+    // A block that already has a weight at this stage STOPS and asks. Scanners
+    // catch labels nobody meant to scan — a block sitting on the next pallet,
+    // a sheet of them in a bin — and silently replacing a good weight with a
+    // stray one is the kind of loss nobody can spot afterwards.
+    const already =
+      placement && (mode === 'retrieve' ? placement.grossWeightLbs : placement.strippedWeightLbs)
+    if (already != null) {
+      flash('warn', block!.label, 'Already weighed — replace or skip?')
+      setConflict({
+        label: block!.label,
+        existingLbs: already,
+        stage: mode === 'retrieve' ? 'weigh-in' : 'weigh-out',
+      })
+      setOpen(false)
+      return
+    }
+
     let caveat: string | null = null
-    if (!block) caveat = `New label — it will be registered and filed under ${fieldName || 'no field'}.`
+    if (!block) caveat = 'New label — it will be registered.'
     else if (!placement) caveat = `No ${season} placement on record — it will be created.`
-    else if (mode === 'retrieve' && stage !== 'placed') caveat = `Already ${STAGE_LABEL[stage!].toLowerCase()}. This overwrites.`
     else if (mode === 'strip' && stage === 'placed') caveat = 'Never weighed in, so this block gives no return.'
 
     flash(caveat ? 'warn' : 'ok', block?.label ?? label, caveat ?? 'Now weigh it')
@@ -269,11 +299,11 @@ export default function BlockScan() {
       weightLbs: lbs,
       season,
       // Only used if the placement has to be created because its scan was
-      // missed. Where the crew is standing is the best guess available, and a
-      // guess recorded as such beats a block with no field at all.
-      fieldId: effectiveFieldId || null,
-      lat: fix?.lat ?? null,
-      lng: fix?.lng ?? null,
+      // missed. No coordinates: the block is on a scale at the shop, and a fix
+      // from here would record the shop as where the bees worked.
+      fieldId: weighFieldId || null,
+      lat: null,
+      lng: null,
     })
     setSaving(false)
     if (!r.ok) return setWeighError(r.error ?? 'Could not save.')
@@ -482,6 +512,65 @@ export default function BlockScan() {
             {!effectiveFieldId && (
               <p className="text-xs text-muted">Needed before scanning — it's how returns get attributed.</p>
             )}
+          </div>
+        )}
+
+        {/* Already weighed: replace or skip. Never decided for you. */}
+        {conflict && (
+          <div className="card space-y-2 border-amber-500">
+            <div className="flex items-center gap-2">
+              <Scale size={18} className="text-amber-600" />
+              <span className="font-bold">{conflict.label}</span>
+            </div>
+            <p className="text-sm text-secondary">
+              Already has a {conflict.stage} of{' '}
+              <span className="font-semibold text-primary">
+                {conflict.existingLbs.toFixed(2)} lbs ({(lbsToKgWeight(conflict.existingLbs) ?? 0).toFixed(2)} kg)
+              </span>
+              .
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  setPending({ label: conflict.label })
+                  setWeight('')
+                  setWeighError(null)
+                  setConflict(null)
+                }}
+              >
+                Weigh it again
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  note(conflict.label, 'Skipped — already weighed', true)
+                  setConflict(null)
+                  setOpen(true)
+                }}
+              >
+                Skip, keep the old weight
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {mode !== 'place' && !pending && !conflict && (
+          <div className="card space-y-1">
+            <label className="text-sm font-medium">Field these blocks came from</label>
+            <Select value={weighFieldId} onChange={(e) => setWeighFieldId(e.target.value)}>
+              <option value="">Not set</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </Select>
+            {/* Only a fallback: a block that was scanned into a field already
+                knows where it came from, and that record is not touched. */}
+            <p className="text-xs text-faint">
+              Optional. Used only for blocks with no placement on record — weighing happens away from
+              the field, so there is no location to read here.
+            </p>
           </div>
         )}
 

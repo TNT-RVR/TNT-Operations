@@ -59,12 +59,29 @@ describe('parseXraySheet', () => {
     '#4 Sanfoin,177.8,9039,,,180,2.32,71,,',
   ].join('\n')
 
+  it('converts a kg column to pounds rather than storing both', () => {
+    // Kilograms are pounds times a constant. Keeping the second copy is what
+    // let the imported data carry a kg figure 2.2x too large without anyone
+    // noticing, so the import now keeps only the pounds.
+    const { samples } = parseXraySheet(csv)
+    expect(samples[0].totalWeightKg).toBeUndefined()
+    expect(samples[0].totalWeightLbs).toBeCloseTo(1117.08, 1)
+    expect(samples[1].totalWeightLbs).toBeCloseTo(391.98, 1)
+  })
+
+  it('keeps the sheet’s pounds when it carries both units', () => {
+    const { samples } = parseXraySheet(
+      ['Sample Name,Total Pounds,Total KGs', '26-102,1117,506.7'].join('\n'),
+    )
+    expect(samples[0].totalWeightLbs).toBe(1117)
+    expect(samples[0].totalWeightKg).toBeUndefined()
+  })
+
   it('maps the desktop app’s headers onto sample fields', () => {
     const { samples } = parseXraySheet(csv)
     expect(samples).toHaveLength(2)
     expect(samples[0]).toMatchObject({
       name: '26-102',
-      totalWeightKg: 506.7,
       liveBeesPerKg: 9866,
       parasites: 1.2,
       chalkbrood: 0.4,
@@ -113,8 +130,9 @@ describe('mapSheetRows (shared by the CSV and .xlsx paths)', () => {
       ['26-102', 506.7, 2.57, 250, null],
       ['#4 Sanfoin', null, 2.32, 71, 'ok'],
     ])
-    expect(samples[0]).toMatchObject({ name: '26-102', totalWeightKg: 506.7, kgPer2Gal: 2.57, totalTrays: 250 })
-    expect(samples[1].totalWeightKg).toBeNull()
+    expect(samples[0]).toMatchObject({ name: '26-102', kgPer2Gal: 2.57, totalTrays: 250 })
+    expect(samples[0].totalWeightLbs).toBeCloseTo(1117.08, 1)
+    expect(samples[1].totalWeightLbs).toBeNull()
     expect(samples[1].notes).toBe('ok')
   })
 

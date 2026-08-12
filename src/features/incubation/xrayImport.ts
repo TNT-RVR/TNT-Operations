@@ -12,7 +12,12 @@ import type { Sample } from '@/data/types'
  * Reads .csv and .xlsx, matching the desktop app (which uses openpyxl).
  */
 
+import { LBS_PER_KG } from '@/domain/incubation'
+
 export type SamplePatch = Partial<Omit<Sample, 'id'>> & { name: string }
+
+/** Kilograms from a sheet, as pounds — the unit the app stores. */
+const kgToLbs = (kg: number): number => kg / LBS_PER_KG
 
 /** Spreadsheet header (normalised) → sample field. Mirrors _SAMPLE_HEADER_MAP. */
 const HEADER_MAP: Record<string, keyof Sample> = {
@@ -140,6 +145,22 @@ export function mapSheetRows(rows: unknown[][]): XrayImportResult {
           : String(value).trim()
         : parseNumber(value)
     })
+
+    // Kilograms are pounds times a constant, so only the pounds are kept. A
+    // sheet that carries BOTH has been seen to disagree with itself — the
+    // imported data had every kg 2.2x too large, multiplied where it should
+    // have been divided — and storing the second copy is what let that sit
+    // unnoticed. A kg-only sheet is converted rather than refused.
+    // Keyed on the COLUMN existing, not the cell having a value: a sheet with
+    // a kg column and a blank cell is saying "no weight for this row", which
+    // has to come through as null rather than as an absent field.
+    if ('totalWeightKg' in patch) {
+      const kg = patch.totalWeightKg as number | null
+      if (patch.totalWeightLbs == null) {
+        patch.totalWeightLbs = kg == null ? null : kgToLbs(kg)
+      }
+      delete patch.totalWeightKg
+    }
 
     const name = typeof patch.name === 'string' ? patch.name.trim() : ''
     if (!name) {

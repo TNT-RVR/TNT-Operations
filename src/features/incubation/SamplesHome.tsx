@@ -165,7 +165,7 @@ export default function SamplesHome() {
     const val = (r: (typeof rows)[number]): string | number | null => {
       switch (sortKey) {
         case 'name': return r.s.name
-        case 'kg': return lbsToKg(r.s.totalWeightLbs) ?? r.s.totalWeightKg
+        case 'kg': return lbsToKg(r.s.totalWeightLbs)
         case 'perKg': return r.s.liveBeesPerKg ?? perLbToPerKg(r.s.liveBeesPerLb)
         case 'parasites': return r.s.parasites
         case 'chalkbrood': return r.s.chalkbrood
@@ -312,7 +312,7 @@ export default function SamplesHome() {
                       onClick={() => setOpenSample(s)}
                     >
                       <td className="px-3 py-2 font-medium text-brand">{s.name}</td>
-                      <td className="px-3 py-2 text-right">{num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)}</td>
+                      <td className="px-3 py-2 text-right">{num(lbsToKg(s.totalWeightLbs), 1)}</td>
                       <td className="px-3 py-2 text-right">
                         {num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)}
                       </td>
@@ -424,9 +424,17 @@ function BatchCard({ batch }: { batch: IncubationBatch }) {
   )
 }
 
-/** Fields worth correcting by hand, without reimporting a whole sheet. */
+/**
+ * Fields worth correcting by hand, without reimporting a whole sheet.
+ *
+ * POUNDS, not kilograms. Kg is derived for display everywhere, so the kg box
+ * that used to be here wrote to a column nothing reads — an edit that appeared
+ * to do nothing. The imported kg values were also 2.2x too large, which went
+ * unnoticed precisely because a second stored copy of a derived number is one
+ * nobody checks.
+ */
 const EDITABLE: Array<{ key: keyof Sample; label: string; step?: string }> = [
-  { key: 'totalWeightKg', label: 'Total Kg', step: '0.1' },
+  { key: 'totalWeightLbs', label: 'Total Lbs', step: '0.1' },
   { key: 'liveBeesPerKg', label: 'Live Bees/Kg', step: '1' },
   { key: 'parasites', label: 'Parasites', step: '0.1' },
   { key: 'chalkbrood', label: 'Chalkbrood', step: '0.1' },
@@ -488,7 +496,7 @@ function SampleDetail({
   const rows: Array<[string, string]> = [
     ['Source', s.source || '—'],
     ['Lot number', s.lotNumber || '—'],
-    ['Total Kg', num(lbsToKg(s.totalWeightLbs) ?? s.totalWeightKg, 1)],
+    ['Total Kg', num(lbsToKg(s.totalWeightLbs), 1)],
     ['Live Bees/Kg', num(s.liveBeesPerKg ?? perLbToPerKg(s.liveBeesPerLb), 0)],
     ['Parasites', num(s.parasites, 1)],
     ['Chalkbrood', num(s.chalkbrood, 1)],

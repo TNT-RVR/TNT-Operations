@@ -11,8 +11,8 @@
 # separate providers have to be broken at the same time.
 #
 # Setup — two repository secrets (Settings → Secrets and variables → Actions):
-#   SITE_URL       e.g. https://tnt-operations.netlify.app   (no trailing slash)
-#   FN_RUN_TOKEN   the same value as the Netlify env var of that name
+#   SITE_URL      e.g. https://tnt-operations.netlify.app   (no trailing slash)
+#   HEALTH_TOKEN  the same value as the HEALTH_TOKEN env var in Netlify
 #
 # Without them the job is skipped rather than failing every 30 minutes, since a
 # constantly-red workflow is one nobody reads.
@@ -34,16 +34,16 @@ jobs:
       - name: Ask the health endpoint how fresh the readings are
         env:
           SITE_URL: ${{ secrets.SITE_URL }}
-          FN_RUN_TOKEN: ${{ secrets.FN_RUN_TOKEN }}
+          HEALTH_TOKEN: ${{ secrets.HEALTH_TOKEN }}
         run: |
-          if [ -z "$SITE_URL" ] || [ -z "$FN_RUN_TOKEN" ]; then
-            echo "SITE_URL or FN_RUN_TOKEN not set — skipping (see the comment at the top of this file)."
+          if [ -z "$SITE_URL" ] || [ -z "$HEALTH_TOKEN" ]; then
+            echo "SITE_URL or HEALTH_TOKEN not set — skipping (see the comment at the top of this file)."
             exit 0
           fi
 
           # --max-time so a hung endpoint fails rather than holding the runner.
           body=$(curl -sS --max-time 30 -w '\n%{http_code}' \
-            "$SITE_URL/.netlify/functions/health?token=$FN_RUN_TOKEN") || {
+            "$SITE_URL/.netlify/functions/health?token=$HEALTH_TOKEN") || {
             echo "Could not reach the health endpoint at all."
             exit 1
           }

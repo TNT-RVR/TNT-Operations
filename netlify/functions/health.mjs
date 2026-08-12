@@ -13,8 +13,13 @@
  * workflow on anything other than 200, which mails whoever owns the repo. Two
  * different providers have to be broken at once for silence to look healthy.
  *
- * Token-gated (FN_RUN_TOKEN, the same secret as run.mjs) and fails closed: it
- * reports on equipment and shouldn't be readable by anyone who finds the URL.
+ * Token-gated and fails closed: it reports on equipment and shouldn't be
+ * readable by anyone who finds the URL.
+ *
+ * Reads HEALTH_TOKEN, falling back to FN_RUN_TOKEN. Its own variable because
+ * Netlify hides a secret's value once saved, so reusing the existing one would
+ * have meant REPLACING a working token just to learn what it is — changing
+ * something that works in order to add something new.
  *
  *   GET /.netlify/functions/health?token=…
  *   GET /.netlify/functions/health?token=…&staleMinutes=120
@@ -49,8 +54,10 @@ function tokenMatches(given, expected) {
 }
 
 export default async (req) => {
-  const expected = process.env.FN_RUN_TOKEN
-  if (!expected) return json({ error: 'Health checks are disabled (no FN_RUN_TOKEN).' }, 503)
+  const expected = process.env.HEALTH_TOKEN || process.env.FN_RUN_TOKEN
+  if (!expected) {
+    return json({ error: 'Health checks are disabled (set HEALTH_TOKEN in the Netlify environment).' }, 503)
+  }
 
   const url = new URL(req.url)
   if (!tokenMatches(url.searchParams.get('token') ?? '', expected)) {

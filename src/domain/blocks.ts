@@ -51,8 +51,8 @@ export function blockStage(p: BlockPlacement): BlockStage {
 
 export const STAGE_LABEL: Record<BlockStage, string> = {
   placed: 'In field',
-  retrieved: 'Retrieved',
-  stripped: 'Stripped',
+  retrieved: 'Weighed in',
+  stripped: 'Weighed out',
 }
 
 /** What scan a block is waiting for next; null once the cycle is complete. */

@@ -12,8 +12,8 @@ type Mode = 'place' | 'retrieve' | 'strip'
 
 const MODE_COPY: Record<Mode, { label: string; hint: string }> = {
   place: { label: 'Place', hint: 'Scan each block as it goes out. Location is captured automatically.' },
-  retrieve: { label: 'Retrieve', hint: 'Scan a block, then weigh it full.' },
-  strip: { label: 'Strip', hint: 'Scan a block, then weigh it empty. The difference is your bee return.' },
+  retrieve: { label: 'Weigh In', hint: 'Scan a block coming out of the field, then weigh it full.' },
+  strip: { label: 'Weigh Out', hint: 'Scan a block after stripping, then weigh it empty. The difference is your bee return.' },
 }
 
 /**
@@ -217,7 +217,7 @@ export default function BlockScan() {
     if (mode === 'retrieve' && stage !== 'placed')
       return flash('warn', block.label, `Already ${stage}. Re-weighing will overwrite.`)
     if (mode === 'strip' && stage === 'placed')
-      return flash('warn', block.label, 'Not retrieved yet — weigh it full first.')
+      return flash('warn', block.label, 'Not weighed in yet — weigh it full first.')
 
     flash('ok', block.label, 'Now weigh it')
     setPending({ label: block.label })

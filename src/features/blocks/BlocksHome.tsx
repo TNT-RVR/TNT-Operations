@@ -42,7 +42,7 @@ export default function BlocksHome() {
     <div>
       <PageHeader
         title="Blocks"
-        subtitle="Nesting blocks — placed in the field, retrieved, stripped, and weighed for returns"
+        subtitle="Nesting blocks — placed in the field, weighed in full, then weighed out empty"
         actions={
           seasons.length > 0 ? (
             <Select value={active ?? ''} onChange={(e) => setSeason(Number(e.target.value))} className="w-32">
@@ -68,14 +68,14 @@ export default function BlocksHome() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <StatTile label="Blocks out" value={summary.blocks} hint={`Season ${active}`} />
               <StatTile label="In field" value={summary.placed} tone={summary.placed > 0 ? 'warn' : 'default'} />
-              <StatTile label="Retrieved" value={summary.retrieved} hint="Weighed full" />
-              <StatTile label="Stripped" value={summary.stripped} tone="good" hint="Cycle complete" />
+              <StatTile label="Weighed in" value={summary.retrieved} hint="Full weight taken" />
+              <StatTile label="Weighed out" value={summary.stripped} tone="good" hint="Cycle complete" />
             </div>
 
             <div className="card">
               <div className="mb-2 flex items-baseline justify-between">
                 <h2 className="font-bold">Bee returns</h2>
-                <span className="text-sm text-muted">{done}% of blocks stripped</span>
+                <span className="text-sm text-muted">{done}% of blocks weighed out</span>
               </div>
               <ProgressBar pct={done} tone={done === 100 ? 'green' : 'brand'} />
               <dl className="mt-4 grid grid-cols-2 gap-4">

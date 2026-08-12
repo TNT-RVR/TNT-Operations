@@ -87,7 +87,7 @@ export default function BlockList() {
   }
 
   function exportCsv() {
-    const head = ['Block', 'Season', 'Field', 'Stage', 'Placed', 'Lat', 'Lng', 'Retrieved', 'Gross lbs', 'Stripped', 'Empty lbs', 'Return lbs']
+    const head = ['Block', 'Season', 'Field', 'Stage', 'Placed', 'Lat', 'Lng', 'Weighed in', 'Gross lbs', 'Weighed out', 'Empty lbs', 'Return lbs']
     const body = rows.map((p) => [
       labelOf(p.blockId), p.season, fieldName(p.fieldId), STAGE_LABEL[blockStage(p)],
       date(p.placedAt), p.lat ?? '', p.lng ?? '',
@@ -173,8 +173,8 @@ export default function BlockList() {
           <Select value={stage} onChange={(e) => setStage(e.target.value)}>
             <option value="">All stages</option>
             <option value="placed">In field</option>
-            <option value="retrieved">Retrieved</option>
-            <option value="stripped">Stripped</option>
+            <option value="retrieved">Weighed in</option>
+            <option value="stripped">Weighed out</option>
           </Select>
         </div>
 

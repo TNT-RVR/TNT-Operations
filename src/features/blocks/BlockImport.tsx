@@ -116,7 +116,7 @@ export function BlockImport({ season, onClose }: { season: number; onClose: () =
             </li>
           </ul>
           <p className="text-xs text-faint">
-            Retrieve and strip weights are added by scanning, as usual — the map fills in once both are recorded.
+            Weigh-in and weigh-out weights are added by scanning, as usual — the map fills in once both are recorded.
           </p>
           <Button onClick={onClose}>Done</Button>
         </div>
@@ -124,7 +124,7 @@ export function BlockImport({ season, onClose }: { season: number; onClose: () =
         <div className="space-y-3">
           <p className="text-sm text-muted">
             A row per block, with its label and where it was placed. Weights aren't needed — those come from
-            the retrieve and strip scans.
+            the weigh-in and weigh-out scans.
           </p>
 
           {err && <p className="text-sm text-danger">{err}</p>}

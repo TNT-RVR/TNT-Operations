@@ -333,15 +333,33 @@ function MockProvider({ children }: { children: ReactNode }) {
         return { ok: true, blockRemoved: others.length === 0 }
       },
 
-      weighBlock: ({ label, stage, weightLbs, season }) => {
+      weighBlock: ({ label, stage, weightLbs, season, fieldId, lat, lng }) => {
         if (!Number.isFinite(weightLbs) || weightLbs < 0)
           return Promise.resolve({ ok: false, error: 'Enter a valid weight.' })
         const clean = label.trim()
         const yr = season ?? new Date().getFullYear()
-        const block = blocks.find((b) => b.label.trim().toLowerCase() === clean.toLowerCase())
-        if (!block) return Promise.resolve({ ok: false, error: `No block on record for “${clean}”.` })
-        const placement = blockPlacements.find((p) => p.blockId === block.id && p.season === yr)
-        if (!placement) return Promise.resolve({ ok: false, error: `${block.label} wasn’t placed in ${yr}.` })
+        // Missing history is created, never refused — see the seam's note.
+        let backfilled = false
+        let block = blocks.find((b) => b.label.trim().toLowerCase() === clean.toLowerCase())
+        if (!block) {
+          block = { id: nextId('blk'), label: clean, notes: '', createdAt: nowIso() }
+          const made = block
+          setBlocks((prev) => [...prev, made].sort((a, z) => a.label.localeCompare(z.label)))
+          backfilled = true
+        }
+        let placement = blockPlacements.find((p) => p.blockId === block!.id && p.season === yr)
+        if (!placement) {
+          placement = {
+            id: nextId('bp'), blockId: block.id, season: yr, fieldId: fieldId ?? null,
+            shelterId: null, lat: lat ?? null, lng: lng ?? null, placedAt: null, placedBy: '',
+            retrievedAt: null, grossWeightLbs: null, retrievedBy: '', strippedAt: null,
+            strippedWeightLbs: null, strippedBy: '',
+            notes: 'Placement created at weigh-in — the placement scan was missed.',
+          }
+          const made = placement
+          setBlockPlacements((prev) => [made, ...prev])
+          backfilled = true
+        }
 
         const now = nowIso()
         setBlockPlacements((prev) =>
@@ -353,7 +371,7 @@ function MockProvider({ children }: { children: ReactNode }) {
               : p,
           ),
         )
-        return Promise.resolve({ ok: true })
+        return Promise.resolve({ ok: true, backfilled })
       },
       saveBlockPlacement: (id, patch) => {
         setBlockPlacements((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))

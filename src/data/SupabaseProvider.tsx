@@ -1125,18 +1125,60 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         return { ok: true, blockRemoved }
       },
 
-      weighBlock: async ({ label, stage, weightLbs, season }) => {
+      weighBlock: async ({ label, stage, weightLbs, season, fieldId, lat, lng }) => {
         if (!supabase) return { ok: false, error: 'No backend connection.' }
         if (!Number.isFinite(weightLbs) || weightLbs < 0) return { ok: false, error: 'Enter a valid weight.' }
         const clean = label.trim()
         const yr = season ?? new Date().getFullYear()
 
-        const block = blocks.find((x) => x.label.trim().toLowerCase() === clean.toLowerCase())
-        if (!block) return { ok: false, error: `No block on record for “${clean}”.` }
-        // A weight with no placement can't be attributed to a field, so it
-        // tells us nothing about returns. Say so rather than storing an orphan.
-        const placement = blockPlacements.find((x) => x.blockId === block.id && x.season === yr)
-        if (!placement) return { ok: false, error: `${block.label} wasn’t placed in ${yr}.` }
+        // Register an unknown label rather than refusing the weight. The scan
+        // is evidence the block exists and is in someone's hands; turning the
+        // crew away loses far more than it protects.
+        let block = blocks.find((x) => x.label.trim().toLowerCase() === clean.toLowerCase())
+        let backfilled = false
+        if (!block) {
+          const reg = await supabase
+            .from('blocks')
+            .upsert({ label: clean }, { onConflict: 'label' })
+            .select()
+            .single()
+          if (reg.error) return { ok: false, error: reg.error.message }
+          block = toBlock(reg.data as BlockRow)
+          backfilled = true
+          setBlocks((prev) => [...prev, block!].sort((a, z) => a.label.localeCompare(z.label)))
+        }
+
+        // Same for a missing placement: create one so the weight has somewhere
+        // to live. The field comes from wherever the crew is standing, and may
+        // be null — a weight attributed to no field still counts the block and
+        // still shows on the list, it just can't join a field's returns.
+        let placement = blockPlacements.find((x) => x.blockId === block!.id && x.season === yr)
+        if (!placement) {
+          const made = await supabase
+            .from('block_placements')
+            .upsert(
+              {
+                block_id: block.id,
+                season: yr,
+                field_id: fieldId ?? null,
+                lat: lat ?? null,
+                lon: lng ?? null,
+                placed_at: null,
+                placed_by: userLabel,
+                notes: 'Placement created at weigh-in — the placement scan was missed.',
+              },
+              { onConflict: 'block_id,season' },
+            )
+            .select()
+            .single()
+          if (made.error) {
+            console.error('[data] weighBlock/backfill:', made.error.message)
+            return { ok: false, error: made.error.message }
+          }
+          placement = toBlockPlacement(made.data as BlockPlacementRow)
+          upsertPlacement(placement)
+          backfilled = true
+        }
 
         const now = new Date().toISOString()
         const patch =
@@ -1155,7 +1197,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: error.message }
         }
         upsertPlacement(toBlockPlacement(data as BlockPlacementRow))
-        return { ok: true }
+        return { ok: true, backfilled }
       },
 
       saveBlockPlacement: async (id: string, patch: Partial<BlockPlacement>) => {

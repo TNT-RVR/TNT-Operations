@@ -4,7 +4,7 @@ import { PageHeader, Select, Input, Button, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
-import { findBlock, blockStage, kgToLbsWeight, checkWeight } from '@/domain/blocks'
+import { findBlock, blockStage, kgToLbsWeight, checkWeight, STAGE_LABEL } from '@/domain/blocks'
 import { fieldForPoint } from '@/domain/blockImport'
 import { useGps } from './useGps'
 
@@ -207,20 +207,28 @@ export default function BlockScan() {
       return note(label, `${r.created ? 'Placed' : 'Moved'} → ${fieldName}`, true, r.placementId)
     }
 
-    // Weigh modes: check the block makes sense BEFORE stopping to type a
-    // number, so a bad scan costs a beep rather than a wasted weigh-in.
+    // Weigh modes.
+    //
+    // NOTHING here refuses a scan. A crew standing at a trailer with blocks to
+    // get through cannot stop to fix records, and a screen that says no is a
+    // screen that gets abandoned — losing the whole day's data rather than one
+    // block's. Missing history is reported as a warning and the weight is
+    // taken anyway; a block with only half its weigh-ins simply contributes no
+    // return, which is a known small loss instead of a blocked crew.
     const block = findBlock(blocks, label)
-    if (!block) return flash('error', label, 'No block on record.')
-    const placement = blockPlacements.find((p) => p.blockId === block.id && p.season === season)
-    if (!placement) return flash('error', block.label, `Not placed in ${season}.`)
-    const stage = blockStage(placement)
-    if (mode === 'retrieve' && stage !== 'placed')
-      return flash('warn', block.label, `Already ${stage}. Re-weighing will overwrite.`)
-    if (mode === 'strip' && stage === 'placed')
-      return flash('warn', block.label, 'Not weighed in yet — weigh it full first.')
+    const placement = block
+      ? blockPlacements.find((p) => p.blockId === block.id && p.season === season)
+      : undefined
+    const stage = placement ? blockStage(placement) : null
 
-    flash('ok', block.label, 'Now weigh it')
-    setPending({ label: block.label })
+    let caveat: string | null = null
+    if (!block) caveat = `New label — it will be registered and filed under ${fieldName || 'no field'}.`
+    else if (!placement) caveat = `No ${season} placement on record — it will be created.`
+    else if (mode === 'retrieve' && stage !== 'placed') caveat = `Already ${STAGE_LABEL[stage!].toLowerCase()}. This overwrites.`
+    else if (mode === 'strip' && stage === 'placed') caveat = 'Never weighed in, so this block gives no return.'
+
+    flash(caveat ? 'warn' : 'ok', block?.label ?? label, caveat ?? 'Now weigh it')
+    setPending({ label: block?.label ?? label })
     setWeight('')
     setWeighError(null)
     setOpen(false)
@@ -255,11 +263,28 @@ export default function BlockScan() {
     }
 
     setSaving(true)
-    const r = await weighBlock({ label: pending.label, stage: mode as 'retrieve' | 'strip', weightLbs: lbs, season })
+    const r = await weighBlock({
+      label: pending.label,
+      stage: mode as 'retrieve' | 'strip',
+      weightLbs: lbs,
+      season,
+      // Only used if the placement has to be created because its scan was
+      // missed. Where the crew is standing is the best guess available, and a
+      // guess recorded as such beats a block with no field at all.
+      fieldId: effectiveFieldId || null,
+      lat: fix?.lat ?? null,
+      lng: fix?.lng ?? null,
+    })
     setSaving(false)
     if (!r.ok) return setWeighError(r.error ?? 'Could not save.')
 
-    note(pending.label, `${raw.toFixed(2)} ${unit} recorded`, true)
+    // Say when history had to be filled in, so the office can tell which
+    // numbers rest on a missed scan rather than a complete record.
+    note(
+      pending.label,
+      `${raw.toFixed(2)} ${unit} recorded${r.backfilled ? ' · placement filled in' : ''}`,
+      true,
+    )
     setPending(null)
     setWeight('')
     setWeighWarn(null)

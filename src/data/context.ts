@@ -259,12 +259,26 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * Fails on a block with no placement this season: a weight that can't be
    * attributed to a field says nothing about returns.
    */
+  /**
+   * Record a weigh-in or weigh-out.
+   *
+   * NEVER refuses for missing history. An unknown label is registered and an
+   * absent placement is created, because the alternative is a crew at a
+   * trailer being told no by a screen — which loses the whole day's data
+   * rather than one block's. A block missing a weigh-in simply yields no
+   * return; that is a small, visible loss.
+   *
+   * `fieldId`/`lat`/`lng` are used only when a placement has to be created.
+   */
   weighBlock: (input: {
     label: string
     stage: 'retrieve' | 'strip'
     weightLbs: number
     season?: number
-  }) => Promise<{ ok: boolean; error?: string }>
+    fieldId?: string | null
+    lat?: number | null
+    lng?: number | null
+  }) => Promise<{ ok: boolean; error?: string; backfilled?: boolean }>
   /** Edit a placement directly (fix a weight, move it to the right field…). */
   saveBlockPlacement: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
   /**

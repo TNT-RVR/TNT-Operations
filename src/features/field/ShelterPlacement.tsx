@@ -52,7 +52,7 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 export default function ShelterPlacement() {
   const { fields, placedShelters, addPlacedShelter, crews, crewMembers, loadCrews } = useData()
   const s = useSession()
-  const canEdit = s.can('maps', 'edit')
+  const canEdit = s.can('field', 'edit')
 
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
   const [fieldId, setFieldId] = useState<string | null>(null)

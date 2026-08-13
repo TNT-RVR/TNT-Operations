@@ -71,7 +71,7 @@ export default function CrewsView() {
   const [naming, setNaming] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
-  const canEdit = session.can('maps', 'edit')
+  const canEdit = session.can('field', 'edit')
   /**
    * Admin-only crew wrangling. Self-service needs the device in your hands;
    * this is for the office deciding on Sunday which iPad belongs to which

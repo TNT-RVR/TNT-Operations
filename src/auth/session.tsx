@@ -8,7 +8,13 @@ import { BeeMark } from '@/components/BeeMark'
 import { type AccessOverrides, allows } from '@/domain/access'
 
 /** App sections that can be permission-gated. Keep in sync with the nav + routes. */
-export const MODULES = ['dashboard', 'maps', 'incubation', 'blocks', 'analysis', 'sales', 'tasks', 'grants', 'users'] as const
+/**
+ * `field` and `calendar` are their own modules rather than riding on `maps`
+ * and `incubation`. They used to share, which made "can see Field Mode" and
+ * "can see Shelter Maps" the same permission — so a crew iPad could not be
+ * given the field screens without also handing it the office planning tools.
+ */
+export const MODULES = ['dashboard', 'maps', 'field', 'incubation', 'calendar', 'blocks', 'analysis', 'sales', 'tasks', 'grants', 'users'] as const
 export type Module = (typeof MODULES)[number]
 export type Action = 'view' | 'edit'
 
@@ -29,26 +35,29 @@ export interface User {
 /** Role → what it can do. `edit` implies `view`. */
 export const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Full access — highest grant wins.
-  admin: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
-  developer: { dashboard: 'edit', maps: 'edit', incubation: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
+  admin: { dashboard: 'edit', maps: 'edit', field: 'edit', incubation: 'edit', calendar: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
+  developer: { dashboard: 'edit', maps: 'edit', field: 'edit', incubation: 'edit', calendar: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit', users: 'edit' },
   // Field/office staff: run the operation, but not user administration.
   // `analysis: edit` is what lets them upload the season sheet.
-  operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit' },
+  operator: { dashboard: 'view', maps: 'edit', field: 'edit', incubation: 'edit', calendar: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit' },
   /**
    * A shared iPad in a truck, signed in permanently and belonging to nobody.
    *
-   * It exists to be a crew's position reporter and to show the field screens.
-   * Deliberately narrow: an unlocked iPad left on a seat is a set of
-   * credentials in a cab, and what it can reach should be what the crew is
-   * doing today.
+   * It sees the four things a crew in a truck needs — Field Mode, Calendar,
+   * Blocks and Tasks — and nothing else. No Shelter Maps, no Incubation, no
+   * Sales, no Users: an unlocked iPad on a seat is a set of credentials in a
+   * cab, and what it can reach should be what the crew is doing today.
+   *
+   * These are DEFAULTS. Every cell is adjustable per role in Users & Settings,
+   * so tightening `blocks` to view-only is a switch rather than a deploy.
    *
    * Note it can still join a crew and broadcast: those are field_crew_members
    * writes gated on has_access(), not on a module grant. That is the one thing
    * a device account is FOR.
    */
-  device: { maps: 'view' },
+  device: { field: 'edit', calendar: 'view', blocks: 'edit', tasks: 'edit' },
   // Read-only.
-  viewer: { dashboard: 'view', maps: 'view', incubation: 'view', blocks: 'view', analysis: 'view', sales: 'view', tasks: 'view', grants: 'view' },
+  viewer: { dashboard: 'view', maps: 'view', field: 'view', incubation: 'view', calendar: 'view', blocks: 'view', analysis: 'view', sales: 'view', tasks: 'view', grants: 'view' },
   // Signed up, awaiting admin approval — no access to anything.
   pending: {},
 }
@@ -89,6 +98,8 @@ const SEED_USERS: User[] = [
   { id: 'u_dev', name: 'Darren (Developer)', email: 'darren@example.com', role: 'developer' },
   { id: 'u_op', name: 'Field Operator', email: 'operator@example.com', role: 'operator' },
   { id: 'u_view', name: 'Viewer', email: 'viewer@example.com', role: 'viewer' },
+  // A crew iPad, so the switcher can show what a device actually sees.
+  { id: 'u_ipad', name: 'iPad A', email: 'ipad-a@devices.invalid', role: 'device' },
   { id: 'u_pending', name: 'New Signup', email: 'pending@example.com', role: 'pending' },
 ]
 

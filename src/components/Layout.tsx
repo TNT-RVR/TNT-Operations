@@ -55,7 +55,7 @@ const NAV: NavItem[] = [
     to: '/field',
     label: 'Field Mode',
     icon: Navigation,
-    module: 'maps',
+    module: 'field',
     mobilePrimary: true,
     children: [
       { to: '/field', label: 'Shelter placement', end: true },
@@ -78,8 +78,7 @@ const NAV: NavItem[] = [
       { to: '/incubation/alerts', label: 'Alerts' },
     ],
   },
-  // Top-level like Field Mode: gated by the incubation module, but its own tab.
-  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'incubation', mobilePrimary: true },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays, module: 'calendar', mobilePrimary: true },
   {
     to: '/blocks',
     label: 'Blocks',

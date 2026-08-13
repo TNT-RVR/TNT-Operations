@@ -44,10 +44,10 @@ export default function App() {
         <Route index element={<Protected module="dashboard"><Dashboard /></Protected>} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
         <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
-        <Route path="field" element={<Protected module="maps"><ShelterPlacement /></Protected>} />
-        <Route path="field/trays" element={<Protected module="maps"><TrayPlacement /></Protected>} />
-        <Route path="field/crews" element={<Protected module="maps"><CrewsView /></Protected>} />
-        <Route path="calendar" element={<Protected module="incubation"><CalendarHome /></Protected>} />
+        <Route path="field" element={<Protected module="field"><ShelterPlacement /></Protected>} />
+        <Route path="field/trays" element={<Protected module="field"><TrayPlacement /></Protected>} />
+        <Route path="field/crews" element={<Protected module="field"><CrewsView /></Protected>} />
+        <Route path="calendar" element={<Protected module="calendar"><CalendarHome /></Protected>} />
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="incubation/samples" element={<Protected module="incubation"><SamplesHome /></Protected>} />
         <Route path="incubation/trays" element={<Protected module="incubation"><TraysHome /></Protected>} />

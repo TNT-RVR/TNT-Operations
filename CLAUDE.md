@@ -140,9 +140,12 @@ _Last reviewed 2026-08-03._
           and a null `index`, and are ANNULI (a polygon with a hole), not
           rectangles. Two rules, both applied in `tireAndEdgeZones` rather than
           in the map layer so Field Mode cannot diverge from the office map:
-          interior bands are CLIPPED to the limit ring (they stop where the
-          outside pass begins), and the tire band is SUBTRACTED from any edge
-          band it overlaps (a shelter may legally sit in an edge zone, so an
+          interior EDGE bands are CLIPPED to the limit ring (past it the seams
+          are the perimeter pass's own), interior TIRE bands carry ON to the
+          perimeter wheel track at inset `W/2 + tireW/2` (the sprayer drives in
+          across the lap to start a pass, so those wheels really do run over
+          that ground — and the two tracks meet with no gap), and the tire band
+          is SUBTRACTED from any edge band it overlaps (a shelter may legally sit in an edge zone, so an
           edge zone over a wheel track invites driving on one). Because the
           clip reshapes interior bands, band width is now measured in the tests
           by lateral extent, not by `dist(ring[0], ring[1])` — a clipped band

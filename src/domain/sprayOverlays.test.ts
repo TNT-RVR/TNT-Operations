@@ -563,8 +563,10 @@ describe('the perimeter pass gets zones too', () => {
     const pTire = perimeter(tire.features)
     const pEdge = perimeter(edge.features)
     expect(pTire).toHaveLength(1)
-    // One seam on the boundary, one on the outer sprayer limit.
-    expect(pEdge.map((f) => f.properties?.seam).sort()).toEqual(['boundary', 'limit'])
+    // Both seams are present: one on the boundary, one on the outer limit. The
+    // limit seam arrives in pieces — the interior wheel tracks cross it on
+    // their way in and are cut out of it — so this is a set, not a count.
+    expect(new Set(pEdge.map((f) => f.properties?.seam))).toEqual(new Set(['boundary', 'limit']))
     for (const f of [...pTire, ...pEdge]) {
       expect(f.properties?.index).toBeNull()
       expect(finite(f.geometry.coordinates[0])).toBe(true)
@@ -596,7 +598,9 @@ describe('the perimeter pass gets zones too', () => {
   it('works on a boundary field as well as a pivot', () => {
     const { tire, edge } = tireAndEdgeZones(SQUARE_FIELD)
     expect(perimeter(tire.features)).toHaveLength(1)
-    expect(perimeter(edge.features)).toHaveLength(2)
+    const seams = perimeter(edge.features).map((f) => f.properties?.seam)
+    expect(seams).toContain('boundary')
+    expect(seams).toContain('limit')
   })
 
   it('turns off with the widths, like every other band', () => {
@@ -613,10 +617,10 @@ describe('interior zones stop at the perimeter pass', () => {
     return Math.hypot(e, n)
   }
 
-  it('keeps every interior band inside the outer sprayer limit', () => {
-    const { tire, edge } = tireAndEdgeZones(FIELD)
+  it('keeps every interior EDGE band inside the outer sprayer limit', () => {
+    const { edge } = tireAndEdgeZones(FIELD)
     const limit = 400 - SPRAYER_W_M // the outerSprayerLimit radius
-    for (const f of [...interior(tire.features), ...interior(edge.features)]) {
+    for (const f of interior(edge.features)) {
       for (const ring of f.geometry.coordinates) {
         for (const p of ring) {
           // A little slack for the 96-sided polygon approximating the circle.
@@ -624,6 +628,37 @@ describe('interior zones stop at the perimeter pass', () => {
         }
       }
     }
+  })
+
+  it('carries the interior TIRE bands out to the perimeter wheel track', () => {
+    // The sprayer drives in across the outside lap to start an interior pass,
+    // so its wheels run over that ground. The track stops where it meets the
+    // perimeter pass's own track and no further.
+    const { tire } = tireAndEdgeZones(FIELD)
+    const limit = 400 - SPRAYER_W_M
+    const reach = 400 - (SPRAYER_W_M / 2 + (14 * FT_TO_M) / 2)
+    const radii = interior(tire.features).flatMap((f) =>
+      f.geometry.coordinates.flatMap((ring) => ring.map(radiusOf)),
+    )
+    // It goes PAST the limit ring — otherwise the machine teleports onto its
+    // pass — but not past the perimeter tire band it is joining.
+    expect(Math.max(...radii)).toBeGreaterThan(limit + 1)
+    expect(Math.max(...radii)).toBeLessThanOrEqual(reach + 1)
+  })
+
+  it('meets the perimeter tire band without a gap', () => {
+    // The interior track ends exactly where the perimeter track's inner side
+    // begins, so the two read as one continuous wheel path.
+    const { tire } = tireAndEdgeZones(FIELD)
+    const interiorReach = Math.max(
+      ...interior(tire.features).flatMap((f) =>
+        f.geometry.coordinates.flatMap((ring) => ring.map(radiusOf)),
+      ),
+    )
+    const perimeterInner = Math.max(
+      ...perimeter(tire.features)[0].geometry.coordinates[1].map(radiusOf),
+    )
+    expect(interiorReach).toBeCloseTo(perimeterInner, 0)
   })
 
   it('used to run past it — the bands are genuinely being cut', () => {

@@ -686,9 +686,12 @@ function bandRing(
  *
  * ── Two rules about overlap ──────────────────────────────────────────────────
  *
- *  1. **Interior zones stop at the perimeter pass.** An interior band spans the
- *     whole frame extent, so it is clipped to the limit ring. Without that it
- *     runs out through the perimeter pass, where a different set of wheels goes.
+ *  1. **Interior zones stop at the perimeter pass — except the wheels.** An
+ *     interior band spans the whole frame extent, so it is clipped. EDGE bands
+ *     stop at the limit ring, since past it the seams are the perimeter pass's
+ *     own. TIRE bands carry on to the perimeter pass's wheel track, because the
+ *     sprayer has to drive in across the outside lap to start an interior pass
+ *     and those wheels really do run over that ground.
  *
  *  2. **Tire beats edge.** Where the two would overlap, the tire band is cut out
  *     of the edge band. A shelter may legally sit in an edge zone, so an edge
@@ -793,23 +796,41 @@ export function tireAndEdgeZones(field: FieldDict): {
       }
     }
 
-    // ── Keep the interior zones inside the perimeter pass ─────────────────
+    // ── Where the interior zones stop ─────────────────────────────────────
     //
-    // An interior band is generated across the whole frame extent, so without
-    // this it runs out through the perimeter pass and off the field. Clipping
-    // to the limit ring makes the interior zones stop where the outside pass
-    // begins, which is what they mean on the ground.
+    // An interior band is generated across the whole frame extent, so without a
+    // clip it runs out through the perimeter pass and off the field entirely.
+    // The two kinds stop in different places, because they mean different
+    // things:
     //
-    // With no limit ring — a field narrower than one sprayer width, so the
-    // perimeter pass IS the whole field — there is nothing to stay inside, and
-    // the bands are left for the display clip to trim.
-    const insideLimit = (fs: Feature<Polygon>[]): Feature<Polygon>[] =>
-      limitPoly
-        ? fs.flatMap((x) => (x.properties?.perimeter ? [x] : clipToRegion(x, limitPoly)))
-        : fs
+    //  • EDGE bands stop at the limit ring. An edge zone marks a seam a shelter
+    //    may sit against, and past the limit ring the seams are the perimeter
+    //    pass's own — which get their own bands above.
+    //
+    //  • TIRE bands carry ON, out to the perimeter pass's wheel track. To start
+    //    an interior pass the sprayer has to drive in across the outside lap,
+    //    so those wheels really do run over that ground. Stopping the track at
+    //    the limit ring drew a machine that teleports onto its pass.
+    //
+    // The tire band reaches exactly the inner side of the perimeter tire band
+    // (inset `W/2 + tireW/2`), so the two meet without a seam or an overlap.
+    const tireReachRing = w > 0 && tireW > 0 ? outlineAtInset(f, Math.max(0, w / 2 + tireW / 2)) : null
+    const tireReachCoords = tireReachRing ? ringToLonLat(f, tireReachRing) : null
+    const tireReachPoly: Feature<Polygon> | null = tireReachCoords
+      ? { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [tireReachCoords] } }
+      : null
 
-    const tireOut = insideLimit(tire)
-    let edgeOut = insideLimit(edge)
+    // With no ring to clip against — a field narrower than one sprayer width, so
+    // the perimeter pass IS the whole field — there is nothing to stay inside,
+    // and the bands are left for the display clip to trim.
+    const clipInterior = (
+      fs: Feature<Polygon>[],
+      region: Feature<Polygon> | null,
+    ): Feature<Polygon>[] =>
+      region ? fs.flatMap((x) => (x.properties?.perimeter ? [x] : clipToRegion(x, region))) : fs
+
+    const tireOut = clipInterior(tire, tireReachPoly)
+    let edgeOut = clipInterior(edge, limitPoly)
 
     // ── Tire wins where the two overlap ───────────────────────────────────
     //

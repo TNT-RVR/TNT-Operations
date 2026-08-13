@@ -67,7 +67,12 @@ function bayGuideFC(
   g: Record<string, unknown>,
   shelters: Array<{ lat: number; lng: number }>,
 ): { lines: GeoJSON.FeatureCollection; labels: GeoJSON.FeatureCollection } {
-  const guides = bayGuides(g, shelters)
+  // The boundary decides how far the lines run: the bays only span the pivot's
+  // circle, and on a square quarter that stops well short of the headland.
+  const boundary = Array.isArray(g.boundary_polygon)
+    ? (g.boundary_polygon as Array<[number, number]>)
+    : null
+  const guides = bayGuides(g, shelters, 40, boundary)
   return {
     lines: {
       type: 'FeatureCollection',

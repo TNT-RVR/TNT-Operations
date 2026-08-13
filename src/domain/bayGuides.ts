@@ -59,14 +59,20 @@ export function distToLineM(
  * shelter is therefore assigned to the closest bay, which is the same
  * assignment crewRoute() makes when it groups shelters into bays to drive.
  *
- * `extendM` pushes each end past the field's along-extent, because the bands
- * already span it: without the extra, the line stops exactly where the crop
- * does, which is the one place it needs to be visible from.
+ * `extendM` is measured past the FIELD BOUNDARY, not past the bay.
+ *
+ * The bands only span the pivot's own extent — its circle — so on a quarter
+ * with a square boundary around a circular pivot, extending past the band left
+ * the line finishing well inside the field, nowhere near the headland someone
+ * is standing on. Each guide is therefore stretched to cover the boundary's
+ * full reach along its own direction, and then the margin is added.
  */
 export function bayGuides(
   field: FieldDict,
   shelters: Array<{ lat: number; lng: number }>,
   extendM = 40,
+  /** Field boundary as [lat, lng] pairs. Without it, the bay's own extent. */
+  boundary?: Array<[number, number]> | null,
 ): BayGuide[] {
   if (shelters.length === 0) return []
 
@@ -121,15 +127,32 @@ export function bayGuides(
     const len = Math.hypot(dxM, dyM)
     if (!Number.isFinite(len) || len < 1) continue
 
-    const dLng = ((dxM / len) * extendM) / mPerDegLng(latMid)
-    const dLat = ((dyM / len) * extendM) / M_PER_DEG_LAT
+    // How far the line must run to clear the field, measured ALONG its own
+    // direction: project every boundary corner onto it and take the extremes.
+    const ux = dxM / len
+    const uy = dyM / len
+    const sx = mPerDegLng(latMid)
+    let tMin = 0
+    let tMax = len
+    if (boundary && boundary.length >= 3) {
+      for (const [blat, blng] of boundary) {
+        if (!Number.isFinite(blat) || !Number.isFinite(blng)) continue
+        const vx = (blng - startLng) * sx
+        const vy = (blat - startLat) * M_PER_DEG_LAT
+        const t = vx * ux + vy * uy
+        if (t < tMin) tMin = t
+        if (t > tMax) tMax = t
+      }
+    }
+
+    const at = (t: number): [number, number] => [
+      startLng + ((ux * t) / sx),
+      startLat + (uy * t) / M_PER_DEG_LAT,
+    ]
 
     out.push({
       pass,
-      coordinates: [
-        [startLng - dLng, startLat - dLat],
-        [endLng + dLng, endLat + dLat],
-      ],
+      coordinates: [at(tMin - extendM), at(tMax + extendM)],
       label: [(startLng + endLng) / 2, (startLat + endLat) / 2],
     })
   }

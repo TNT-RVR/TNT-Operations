@@ -113,3 +113,50 @@ describe('bayGuides', () => {
     expect(bayGuides({}, shelters)).toEqual([])
   })
 })
+
+describe('bayGuides against a boundary', () => {
+  const shelters = getTentPositions(pivot)
+
+  /** A square quarter around the 400 m pivot — the real shape of the ground. */
+  const square: Array<[number, number]> = [
+    [49.8228, -111.6112],
+    [49.8228, -111.5888],
+    [49.8372, -111.5888],
+    [49.8372, -111.6112],
+  ]
+
+  const lenM = (g: { coordinates: [[number, number], [number, number]] }) => {
+    const [[x0, y0], [x1, y1]] = g.coordinates
+    const sx = 111_320 * Math.cos((49.83 * Math.PI) / 180)
+    return Math.hypot((x1 - x0) * sx, (y1 - y0) * 111_320)
+  }
+
+  it('runs past the boundary, not just past the pivot circle', () => {
+    // The bug in the field: bands span the pivot's own extent, so on a square
+    // quarter the line stopped inside the crop — nowhere near the headland
+    // where someone picks the bay.
+    const [withoutB] = bayGuides(pivot, shelters, 40)
+    const [withB] = bayGuides(pivot, shelters, 40, square)
+    expect(lenM(withB)).toBeGreaterThan(lenM(withoutB))
+
+    // Every corner of the field must be covered along the line's direction.
+    const northMost = Math.max(...square.map(([lat]) => lat))
+    const southMost = Math.min(...square.map(([lat]) => lat))
+    const lats = withB.coordinates.map(([, lat]) => lat)
+    expect(Math.max(...lats)).toBeGreaterThan(northMost)
+    expect(Math.min(...lats)).toBeLessThan(southMost)
+  })
+
+  it('clears the boundary by the margin asked for', () => {
+    const [g] = bayGuides(pivot, shelters, 40, square)
+    const northMost = Math.max(...square.map(([lat]) => lat))
+    const top = Math.max(...g.coordinates.map(([, lat]) => lat))
+    expect((top - northMost) * 111_320).toBeCloseTo(40, -1)
+  })
+
+  it('ignores a boundary with unusable points', () => {
+    const bad: Array<[number, number]> = [...square, [NaN, NaN]]
+    const [g] = bayGuides(pivot, shelters, 40, bad)
+    expect(g.coordinates.every(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))).toBe(true)
+  })
+})

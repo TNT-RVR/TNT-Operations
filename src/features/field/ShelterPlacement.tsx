@@ -11,6 +11,7 @@ import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { tireAndEdgeZones } from '@/domain/sprayOverlays'
 import { bayGuides, shiftToParkedBay } from '@/domain/bayGuides'
+import { shiftToParkedSprayPass } from '@/domain/sprayNudge'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
@@ -120,6 +121,9 @@ export default function ShelterPlacement() {
    */
   const [nudgeE, setNudgeE] = useState(0)
   const [nudgeN, setNudgeN] = useState(0)
+  /** The sprayer's own lateral offset, in metres — a single scalar, unlike the
+   *  bay shift, because that is the shape `sprayer_shift` already has. */
+  const [sprayShiftM, setSprayShiftM] = useState(0)
   const field: Field | null = useMemo(
     () => mapped.find((f) => f.id === fieldId) ?? mapped[0] ?? null,
     [mapped, fieldId],
@@ -130,12 +134,14 @@ export default function ShelterPlacement() {
     if (!field) return
     try {
       const raw = localStorage.getItem(`field.nudge.${field.id}`)
-      const v = raw ? (JSON.parse(raw) as { e?: number; n?: number }) : null
+      const v = raw ? (JSON.parse(raw) as { e?: number; n?: number; s?: number }) : null
       setNudgeE(Number(v?.e) || 0)
       setNudgeN(Number(v?.n) || 0)
+      setSprayShiftM(Number(v?.s) || 0)
     } catch {
       setNudgeE(0)
       setNudgeN(0)
+      setSprayShiftM(0)
     }
   }, [field?.id])
 
@@ -150,13 +156,16 @@ export default function ShelterPlacement() {
   const nudgedGeometry = useMemo(() => {
     const g = field?.geometry as Record<string, unknown> | undefined
     if (!g) return undefined
-    if (!nudgeE && !nudgeN) return g
+    if (!nudgeE && !nudgeN && !sprayShiftM) return g
     return {
       ...g,
       bay_shift_e_m: toNum(g.bay_shift_e_m) + nudgeE * FT_TO_M,
       bay_shift_n_m: toNum(g.bay_shift_n_m) + nudgeN * FT_TO_M,
+      // Absolute, not additive: shiftToParkedSprayPass() returns the new value
+      // for the field, having already built on whatever was there.
+      ...(sprayShiftM ? { sprayer_shift: sprayShiftM } : {}),
     }
-  }, [field, nudgeE, nudgeN])
+  }, [field, nudgeE, nudgeN, sprayShiftM])
 
   const pins: Pin[] = useMemo(() => {
     const g = nudgedGeometry
@@ -598,8 +607,8 @@ export default function ShelterPlacement() {
           >
             <div className="mb-1 font-semibold text-primary">Line up the grid</div>
             <p className="mb-2 text-xs text-muted">
-              Park in a male bay and press this. The nearest bay line moves onto you, and the
-              shelters, bays and guides move with it.
+              Park on the thing, then press its button. The nearest line moves onto you — bays
+              carry the shelters and guides with them; the sprayer moves its own passes.
             </p>
 
             <Button
@@ -620,7 +629,10 @@ export default function ShelterPlacement() {
                 setNudgeE(e)
                 setNudgeN(n)
                 try {
-                  localStorage.setItem(`field.nudge.${field.id}`, JSON.stringify({ e, n }))
+                  localStorage.setItem(
+                    `field.nudge.${field.id}`,
+                    JSON.stringify({ e, n, s: sprayShiftM }),
+                  )
                 } catch {
                   /* private mode — it just won't survive a reload */
                 }
@@ -634,18 +646,53 @@ export default function ShelterPlacement() {
               The bay is here
             </Button>
 
-            {/* What it did, in numbers. The snap goes to the NEAREST bay, so a
-                fix that was further out than half a bay spacing lands on the
-                wrong one — visible here rather than discovered later. */}
+            <Button
+              variant="ghost"
+              className="mt-2 w-full py-2"
+              disabled={!gps || !field}
+              onClick={() => {
+                if (!gps || !field) return
+                const g = (nudgedGeometry ?? {}) as Record<string, unknown>
+                const fix = shiftToParkedSprayPass(g, { lat: gps.lat, lng: gps.lng })
+                if (!fix) {
+                  setSnapNote('No sprayer passes on this field to line up to.')
+                  return
+                }
+                setSprayShiftM(fix.sprayerShiftM)
+                try {
+                  localStorage.setItem(
+                    `field.nudge.${field.id}`,
+                    JSON.stringify({ e: nudgeE, n: nudgeN, s: fix.sprayerShiftM }),
+                  )
+                } catch {
+                  /* private mode */
+                }
+                setSnapNote(
+                  `Sprayer moved ${fix.movedM.toFixed(1)} m onto pass ${fix.index}` +
+                    (gps.acc ? ` · GPS ±${Math.round(gps.acc)} m` : ''),
+                )
+              }}
+            >
+              <Crosshair size={16} className="mr-1 inline" />
+              The sprayer track is here
+            </Button>
+
+            {/* What it did, in numbers. Each snap goes to the NEAREST line, so
+                a fix further out than half a spacing lands on the wrong one —
+                visible here rather than discovered later. */}
             {snapNote && <p className="mt-2 text-xs text-secondary">{snapNote}</p>}
             {!gps && <p className="mt-2 text-xs text-amber-600">Waiting for a GPS fix.</p>}
 
             <div className="mt-2 flex items-center justify-between text-xs">
               <span className="font-mono text-faint">
-                {nudgeE || nudgeN
-                  ? `${nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : ''}${
-                      nudgeE && nudgeN ? ' · ' : ''
-                    }${nudgeN ? `${nudgeN > 0 ? 'N' : 'S'} ${Math.abs(nudgeN)}ft` : ''}`
+                {nudgeE || nudgeN || sprayShiftM
+                  ? [
+                      nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : '',
+                      nudgeN ? `${nudgeN > 0 ? 'N' : 'S'} ${Math.abs(nudgeN)}ft` : '',
+                      sprayShiftM ? `spray ${(sprayShiftM / FT_TO_M).toFixed(1)}ft` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
                   : 'not adjusted'}
               </span>
               <button
@@ -653,6 +700,7 @@ export default function ShelterPlacement() {
                 onClick={() => {
                   setNudgeE(0)
                   setNudgeN(0)
+                  setSprayShiftM(0)
                   setSnapNote(null)
                   try {
                     if (field) localStorage.removeItem(`field.nudge.${field.id}`)

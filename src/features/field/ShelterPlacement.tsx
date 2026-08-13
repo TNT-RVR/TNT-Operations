@@ -14,7 +14,7 @@ import { bayGuides, shiftToParkedBay } from '@/domain/bayGuides'
 import { shiftToParkedSprayPass } from '@/domain/sprayNudge'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
-import { trackRings, ringPolygons } from '../maps/overlays'
+import { trackRings, ringPolygons, overlayPins } from '../maps/overlays'
 import { ProgressBar, Button } from '@/components/ui'
 
 /**
@@ -36,6 +36,10 @@ const FIELD_LINE = '#00CED1'
 const GPS_BLUE = '#5AA9E6'
 const EDGE_ZONE = '#FF8A2B' // token-exempt: map overlay over imagery
 const ROW_GUIDE = '#7DD3FC' // token-exempt: map overlay over imagery
+const PARKING = '#4ADE80' // token-exempt: map pin over imagery
+const PIN_OTHER = '#E5E7EB' // token-exempt: map pin over imagery
+const PIN_LABEL = { entrance: 'E', parking: 'P', home: 'H' } as const
+const PIN_TITLE = { entrance: 'Entrance', parking: 'Parking', home: 'Home' } as const
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 const FT_TO_M = 0.3048
 
@@ -194,6 +198,8 @@ export default function ShelterPlacement() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null)
+  /** Entrance / parking / home markers — HTML, so they read as letters. */
+  const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const [ready, setReady] = useState(false)
   const [layersOpen, setLayersOpen] = useState(false)
   const [nudgeOpen, setNudgeOpen] = useState(false)
@@ -210,6 +216,7 @@ export default function ShelterPlacement() {
     wet: false,
     edges: false,
     rowGuides: false,
+    pins: true,
   })
 
   useEffect(() => {
@@ -306,6 +313,10 @@ export default function ShelterPlacement() {
     })
     return () => {
       gpsMarkerRef.current?.remove()
+      // Markers live outside the map's own layer list, so they survive
+      // map.remove() and would leak on every field change.
+      pinMarkersRef.current.forEach((m) => m.remove())
+      pinMarkersRef.current = []
       map.remove()
       mapRef.current = null
       setReady(false)
@@ -342,6 +353,22 @@ export default function ShelterPlacement() {
     const guides = show.rowGuides ? bayGuideFC(g, pins) : null
     ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(guides?.lines ?? EMPTY)
     ;(map.getSource('row-guide-labels') as GeoJSONSource | undefined)?.setData(guides?.labels ?? EMPTY)
+    // Parking, entrance and home. The parking pin is the one that matters in
+    // the truck: it is where the crew starts and ends, and it is the answer to
+    // "where did we leave everything" at the end of a pass.
+    pinMarkersRef.current.forEach((m) => m.remove())
+    pinMarkersRef.current = (show.pins ? overlayPins(g as never) : []).map((pin) => {
+      const el = document.createElement('div')
+      el.textContent = PIN_LABEL[pin.kind]
+      el.title = PIN_TITLE[pin.kind]
+      el.style.cssText =
+        `display:grid;place-items:center;width:26px;height:26px;border-radius:9999px;` +
+        `background:${pin.kind === 'parking' ? PARKING : PIN_OTHER};color:#111;` +
+        `font:700 13px/1 system-ui;border:2px solid rgba(0,0,0,.6);` +
+        `box-shadow:0 1px 4px rgba(0,0,0,.5)`
+      return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
+    })
+
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
       features: pins.map((p) => ({
@@ -727,6 +754,7 @@ export default function ShelterPlacement() {
                 ['wet', 'Wet zones'],
                 ['edges', 'Sprayer edge zones'],
                 ['rowGuides', 'Bay guides'],
+                ['pins', 'Parking & gates'],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">

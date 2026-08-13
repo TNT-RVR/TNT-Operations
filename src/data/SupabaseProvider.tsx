@@ -655,6 +655,22 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         await refreshCrews()
         return { ok: true }
       },
+      updateCrew: async (id: string, patch: { name?: string; active?: boolean }) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row: Record<string, unknown> = {}
+        if (patch.name !== undefined) {
+          const clean = patch.name.trim()
+          if (!clean) return { ok: false, error: 'A crew needs a name.' }
+          row.name = clean
+        }
+        if (patch.active !== undefined) row.active = patch.active
+        if (Object.keys(row).length === 0) return { ok: true }
+        const { error } = await supabase.from('crews').update(row).eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
       createCrew: async (name: string) => {
         if (!supabase) return { ok: false, error: 'No backend connection.' }
         const clean = name.trim()

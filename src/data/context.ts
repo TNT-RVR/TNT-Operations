@@ -205,6 +205,14 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   leaveCrew: () => Promise<{ ok: boolean; error?: string }>
   /** Start a crew for this season. */
   createCrew: (name: string) => Promise<{ ok: boolean; crewId?: string; error?: string }>
+  /**
+   * Rename a crew, or retire one that is no longer running.
+   *
+   * Retiring sets `active` false rather than deleting: the memberships and
+   * everything attributed through them are history, and deleting the crew
+   * would orphan a season of work to tidy a list.
+   */
+  updateCrew: (id: string, patch: { name?: string; active?: boolean }) => Promise<{ ok: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

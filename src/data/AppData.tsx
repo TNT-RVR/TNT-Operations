@@ -191,6 +191,16 @@ function MockProvider({ children }: { children: ReactNode }) {
         )
         return { ok: true }
       },
+      updateCrew: async (id: string, patch: { name?: string; active?: boolean }) => {
+        setCrews((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? { ...c, ...(patch.name ? { name: patch.name.trim() } : {}), ...(patch.active !== undefined ? { active: patch.active } : {}) }
+              : c,
+          ),
+        )
+        return { ok: true }
+      },
       createCrew: async (name: string) => {
         const id = nextId('crew')
         setCrews((prev) => [...prev, { id, name, season: new Date().getFullYear(), active: true }])

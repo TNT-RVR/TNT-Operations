@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Users, Tent, Layers3, WifiOff } from 'lucide-react'
+import { Users, Tent, Layers3, WifiOff, Plus } from 'lucide-react'
 import { useData } from '@/data/context'
 import { supabase } from '@/data/supabaseClient'
 import { SATELLITE_STYLE } from '../maps/basemap'
@@ -30,13 +30,26 @@ const CREW_TRAY = '#4ADE80'
 const CREW_STALE = '#8A8A8A'
 
 export default function CrewsView() {
-  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew } = useData()
+  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew, updateCrew } =
+    useData()
   const session = useSession()
   const me = session.user.id
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [newCrew, setNewCrew] = useState('')
   const [naming, setNaming] = useState(false)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [renameTo, setRenameTo] = useState('')
+  const canEdit = session.can('maps', 'edit')
+
+  /** Run a crew action, surfacing whatever it refuses to do. */
+  const act = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setBusy(true)
+    setErr(null)
+    const r = await fn()
+    setBusy(false)
+    if (!r.ok) setErr(r.error ?? 'That did not work.')
+  }
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
@@ -51,10 +64,6 @@ export default function CrewsView() {
 
   const myCrewId = useMemo(() => crewOf(crewMembers, me), [crewMembers, me])
   const myCrew = crews.find((c) => c.id === myCrewId) ?? null
-  const myMates = useMemo(
-    () => (myCrewId ? membersOf(crewMembers, myCrewId) : []),
-    [crewMembers, myCrewId],
-  )
   const myLead = myCrewId ? leadOf(crewMembers, myCrewId) : null
   const iAmLead = myLead?.userId === me
 
@@ -135,121 +144,183 @@ export default function CrewsView() {
       <div ref={containerRef} className="min-h-[45%] flex-1" />
 
       <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-default bg-raised p-3">
-        {/* Who I am with. First thing on the screen because it is the thing a
-            person changes — the map answers "where is everyone", this answers
-            "am I counted with the right people". */}
+        {/* Who I am with, then every crew. Both live here because they are the
+            same question asked twice — "am I counted with the right people"
+            and "who else is out today". */}
         <div className="mb-3 rounded-md border border-default p-2">
           {myCrew ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold text-primary">{myCrew.name}</span>
-                {iAmLead && (
-                  <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-xs text-brand">
-                    This device reports the crew&apos;s position
-                  </span>
-                )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs uppercase tracking-wide text-faint">You are on</span>
+              <span className="text-sm font-semibold text-primary">{myCrew.name}</span>
+              {iAmLead ? (
+                <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-xs text-brand">
+                  This device reports the position
+                </span>
+              ) : (
                 <button
-                  className="ml-auto text-xs text-muted underline"
+                  className="text-xs text-brand underline"
                   disabled={busy}
-                  onClick={async () => {
-                    setBusy(true)
-                    const r = await leaveCrew()
-                    setBusy(false)
-                    if (!r.ok) setErr(r.error ?? 'Could not leave.')
-                  }}
+                  onClick={() => act(() => joinCrew(myCrew.id, true))}
                 >
-                  Leave
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                {myMates.length} on this crew
-                {!myLead && ' · nobody is reporting position — whoever has the iPad should take the lead'}
-              </p>
-              {!iAmLead && (
-                <button
-                  className="mt-1 text-xs text-brand underline"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true)
-                    const r = await joinCrew(myCrew.id, true)
-                    setBusy(false)
-                    if (!r.ok) setErr(r.error ?? 'Could not take the lead.')
-                  }}
-                >
-                  Use THIS device for the crew&apos;s position
+                  Report position from this device
                 </button>
               )}
-            </>
+              <button
+                className="ml-auto text-xs text-muted underline"
+                disabled={busy}
+                onClick={() => act(() => leaveCrew())}
+              >
+                Leave
+              </button>
+              {!myLead && (
+                <p className="w-full text-xs text-amber-600">
+                  Nobody on this crew is reporting a position — whoever has the iPad should tap
+                  &ldquo;report position&rdquo;.
+                </p>
+              )}
+            </div>
           ) : (
-            <>
-              <div className="text-sm font-semibold text-primary">You are not on a crew</div>
-              <p className="mb-2 mt-1 text-xs text-muted">
-                Join one so your work counts with the right people. The crew&apos;s iPad should join as
-                the position reporter.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {crews.map((c) => (
-                  <span key={c.id} className="flex overflow-hidden rounded-sm border border-default">
-                    <button
-                      className="px-2 py-1 text-xs"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true)
-                        const r = await joinCrew(c.id, false)
-                        setBusy(false)
-                        if (!r.ok) setErr(r.error ?? 'Could not join.')
-                      }}
-                    >
-                      Join {c.name}
-                    </button>
-                    <button
-                      className="border-l border-default px-2 py-1 text-xs text-brand"
-                      title="Join and report this crew's position from this device"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true)
-                        const r = await joinCrew(c.id, true)
-                        setBusy(false)
-                        if (!r.ok) setErr(r.error ?? 'Could not join.')
-                      }}
-                    >
-                      as iPad
-                    </button>
-                  </span>
-                ))}
-                {naming ? (
-                  <span className="flex gap-1">
-                    <input
-                      className="input h-7 w-28 text-xs"
-                      value={newCrew}
-                      autoFocus
-                      placeholder="Crew name"
-                      onChange={(e) => setNewCrew(e.target.value)}
-                    />
-                    <button
-                      className="text-xs text-brand underline"
-                      disabled={busy || !newCrew.trim()}
-                      onClick={async () => {
-                        setBusy(true)
-                        const r = await createCrew(newCrew.trim())
-                        setBusy(false)
-                        setNaming(false)
-                        setNewCrew('')
-                        if (!r.ok) setErr(r.error ?? 'Could not create the crew.')
-                      }}
-                    >
-                      Add
-                    </button>
-                  </span>
-                ) : (
-                  <button className="text-xs text-muted underline" onClick={() => setNaming(true)}>
-                    New crew
-                  </button>
-                )}
-              </div>
-            </>
+            <p className="text-sm text-muted">
+              You are not on a crew. Join one below so your work counts with the right people.
+            </p>
           )}
-          {err && <p className="mt-1 text-xs text-danger">{err}</p>}
+        </div>
+
+        {/* Every crew this season: who is on it, and the buttons to run it. */}
+        <div className="mb-3 space-y-2">
+          {crews
+            .filter((c) => c.active || c.id === myCrewId)
+            .map((c) => {
+              const mates = membersOf(crewMembers, c.id)
+              const lead = leadOf(crewMembers, c.id)
+              const mine = c.id === myCrewId
+              return (
+                <div key={c.id} className="rounded-md border border-default p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {renaming === c.id ? (
+                      <>
+                        <input
+                          className="input h-7 w-36 text-xs"
+                          autoFocus
+                          value={renameTo}
+                          onChange={(e) => setRenameTo(e.target.value)}
+                        />
+                        <button
+                          className="text-xs text-brand underline"
+                          disabled={busy || !renameTo.trim()}
+                          onClick={() =>
+                            act(async () => {
+                              const r = await updateCrew(c.id, { name: renameTo })
+                              setRenaming(null)
+                              return r
+                            })
+                          }
+                        >
+                          Save
+                        </button>
+                        <button className="text-xs text-muted underline" onClick={() => setRenaming(null)}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-sm font-semibold text-primary">{c.name}</span>
+                        <span className="text-xs text-muted">
+                          {mates.length} {mates.length === 1 ? 'person' : 'people'}
+                          {lead ? '' : ' · no position reporter'}
+                        </span>
+                        {mine ? (
+                          <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-xs text-brand">You</span>
+                        ) : (
+                          <span className="ml-auto flex gap-2">
+                            <button
+                              className="text-xs text-brand underline"
+                              disabled={busy}
+                              onClick={() => act(() => joinCrew(c.id, false))}
+                            >
+                              Join
+                            </button>
+                            <button
+                              className="text-xs text-muted underline"
+                              title="Join and report this crew position from this device"
+                              disabled={busy}
+                              onClick={() => act(() => joinCrew(c.id, true))}
+                            >
+                              Join as iPad
+                            </button>
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {canEdit && renaming !== c.id && (
+                    <div className="mt-1 flex gap-3">
+                      <button
+                        className="text-xs text-faint underline"
+                        onClick={() => {
+                          setRenaming(c.id)
+                          setRenameTo(c.name)
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="text-xs text-faint underline"
+                        disabled={busy || mates.length > 0}
+                        title={
+                          mates.length > 0
+                            ? 'People are still on this crew — they have to leave first'
+                            : 'Retire this crew for the season'
+                        }
+                        onClick={() => act(() => updateCrew(c.id, { active: false }))}
+                      >
+                        Retire
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+          {/* Creating a crew is not an admin job hidden on another screen:
+              crews get made in the yard at the start of a day. */}
+          {naming ? (
+            <div className="flex gap-2">
+              <input
+                className="input h-8 flex-1 text-sm"
+                autoFocus
+                placeholder="Crew name"
+                value={newCrew}
+                onChange={(e) => setNewCrew(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setNaming(false)
+                }}
+              />
+              <button
+                className="btn-primary px-3 text-sm"
+                disabled={busy || !newCrew.trim()}
+                onClick={() =>
+                  act(async () => {
+                    const r = await createCrew(newCrew.trim())
+                    setNaming(false)
+                    setNewCrew('')
+                    return r
+                  })
+                }
+              >
+                Create
+              </button>
+              <button className="btn-ghost px-3 text-sm" onClick={() => setNaming(false)}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button className="btn-ghost w-full py-2 text-sm" onClick={() => setNaming(true)}>
+              <Plus size={15} className="mr-1 inline" />
+              New crew
+            </button>
+          )}
+          {err && <p className="text-xs text-danger">{err}</p>}
         </div>
 
         {rows.length === 0 ? (

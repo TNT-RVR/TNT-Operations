@@ -358,28 +358,68 @@ describe('alignmentLines', () => {
     expect(alignmentLines(grid().slice(0, 2), FIELD).features).toHaveLength(0)
   })
 
-  it('draws a column polyline plus cross links for a 3×3 grid', () => {
+  /** Features of one family. Axis is explicit so this need not count vertices. */
+  const axis = (fc: ReturnType<typeof alignmentLines>, want: string) =>
+    fc.features.filter((x) => x.properties?.axis === want)
+
+  it('draws a column polyline, a row polyline and diagonals for a 3×3 grid', () => {
     const fc = alignmentLines(grid(), FIELD)
     const feats = fc.features
     expect(feats.length).toBeGreaterThan(0)
     for (const feat of feats) {
       expect(feat.geometry.type).toBe('LineString')
       expect(allFinite(feat.geometry.coordinates)).toBe(true)
-      expect(feat.properties).toEqual({ kind: 'alignment' })
+      expect(feat.properties?.kind).toBe('alignment')
+      expect(['column', 'row', 'diagonal']).toContain(feat.properties?.axis)
     }
-    const columns = feats.filter((x) => x.geometry.coordinates.length === 3)
-    const links = feats.filter((x) => x.geometry.coordinates.length === 2)
-    expect(columns).toHaveLength(3) // one polyline down each lateral column
-    expect(links).toHaveLength(6) // 3 pins × 2 adjacent column pairs, aligned grid
+    expect(axis(fc, 'column')).toHaveLength(3) // one down each lateral column
+    expect(axis(fc, 'row')).toHaveLength(3) // one across each rank
+    expect(axis(fc, 'diagonal')).toHaveLength(6) // 3 pins × 2 adjacent column pairs
+  })
+
+  it('runs each row across the columns, not back on itself', () => {
+    // A row polyline must visit its pins in lateral order; sorted by the wrong
+    // axis it would zig-zag and be useless to sight along.
+    const fc = alignmentLines(grid(), FIELD)
+    for (const row of axis(fc, 'row')) {
+      const laterals = row.geometry.coordinates.map((c) => toLateral(f, c))
+      for (let i = 1; i < laterals.length; i++) {
+        expect(laterals[i]).toBeGreaterThan(laterals[i - 1])
+      }
+    }
+  })
+
+  it('links only the pins that are genuinely level when staggered', () => {
+    // Columns 0 and 2 sit at along −100/0/100 and column 1 at −50/50/150. Each
+    // rank therefore holds the two unstaggered columns, and the offset column's
+    // pins are level with nothing. A line through pins that are NOT level would
+    // be a worse guide than no line.
+    const fc = alignmentLines(grid(50), FIELD)
+    const rows = axis(fc, 'row')
+    expect(rows.length).toBeGreaterThan(0)
+    for (const r of rows) expect(r.geometry.coordinates).toHaveLength(2)
   })
 
   it('makes real triangles when the columns are staggered', () => {
     const fc = alignmentLines(grid(50), FIELD)
-    const links = fc.features.filter((x) => x.geometry.coordinates.length === 2)
+    const links = axis(fc, 'diagonal')
     // Every pin now has a distinct neighbour above and below in the next column,
     // except the ends of the run where only one side exists.
     expect(links.length).toBeGreaterThan(6)
+    expect(links.every((l) => l.geometry.coordinates.length === 2)).toBe(true)
     expect(allFinite(links.flatMap((l) => l.geometry.coordinates))).toBe(true)
+  })
+
+  it('emits no row line for a single column of pins', () => {
+    // One pin per rank is not a line. Guards against a degenerate 1-point
+    // LineString reaching the map.
+    const single: Array<{ lat: number; lng: number }> = [-100, 0, 100].map((along) => {
+      const [lng, lat] = latAlongToLonLat(f, 0, along)
+      return { lat, lng }
+    })
+    const fc = alignmentLines(single, FIELD)
+    expect(axis(fc, 'column')).toHaveLength(1)
+    expect(axis(fc, 'row')).toHaveLength(0)
   })
 
   it('is empty without a pivot and ignores non-finite pins', () => {

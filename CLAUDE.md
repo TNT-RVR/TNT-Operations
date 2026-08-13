@@ -125,7 +125,11 @@ _Last reviewed 2026-08-03._
         - **Overlay geometry is derived, never re-derived.** `fieldFrame.ts` is
           the ONE shared projection/rotation/bay-tiling frame — the engine's own
           math, so bays line up with the pins it placed. `bayOverlays.ts` (male
-          bays, numbered planter passes, alignment mesh) and `sprayOverlays.ts`
+          bays, numbered planter passes, alignment mesh — one polyline down each
+          COLUMN, one across each ROW, plus the DIAGONALS to the nearest pin
+          above/below in the next column; each feature carries
+          `axis: 'column' | 'row' | 'diagonal'` so a caller can style one family
+          without inferring it from the vertex count) and `sprayOverlays.ts`
           (sprayer passes, outer sprayer limit inset, tire + edge zones, shelter
           buffer squares) build on it. NOTE sprayer geometry uses `sprayAngle`,
           which may differ from the planting angle — see the doc comments.

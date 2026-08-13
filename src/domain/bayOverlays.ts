@@ -553,6 +553,16 @@ export interface AlignmentPin {
 const COLUMN_TOL_M = 0.5
 
 /**
+ * Row tolerance: pins within half a metre along the pass are the same rank.
+ *
+ * The mirror of {@link COLUMN_TOL_M}, and deliberately the same number — a crew
+ * sighting across a field is doing the same thing as a crew sighting down it,
+ * and a guide that appeared in one direction but not the other at the same
+ * slop would be confusing to use.
+ */
+const ROW_TOL_M = 0.5
+
+/**
  * Along-pass tolerance for "level with". Pins this close along the pass are the
  * same rank, so an UNstaggered grid links straight across once instead of
  * fanning to two near-identical neighbours on projection round-trip noise.
@@ -565,12 +575,23 @@ const LEVEL_TOL_M = 0.05
  * The pins passed in are the ones actually on screen — apply `shelter_overrides`
  * BEFORE calling, so a dragged pin drags its guide lines with it.
  *
- * Method: project every pin into the field's (lateral, along) frame, group into
- * columns by lateral (±0.5 m), then emit
- *   • one polyline down each column, sorted along-pass, and
- *   • a link from every pin to its nearest neighbour above AND below it in the
- *     next column across,
- * which together make the triangular lattice. Fewer than 3 pins has no lattice.
+ * Method: project every pin into the field's (lateral, along) frame, then emit
+ *   • one polyline down each COLUMN — pins sharing a lateral (±0.5 m), sorted
+ *     along the pass;
+ *   • one polyline across each ROW — pins sharing an along (±0.5 m), sorted
+ *     laterally; and
+ *   • a DIAGONAL from every pin to its nearest neighbour above AND below it in
+ *     the next column across.
+ *
+ * Columns and diagonals alone make a triangular lattice, which is what a crew
+ * sights along when the grid is staggered. The row lines are the sight line
+ * straight across the field — on a staggered grid they link every OTHER column,
+ * because those are the pins that are genuinely level with each other, and a
+ * line through pins that are not level would be a worse guide than none.
+ *
+ * Each feature carries `axis: 'column' | 'row' | 'diagonal'` alongside
+ * `kind: 'alignment'`, so a caller can style or filter one family without
+ * having to infer it from the vertex count. Fewer than 3 pins has no lattice.
  */
 export function alignmentLines(
   shelters: Array<AlignmentPin>,
@@ -594,37 +615,55 @@ export function alignmentLines(
   }
   if (pins.length < 3) return emptyFC<LineString>()
 
-  // Group into columns by lateral, comparing against each column's running mean
-  // so a long column can't drift wider than the tolerance one pin at a time.
-  const sorted = pins.slice().sort((a, b) => a.lateral - b.lateral || a.along - b.along)
-  const columns: Pin[][] = []
-  let mean = NaN
-  for (const p of sorted) {
-    const col = columns[columns.length - 1]
-    if (col && Math.abs(p.lateral - mean) <= COLUMN_TOL_M) {
-      col.push(p)
-      mean = (mean * (col.length - 1) + p.lateral) / col.length
-    } else {
-      columns.push([p])
-      mean = p.lateral
+  /**
+   * Bucket pins along one axis.
+   *
+   * Compared against each group's running MEAN rather than its last member, so
+   * a long group can't drift wider than the tolerance one pin at a time. Shared
+   * by both axes so a row and a column can never disagree about what "the same
+   * line" means.
+   */
+  const groupBy = (key: (p: Pin) => number, other: (p: Pin) => number, tol: number): Pin[][] => {
+    const sorted = pins.slice().sort((a, b) => key(a) - key(b) || other(a) - other(b))
+    const groups: Pin[][] = []
+    let mean = NaN
+    for (const p of sorted) {
+      const g = groups[groups.length - 1]
+      if (g && Math.abs(key(p) - mean) <= tol) {
+        g.push(p)
+        mean = (mean * (g.length - 1) + key(p)) / g.length
+      } else {
+        groups.push([p])
+        mean = key(p)
+      }
     }
+    // Order within the group by the OTHER axis, so the polyline runs straight
+    // along it instead of zig-zagging back on itself.
+    for (const g of groups) g.sort((a, b) => other(a) - other(b) || key(a) - key(b))
+    return groups
   }
-  for (const col of columns) col.sort((a, b) => a.along - b.along || a.lateral - b.lateral)
+
+  const columns = groupBy((p) => p.lateral, (p) => p.along, COLUMN_TOL_M)
+  const rows = groupBy((p) => p.along, (p) => p.lateral, ROW_TOL_M)
 
   const feats: Feature<LineString>[] = []
-  const push = (coords: Position[]) => {
+  const push = (coords: Position[], axis: 'column' | 'row' | 'diagonal') => {
     if (coords.length < 2 || !coords.every(finitePair)) return
     feats.push({
       type: 'Feature',
-      properties: { kind: 'alignment' },
+      properties: { kind: 'alignment', axis },
       geometry: { type: 'LineString', coordinates: coords },
     })
   }
 
-  // Down each column.
+  // Down each column, and across each row.
   for (const col of columns) {
     if (col.length < 2) continue
-    push(col.map((p) => [p.lon, p.lat] as Position))
+    push(col.map((p) => [p.lon, p.lat] as Position), 'column')
+  }
+  for (const row of rows) {
+    if (row.length < 2) continue
+    push(row.map((p) => [p.lon, p.lat] as Position), 'row')
   }
 
   // Across to the next column: nearest above + nearest below → triangles.
@@ -645,10 +684,13 @@ export function alignmentLines(
         const key = `${c}:${p.lateral},${p.along}->${q.lateral},${q.along}`
         if (seen.has(key)) continue
         seen.add(key)
-        push([
-          [p.lon, p.lat],
-          [q.lon, q.lat],
-        ])
+        push(
+          [
+            [p.lon, p.lat],
+            [q.lon, q.lat],
+          ],
+          'diagonal',
+        )
       }
     }
   }

@@ -219,8 +219,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     if (!supabase) return
     const season = new Date().getFullYear()
     const [c, m] = await Promise.all([
-      supabase.from('crews').select('*').eq('season', season).order('name'),
-      supabase.from('crew_members').select('*').is('left_at', null),
+      supabase.from('field_crews').select('*').eq('season', season).order('name'),
+      supabase.from('field_crew_members').select('*').is('left_at', null),
     ])
     if (c.error || m.error) {
       // Before migration 0023 these tables do not exist. Field Mode still
@@ -615,26 +615,26 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         // Leave first: one active membership per person is a database
         // constraint, so joining before leaving would be rejected.
         for (const id of plan.leave) {
-          const { error } = await supabase.from('crew_members').update({ left_at: now }).eq('id', id)
+          const { error } = await supabase.from('field_crew_members').update({ left_at: now }).eq('id', id)
           if (error) return { ok: false, error: error.message }
         }
         // Hand the lead over BEFORE claiming it: one lead per crew is a
         // database constraint, so promoting first is simply rejected.
         if (asLead) {
           for (const id of planTakeLead(crewMembers, userId, crewId).demote) {
-            const { error } = await supabase.from('crew_members').update({ role: 'member' }).eq('id', id)
+            const { error } = await supabase.from('field_crew_members').update({ role: 'member' }).eq('id', id)
             if (error) return { ok: false, error: error.message }
           }
         }
         if (plan.join) {
           const { error } = await supabase
-            .from('crew_members')
+            .from('field_crew_members')
             .insert({ crew_id: crewId, user_id: userId, role: asLead ? 'lead' : 'member' })
           if (error) return { ok: false, error: error.message }
         } else if (asLead) {
           const promote = planTakeLead(crewMembers, userId, crewId).promote
           if (promote) {
-            const { error } = await supabase.from('crew_members').update({ role: 'lead' }).eq('id', promote)
+            const { error } = await supabase.from('field_crew_members').update({ role: 'lead' }).eq('id', promote)
             if (error) return { ok: false, error: error.message }
           }
         }
@@ -647,7 +647,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const mine = crewMembers.find((x) => x.userId === userId && x.leftAt == null)
         if (!mine) return { ok: true }
         const { error } = await supabase
-          .from('crew_members')
+          .from('field_crew_members')
           .update({ left_at: new Date().toISOString() })
           .eq('id', mine.id)
         if (error) return { ok: false, error: error.message }
@@ -665,7 +665,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
         if (patch.active !== undefined) row.active = patch.active
         if (Object.keys(row).length === 0) return { ok: true }
-        const { error } = await supabase.from('crews').update(row).eq('id', id)
+        const { error } = await supabase.from('field_crews').update(row).eq('id', id)
         if (error) return { ok: false, error: error.message }
         crewsPromiseRef.current = null
         await refreshCrews()
@@ -676,7 +676,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const clean = name.trim()
         if (!clean) return { ok: false, error: 'Give the crew a name.' }
         const { data, error } = await supabase
-          .from('crews')
+          .from('field_crews')
           .insert({ name: clean, season: new Date().getFullYear(), created_by: userId })
           .select()
           .single()

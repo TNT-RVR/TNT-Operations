@@ -1,5 +1,12 @@
 -- ── Crews ────────────────────────────────────────────────────────────────────
 --
+-- NAMED `field_crews`, not `crews`. The old desktop app already owns
+-- `public.field_crews` — a GPS position log with lat/lon/course/sats — and CLAUDE.md
+-- is explicit that its tables are never dropped or altered. A `create table if
+-- not exists public.field_crews` silently does NOTHING against it and then every
+-- index and policy below fails against the wrong shape, which is exactly how
+-- this was found.
+--
 -- A crew is a group of people working a field together, not a device and not a
 -- person. Two or three accounts at a time, and the membership changes through
 -- the day as people get moved around — so membership is its own table with
@@ -16,7 +23,7 @@
 -- Individual phones still scan as themselves. The crew is who you are WITH,
 -- not who does the work.
 
-create table if not exists public.crews (
+create table if not exists public.field_crews (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   -- Crews are per-season: "Crew 1" in 2027 is a different group of people to
@@ -27,11 +34,11 @@ create table if not exists public.crews (
   created_by  uuid references public.profiles(id) on delete set null
 );
 
-create unique index if not exists crews_name_season_uidx on public.crews (lower(name), season);
+create unique index if not exists field_crews_name_season_uidx on public.field_crews (lower(name), season);
 
-create table if not exists public.crew_members (
+create table if not exists public.field_crew_members (
   id         uuid primary key default gen_random_uuid(),
-  crew_id    uuid not null references public.crews(id) on delete cascade,
+  crew_id    uuid not null references public.field_crews(id) on delete cascade,
   user_id    uuid not null references public.profiles(id) on delete cascade,
   -- 'lead' is the device whose GPS speaks for the crew. Exactly one at a time,
   -- enforced by the partial index below.
@@ -44,24 +51,24 @@ create table if not exists public.crew_members (
 
 -- One active membership per person: someone cannot be on two crews at once,
 -- and joining a second crew has to mean leaving the first.
-create unique index if not exists crew_members_one_active_uidx
-  on public.crew_members (user_id)
+create unique index if not exists field_crew_members_one_active_uidx
+  on public.field_crew_members (user_id)
   where left_at is null;
 
 -- One lead per crew.
-create unique index if not exists crew_members_one_lead_uidx
-  on public.crew_members (crew_id)
+create unique index if not exists field_crew_members_one_lead_uidx
+  on public.field_crew_members (crew_id)
   where left_at is null and role = 'lead';
 
-create index if not exists crew_members_crew_idx on public.crew_members (crew_id) where left_at is null;
+create index if not exists field_crew_members_crew_idx on public.field_crew_members (crew_id) where left_at is null;
 
-alter table public.crews enable row level security;
-alter table public.crew_members enable row level security;
+alter table public.field_crews enable row level security;
+alter table public.field_crew_members enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['crews', 'crew_members'] loop
+  foreach t in array array['field_crews', 'field_crew_members'] loop
     execute format('drop policy if exists "read for members" on public.%I;', t);
     execute format('create policy "read for members" on public.%I for select using (has_access());', t);
     -- Joining and leaving is ordinary field work, not administration: a crew
@@ -76,7 +83,7 @@ $$;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'tnt_readonly') then
-    grant select on public.crews, public.crew_members to tnt_readonly;
+    grant select on public.field_crews, public.field_crew_members to tnt_readonly;
   end if;
 end
 $$;

@@ -592,6 +592,10 @@ export default function ShelterPlacement() {
 
   // ── Mark placed ────────────────────────────────────────────────────────────
   // Target = nearest UNPLACED pin to the crew's GPS (or the map centre).
+  //
+  // There is no required order: work the field however suits. The label says
+  // "Nearest" rather than "Next" because the number follows the crew around,
+  // and calling it Next read as a queue that had to be worked in sequence.
   const target = useMemo(() => {
     const open = pins.filter((p) => !placedIdx.has(p.gridIdx))
     if (open.length === 0) return null
@@ -902,7 +906,7 @@ export default function ShelterPlacement() {
           </span>
           {target && (
             <span className="text-xs text-muted">
-              Next: #{target.gridIdx + 1}
+              Nearest: #{target.gridIdx + 1}
               {'dist' in target && Number.isFinite(target.dist) && gps ? ` · ${Math.round(target.dist as number)} m away` : ''}
             </span>
           )}

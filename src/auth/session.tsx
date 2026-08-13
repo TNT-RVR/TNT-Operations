@@ -125,6 +125,20 @@ export interface SessionValue {
    */
   inviteUser: (input: { email: string; name: string; role: Role }) => Promise<{ ok: boolean; error?: string }>
   /**
+   * Admins create a DEVICE account — a shared iPad — from a username and
+   * password, with no email involved.
+   *
+   * The iPads belong to nobody, so inviting them would mean inventing a
+   * mailbox per device and clicking a confirmation link on a tablet in a
+   * truck. The server synthesises an address on the reserved `.invalid`
+   * domain and creates the account already confirmed.
+   */
+  createDeviceUser: (input: {
+    username: string
+    password: string
+    name: string
+  }) => Promise<{ ok: boolean; error?: string }>
+  /**
    * Change your OWN password. On the auth seam rather than the data seam,
    * because it is an identity operation, not a table write — and because the
    * Account screen would otherwise have to import the Supabase client directly.
@@ -182,6 +196,20 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: 'That email already has an account.' }
         }
         setUsers((prev) => [...prev, { id: `u_${Date.now()}`, name: name || email, email, role }])
+        return { ok: true }
+      },
+      createDeviceUser: async ({ username, password, name }) => {
+        const slug = username.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+        if (!slug) return { ok: false, error: 'Enter a username — letters and numbers.' }
+        if (password.length < 10) return { ok: false, error: 'Use a password of at least 10 characters.' }
+        const email = `${slug}@devices.invalid`
+        if (users.some((u) => u.email === email)) {
+          return { ok: false, error: `A device called "${slug}" already exists.` }
+        }
+        setUsers((prev) => [
+          ...prev,
+          { id: `u_${Date.now()}`, name: name.trim() || slug, email, role: 'device' as Role },
+        ])
         return { ok: true }
       },
       authMode: 'mock',
@@ -339,6 +367,30 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           return { ok: true }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'Invite failed' }
+        }
+      },
+      createDeviceUser: async ({ username, password, name }) => {
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/create-device-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ username, password, name }),
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Could not create the device (${res.status})` }
+          // Unlike an invite, the account exists NOW — show it straight away
+          // rather than waiting for a refresh to prove it worked.
+          setUsers((prev) =>
+            prev.some((u) => u.id === out.id)
+              ? prev
+              : [...prev, { id: out.id, name: out.name, email: out.email, role: 'device' as Role }],
+          )
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Could not create the device' }
         }
       },
       deleteUser: (userId) => {

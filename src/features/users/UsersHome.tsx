@@ -20,7 +20,7 @@ import { useState } from 'react'
 import { ASSIGNABLE_ROLES, type Role, useSession } from '@/auth/session'
 import { useData } from '@/data/context'
 import { Avatar, Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
-import { Archive, Mail, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { Archive, Mail, Pencil, Plus, Send, Tablet, Trash2 } from 'lucide-react'
 import { AvatarPicker } from './AvatarPicker'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
@@ -36,6 +36,7 @@ export default function UsersHome() {
   const canEdit = s.can('users', 'edit')
   const { userPresence, archiveUser } = useData()
   const [inviting, setInviting] = useState(false)
+  const [addingDevice, setAddingDevice] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [busy, setBusy] = useState('')
@@ -87,9 +88,16 @@ export default function UsersHome() {
     <SettingsChrome
       actions={
         canEdit ? (
-          <Button onClick={() => setInviting(true)}>
-            <Plus size={16} /> Add user
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => setInviting(true)}>
+              <Plus size={16} /> Add user
+            </Button>
+            {/* Separate button, not a role in the invite form: a device has no
+                mailbox to invite, and the whole flow differs. */}
+            <Button variant="ghost" onClick={() => setAddingDevice(true)}>
+              <Tablet size={16} /> Add device
+            </Button>
+          </div>
         ) : undefined
       }
     >
@@ -231,7 +239,110 @@ export default function UsersHome() {
       </div>
 
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
+      {addingDevice && <DeviceDialog onClose={() => setAddingDevice(false)} />}
     </SettingsChrome>
+  )
+}
+
+/**
+ * Create a shared-device account — a crew iPad — from a username and password.
+ *
+ * No email: the iPads belong to nobody, and inviting them would mean inventing
+ * a mailbox per device and then clicking a confirmation link on a tablet in a
+ * truck. The server makes an address on the reserved `.invalid` domain, which
+ * can never receive mail or collide with a person's.
+ *
+ * Always the `device` role — maps-view and nothing else. An iPad left unlocked
+ * on a seat should be worth no more than the map on its screen.
+ */
+function DeviceDialog({ onClose }: { onClose: () => void }) {
+  const s = useSession()
+  const [username, setUsername] = useState('')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState('')
+
+  const slug = username.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    const r = await s.createDeviceUser({ username, password, name })
+    setBusy(false)
+    if (r.ok) setDone(true)
+    else setError(r.error ?? 'Could not create the device')
+  }
+
+  return (
+    <Modal title="Add a device (iPad)" onClose={onClose}>
+      {done ? (
+        <div className="space-y-3">
+          <p className="text-sm text-secondary">
+            <strong className="text-primary">{name.trim() || slug}</strong> is ready. Sign in on the
+            iPad with:
+          </p>
+          <div className="rounded-sm border border-default bg-inset p-2 font-mono text-sm">
+            <div>{slug}@devices.invalid</div>
+            <div>{password}</div>
+          </div>
+          <p className="text-xs text-amber-600">
+            Write the password down now — it is not stored anywhere you can read it back.
+          </p>
+          <p className="text-xs text-muted">
+            Then open Field Mode → Crews on the iPad and join its crew with &ldquo;Join as
+            iPad&rdquo;, or assign it from Manage people.
+          </p>
+          <Button onClick={onClose}>Done</Button>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <label className="block">
+            <span className="label">Username</span>
+            <Input
+              required
+              value={username}
+              placeholder="ipad-a"
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            {slug && (
+              <span className="text-xs text-faint">Signs in as {slug}@devices.invalid</span>
+            )}
+          </label>
+          <label className="block">
+            <span className="label">Display name</span>
+            <Input value={name} placeholder="iPad A" onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">Password</span>
+            <Input
+              required
+              minLength={10}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <span className="text-xs text-faint">
+              At least 10 characters. Typed once on the iPad and then left signed in.
+            </span>
+          </label>
+          <p className="text-xs text-muted">
+            Devices can see the field maps and report their crew position. They cannot change
+            anything.
+          </p>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" type="button" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !slug || password.length < 10}>
+              <Tablet size={16} /> {busy ? 'Creating…' : 'Create device'}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   )
 }
 

@@ -10,7 +10,7 @@ import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { tireAndEdgeZones } from '@/domain/sprayOverlays'
-import { crewRoute } from '@/domain/crewRoute'
+import { planterPassLines, planterPassLabels } from '@/domain/bayOverlays'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
@@ -54,38 +54,31 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 }
 
 /**
- * The crew's driving route, as GeoJSON.
+ * Pass guide lines — which row to turn down, readable from the headland.
  *
- * Reuses `crewRoute()` — the same computation the office plans with on the
- * Shelter Maps tab. It already does the hard part: each pass runs the FULL
- * length to the field boundary, and consecutive passes are joined along the
- * headland rather than across the crop.
+ * The same `planterPassLines()` the office draws for planter numbers, and
+ * deliberately NOT clipped to the field: clipping is right on a planning map,
+ * and wrong here. The moment you need to identify a row is while you are
+ * outside the field looking into it, so the line has to cross the boundary and
+ * reach the vehicle.
  *
- * This replaced a hand-rolled version that projected a line through each row's
- * end pins and extended it a fixed 40 m. That was straight where the route is
- * boundary-aware, and on a pivot the short rows barely cleared the edge while
- * the long ones overshot. Two implementations of "where do we drive" would
- * have drifted apart anyway; the office and the cab should see one answer.
+ * Not the crew route: that is a driving path with headland links, which
+ * answers "where do we go next" rather than "which one is this".
  */
-function crewRouteFC(g: Record<string, unknown>, shelters: Array<{ lat: number; lng: number }>): GeoJSON.FeatureCollection {
-  if (shelters.length < 2) return { type: 'FeatureCollection', features: [] }
+function passGuideFC(g: Record<string, unknown>): {
+  lines: GeoJSON.FeatureCollection
+  labels: GeoJSON.FeatureCollection
+} {
+  const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
   try {
-    const { route } = crewRoute(g, shelters)
-    if (route.length < 2) return { type: 'FeatureCollection', features: [] }
     return {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: route.map(([lat, lon]) => [lon, lat]) },
-        },
-      ],
+      lines: planterPassLines(g) as GeoJSON.FeatureCollection,
+      labels: planterPassLabels(g) as GeoJSON.FeatureCollection,
     }
   } catch {
-    // A field the route cannot be built for (pass-following, odd geometry)
-    // simply gets no line — never a crash on a screen someone is driving with.
-    return { type: 'FeatureCollection', features: [] }
+    // A field whose frame cannot be built simply gets no guides — never a
+    // crash on a screen someone is driving with.
+    return { lines: empty, labels: empty }
   }
 }
 
@@ -192,6 +185,21 @@ export default function ShelterPlacement() {
         paint: { 'line-color': ROW_GUIDE, 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.9 },
       })
 
+      // Pass numbers, so the line says WHICH row it is — a line with no
+      // number tells you a row exists, which you could already see.
+      map.addSource('row-guide-labels', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'row-guide-labels-text',
+        type: 'symbol',
+        source: 'row-guide-labels',
+        layout: {
+          'text-field': ['to-string', ['get', 'number']],
+          'text-size': 13,
+          'text-allow-overlap': false,
+        },
+        paint: { 'text-color': ROW_GUIDE, 'text-halo-color': '#000', 'text-halo-width': 1.4 },
+      })
+
       map.addSource('pins', { type: 'geojson', data: EMPTY })
       // Not-placed: hollow ring. Placed: filled dot with dark outline.
       map.addLayer({
@@ -255,9 +263,9 @@ export default function ShelterPlacement() {
     ;(map.getSource('edges') as GeoJSONSource | undefined)?.setData(
       show.edges ? tireAndEdgeZones(g).edge : EMPTY,
     )
-    ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(
-      show.rowGuides ? crewRouteFC(g, pins) : EMPTY,
-    )
+    const guides = show.rowGuides ? passGuideFC(g) : null
+    ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(guides?.lines ?? EMPTY)
+    ;(map.getSource('row-guide-labels') as GeoJSONSource | undefined)?.setData(guides?.labels ?? EMPTY)
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
       features: pins.map((p) => ({
@@ -527,7 +535,7 @@ export default function ShelterPlacement() {
                 ['tracks', 'Pivot tracks'],
                 ['wet', 'Wet zones'],
                 ['edges', 'Sprayer edge zones'],
-                ['rowGuides', 'Crew route'],
+                ['rowGuides', 'Row guides'],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bayGuides, distToLineM } from './bayGuides'
+import { bayGuides, distToLineM, shiftToParkedBay } from './bayGuides'
 import { getTentPositions } from './tentGrid'
 import { maleBayBands } from './bayOverlays'
 
@@ -158,5 +158,67 @@ describe('bayGuides against a boundary', () => {
     const bad: Array<[number, number]> = [...square, [NaN, NaN]]
     const [g] = bayGuides(pivot, shelters, 40, bad)
     expect(g.coordinates.every(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))).toBe(true)
+  })
+})
+
+describe('shiftToParkedBay', () => {
+  const shelters = getTentPositions(pivot)
+
+  /** Where the first guide's line actually runs, for parking relative to it. */
+  const firstGuide = bayGuides(pivot, shelters)[0]
+
+  it('returns no shift when parked exactly on a bay', () => {
+    const mid = { lng: firstGuide.label[0], lat: firstGuide.label[1] }
+    const r = shiftToParkedBay(pivot, mid)!
+    expect(r.movedM).toBeLessThan(0.01)
+  })
+
+  it('measures how far the grid moves', () => {
+    // Parked 1 m east of a bay centre: the grid has to come 1 m east.
+    const sx = 111_320 * Math.cos((49.83 * Math.PI) / 180)
+    const parked = { lat: firstGuide.label[1], lng: firstGuide.label[0] + 1 / sx }
+    const r = shiftToParkedBay(pivot, parked)!
+    expect(r.movedM).toBeCloseTo(1, 1)
+    expect(r.dEastM).toBeCloseTo(1, 1)
+    expect(Math.abs(r.dNorthM)).toBeLessThan(0.2)
+  })
+
+  it('snaps to the NEAREST bay, which limits how far off it can be', () => {
+    // Male bays in this field are ~5.6 m apart (8F/2M at 22in rows). Park more
+    // than half that from the intended bay and it snaps to the neighbour —
+    // correctly, but not to the bay you meant. This is the reason the UI shows
+    // which pass it snapped to and how far it moved.
+    const sx = 111_320 * Math.cos((49.83 * Math.PI) / 180)
+    const near = shiftToParkedBay(pivot, { lat: firstGuide.label[1], lng: firstGuide.label[0] + 1 / sx })!
+    const far = shiftToParkedBay(pivot, { lat: firstGuide.label[1], lng: firstGuide.label[0] + 3 / sx })!
+    expect(near.pass).not.toBe(far.pass)
+    // Whichever it picks, it never claims to move more than half a spacing.
+    expect(far.movedM).toBeLessThan(3)
+  })
+
+  it('signs the shift by which side you are parked on', () => {
+    const sx = 111_320 * Math.cos((49.83 * Math.PI) / 180)
+    const east = shiftToParkedBay(pivot, { lat: firstGuide.label[1], lng: firstGuide.label[0] + 3 / sx })!
+    const west = shiftToParkedBay(pivot, { lat: firstGuide.label[1], lng: firstGuide.label[0] - 3 / sx })!
+    expect(Math.sign(east.dEastM)).toBe(-Math.sign(west.dEastM))
+  })
+
+  it('applying the shift puts a bay under the parked point', () => {
+    // The property that matters: nudge by what it returns, and the nearest bay
+    // line now runs through where the vehicle is.
+    const sx = 111_320 * Math.cos((49.83 * Math.PI) / 180)
+    const parked = { lat: firstGuide.label[1], lng: firstGuide.label[0] + 1.5 / sx }
+    const r = shiftToParkedBay(pivot, parked)!
+    const moved = {
+      ...pivot,
+      bay_shift_e_m: String(r.dEastM),
+      bay_shift_n_m: String(r.dNorthM),
+    }
+    const after = shiftToParkedBay(moved, parked)!
+    expect(after.movedM).toBeLessThan(0.05)
+  })
+
+  it('returns null for a field it cannot frame', () => {
+    expect(shiftToParkedBay({}, { lat: 49.83, lng: -111.6 })).toBeNull()
   })
 })

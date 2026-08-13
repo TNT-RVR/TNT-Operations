@@ -10,11 +10,11 @@ import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { tireAndEdgeZones } from '@/domain/sprayOverlays'
-import { bayGuides } from '@/domain/bayGuides'
+import { bayGuides, shiftToParkedBay } from '@/domain/bayGuides'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
-import { ProgressBar } from '@/components/ui'
+import { ProgressBar, Button } from '@/components/ui'
 
 /**
  * Shelter Placement — one of Field Mode's three crew views, alongside Tray
@@ -140,33 +140,6 @@ export default function ShelterPlacement() {
   }, [field?.id])
 
   /**
-   * Functional updates, not `nudgeE + dE`: two quick taps land in the same
-   * React batch and the second would read the value from before the first,
-   * so five taps east moved the grid five feet. Gloves-on tapping is exactly
-   * when that happens.
-   */
-  const nudge = (dE: number, dN: number) => {
-    let e = nudgeE
-    let n = nudgeN
-    setNudgeE((prev) => {
-      e = Math.round((prev + dE) * 10) / 10
-      return e
-    })
-    setNudgeN((prev) => {
-      n = Math.round((prev + dN) * 10) / 10
-      return n
-    })
-    // Persist after the updaters have run, so it stores what was applied.
-    queueMicrotask(() => {
-      try {
-        if (field) localStorage.setItem(`field.nudge.${field.id}`, JSON.stringify({ e, n }))
-      } catch {
-        /* private mode — the nudge just won't survive a reload */
-      }
-    })
-  }
-
-  /**
    * The field as the crew is actually seeing it: the recorded geometry with
    * the nudge folded into the calibration shift the engine already applies.
    *
@@ -215,8 +188,8 @@ export default function ShelterPlacement() {
   const [ready, setReady] = useState(false)
   const [layersOpen, setLayersOpen] = useState(false)
   const [nudgeOpen, setNudgeOpen] = useState(false)
-  /** How far one tap moves the grid. */
-  const [STEP_FT, setStepFt] = useState(5)
+  /** What the last line-up did, so a bad snap is visible immediately. */
+  const [snapNote, setSnapNote] = useState<string | null>(null)
   /**
    * Layer toggles. `edges` and `rowGuides` are off by default: they answer
    * questions asked at the headland, not while placing, and a map with
@@ -620,34 +593,67 @@ export default function ShelterPlacement() {
         </button>
         {nudgeOpen && (
           <div
-            className="absolute right-14 top-0 w-56 rounded-md border border-default p-3 text-sm"
+            className="absolute right-14 top-0 w-64 rounded-md border border-default p-3 text-sm"
             style={{ background: 'color-mix(in srgb, var(--bg-raised) 96%, transparent)' }}
           >
-            <div className="mb-2 flex items-baseline justify-between">
-              <span className="font-semibold text-primary">Nudge grid</span>
-              <span className="font-mono text-xs text-secondary">
-                {nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : ''}
-                {nudgeE && nudgeN ? ' · ' : ''}
-                {nudgeN ? `${nudgeN > 0 ? 'N' : 'S'} ${Math.abs(nudgeN)}ft` : ''}
-                {!nudgeE && !nudgeN ? 'none' : ''}
-              </span>
-            </div>
+            <div className="mb-1 font-semibold text-primary">Line up the grid</div>
+            <p className="mb-2 text-xs text-muted">
+              Park in a male bay and press this. The nearest bay line moves onto you, and the
+              shelters, bays and guides move with it.
+            </p>
 
-            {/* A pad, not a text box: this is used standing in a field. */}
-            <div className="grid grid-cols-3 gap-1">
-              <span />
-              <button className="btn-ghost py-2" onClick={() => nudge(0, STEP_FT)} aria-label="Nudge north">
-                ↑
-              </button>
-              <span />
-              <button className="btn-ghost py-2" onClick={() => nudge(-STEP_FT, 0)} aria-label="Nudge west">
-                ←
-              </button>
+            <Button
+              className="w-full py-2"
+              disabled={!gps || !field}
+              onClick={() => {
+                if (!gps || !field) return
+                const g = (nudgedGeometry ?? {}) as Record<string, unknown>
+                const fix = shiftToParkedBay(g, { lat: gps.lat, lng: gps.lng })
+                if (!fix) {
+                  setSnapNote('No bays on this field to line up to.')
+                  return
+                }
+                // Applied ON TOP of whatever is already there — the result is
+                // measured against the grid being drawn, not the original.
+                const e = Math.round((nudgeE + fix.dEastM / FT_TO_M) * 10) / 10
+                const n = Math.round((nudgeN + fix.dNorthM / FT_TO_M) * 10) / 10
+                setNudgeE(e)
+                setNudgeN(n)
+                try {
+                  localStorage.setItem(`field.nudge.${field.id}`, JSON.stringify({ e, n }))
+                } catch {
+                  /* private mode — it just won't survive a reload */
+                }
+                setSnapNote(
+                  `Moved ${fix.movedM.toFixed(1)} m onto bay ${fix.pass}` +
+                    (gps.acc ? ` · GPS ±${Math.round(gps.acc)} m` : ''),
+                )
+              }}
+            >
+              <Crosshair size={16} className="mr-1 inline" />
+              The bay is here
+            </Button>
+
+            {/* What it did, in numbers. The snap goes to the NEAREST bay, so a
+                fix that was further out than half a bay spacing lands on the
+                wrong one — visible here rather than discovered later. */}
+            {snapNote && <p className="mt-2 text-xs text-secondary">{snapNote}</p>}
+            {!gps && <p className="mt-2 text-xs text-amber-600">Waiting for a GPS fix.</p>}
+
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <span className="font-mono text-faint">
+                {nudgeE || nudgeN
+                  ? `${nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : ''}${
+                      nudgeE && nudgeN ? ' · ' : ''
+                    }${nudgeN ? `${nudgeN > 0 ? 'N' : 'S'} ${Math.abs(nudgeN)}ft` : ''}`
+                  : 'not adjusted'}
+              </span>
               <button
-                className="btn-ghost py-2 text-xs"
+                className="text-muted underline"
                 onClick={() => {
                   setNudgeE(0)
                   setNudgeN(0)
+                  setSnapNote(null)
                   try {
                     if (field) localStorage.removeItem(`field.nudge.${field.id}`)
                   } catch {
@@ -657,35 +663,7 @@ export default function ShelterPlacement() {
               >
                 reset
               </button>
-              <button className="btn-ghost py-2" onClick={() => nudge(STEP_FT, 0)} aria-label="Nudge east">
-                →
-              </button>
-              <span />
-              <button className="btn-ghost py-2" onClick={() => nudge(0, -STEP_FT)} aria-label="Nudge south">
-                ↓
-              </button>
-              <span />
             </div>
-
-            <div className="mt-2 flex items-center justify-between text-xs text-muted">
-              <span>{STEP_FT} ft a tap</span>
-              <span className="flex gap-1">
-                {[1, 5, 10].map((ft) => (
-                  <button
-                    key={ft}
-                    className="rounded-sm border border-default px-1.5"
-                    style={{ color: STEP_FT === ft ? 'var(--brand)' : undefined }}
-                    onClick={() => setStepFt(ft)}
-                  >
-                    {ft}
-                  </button>
-                ))}
-              </span>
-            </div>
-
-            <p className="mt-2 text-xs text-faint">
-              Moves the shelters, bays and guides together. Saved for this field on this device.
-            </p>
           </div>
         )}
 

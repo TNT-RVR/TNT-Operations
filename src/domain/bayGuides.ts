@@ -158,3 +158,68 @@ export function bayGuides(
   }
   return out
 }
+
+/**
+ * The shift that puts the nearest male bay under where you are parked.
+ *
+ * The grid is computed from a pivot and an angle; the planter drove where it
+ * drove. Rather than measuring that error, park in a bay and say "the line is
+ * here" — this returns the east/north shift that makes it so.
+ *
+ * Snapping to the NEAREST bay is the whole trick: it needs no bay number, no
+ * typing, and no decision from someone holding a phone in a field. It is also
+ * why the answer is only trustworthy within half a bay spacing — see `movedM`,
+ * which the caller should show before applying.
+ */
+export function shiftToParkedBay(
+  field: FieldDict,
+  at: { lat: number; lng: number },
+): { dEastM: number; dNorthM: number; movedM: number; pass: number } | null {
+  let bands
+  try {
+    bands = maleBayBands(field)
+  } catch {
+    return null
+  }
+
+  let best: { pass: number; a: [number, number]; b: [number, number]; d: number } | null = null
+  for (const band of bands.features) {
+    const ring = band.geometry?.coordinates?.[0]
+    if (!Array.isArray(ring) || ring.length < 4) continue
+    const [c0, c1, c2, c3] = ring as Array<[number, number]>
+    const a: [number, number] = [(c0[0] + c1[0]) / 2, (c0[1] + c1[1]) / 2]
+    const b: [number, number] = [(c2[0] + c3[0]) / 2, (c2[1] + c3[1]) / 2]
+    const d = distToLineM(at, a, b)
+    if (!Number.isFinite(d)) continue
+    if (!best || d < best.d) {
+      best = { pass: Number((band.properties as { pass?: number } | null)?.pass ?? 0), a, b, d }
+    }
+  }
+  if (!best) return null
+
+  // Perpendicular from the line to the parked point, in metres. The SIGN comes
+  // from the cross product: which side of the bay you are standing on decides
+  // which way the grid moves.
+  const latMid = (best.a[1] + best.b[1]) / 2
+  const sx = mPerDegLng(latMid)
+  const ax = best.a[0] * sx
+  const ay = best.a[1] * M_PER_DEG_LAT
+  const bx = best.b[0] * sx
+  const by = best.b[1] * M_PER_DEG_LAT
+  const px = at.lng * sx
+  const py = at.lat * M_PER_DEG_LAT
+
+  const dx = bx - ax
+  const dy = by - ay
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-9) return null
+  const ux = dx / len
+  const uy = dy / len
+
+  // Perpendicular unit vector, and the signed distance along it.
+  const nx = -uy
+  const ny = ux
+  const signed = (px - ax) * nx + (py - ay) * ny
+
+  return { dEastM: nx * signed, dNorthM: ny * signed, movedM: Math.abs(signed), pass: best.pass }
+}

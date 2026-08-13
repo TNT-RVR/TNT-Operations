@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Map, Bug, Bell, PanelLeftClose, PanelLeftOpen, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { useSession, type Module, type Role } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -224,6 +224,24 @@ export default function Layout() {
   const mobilePrimary = items.filter((n) => n.mobilePrimary)
   const mobileMore = items.filter((n) => !n.mobilePrimary)
   const [moreOpen, setMoreOpen] = useState(false)
+  /**
+   * Sidebar hidden, remembered across sessions.
+   *
+   * The screens people stare at longest are the maps — a returns surface or a
+   * field boundary — and 14rem of navigation is 14rem of map. Desktop only:
+   * the phone has never had a sidebar.
+   */
+  const [navHidden, setNavHidden] = useState(() => localStorage.getItem('nav.hidden') === '1')
+  const toggleNav = () => {
+    setNavHidden((v) => {
+      try {
+        localStorage.setItem('nav.hidden', v ? '0' : '1')
+      } catch {
+        /* private mode — it just won't persist */
+      }
+      return !v
+    })
+  }
   // Close the sheet on navigation, so it never lingers over the new screen.
   useEffect(() => setMoreOpen(false), [pathname])
 
@@ -231,7 +249,18 @@ export default function Layout() {
     <div className="flex h-full flex-col">
       {/* Top bar */}
       <header className="flex items-center justify-between border-b border-subtle bg-surface px-4 py-2.5 md:px-6">
-        <BrandMark />
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Desktop only — the phone has never had a sidebar to hide. */}
+          <button
+            className="hidden rounded-md p-1.5 text-secondary hover:bg-overlay md:block"
+            onClick={toggleNav}
+            aria-label={navHidden ? 'Show navigation' : 'Hide navigation'}
+            title={navHidden ? 'Show navigation' : 'Hide navigation'}
+          >
+            {navHidden ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+          <BrandMark />
+        </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <NotifBell />
@@ -246,7 +275,11 @@ export default function Layout() {
           bottom: the section list scrolls, the settings link never leaves the
           viewport. It's the one destination people reach for from anywhere.
         */}
-        <nav className="hidden w-56 shrink-0 flex-col border-r border-subtle bg-surface p-3 md:flex">
+        <nav
+          className={`hidden w-56 shrink-0 flex-col border-r border-subtle bg-surface p-3 ${
+            navHidden ? 'md:hidden' : 'md:flex'
+          }`}
+        >
           <div className="min-h-0 flex-1 overflow-y-auto">
           {items.map((n) => {
             const sectionActive = n.to !== '/' && pathname.startsWith(n.to)

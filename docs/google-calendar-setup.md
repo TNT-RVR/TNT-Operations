@@ -63,7 +63,7 @@ bundle. **Redeploy afterwards**, or the functions won't see them.
 
 ## 3. Run the migration
 
-`supabase/migrations/0022_google_calendar.sql`.
+`supabase/migrations/0024_google_calendar.sql`.
 
 ```sql
 select (select count(*) from gcal_connection) as connections,
@@ -136,7 +136,7 @@ curl "https://tntoperations.netlify.app/.netlify/functions/run?fn=gcal-sync&toke
 | Push and delete | `netlify/functions/gcal-sync.mjs` |
 | Tokens, refresh, API wrapper | `netlify/functions/lib/gcal.mjs` |
 | Milestone mirror | `netlify/functions/lib/gcalConstants.mjs` |
-| Schema | `supabase/migrations/0022_google_calendar.sql` |
+| Schema | `supabase/migrations/0024_google_calendar.sql` |
 
 A Netlify function can't import from `src/`, so the milestone table, the
 day→date offset and the event-id derivation exist **twice**. That duplication is

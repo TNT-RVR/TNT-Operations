@@ -1,6 +1,14 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- TNT Operations — Google Calendar sync (one-way: app → Google).
 --
+-- RENUMBERED from 0022 to 0024. It collided with 0022_sample_origin.sql, and a
+-- duplicate number is the kind of thing where you apply one, see "0022" in the
+-- list, and believe both are done. `sample_origin` is applied and this is not,
+-- so nothing in the database depends on the old name. This file is still
+-- UNAPPLIED on purpose — the Google Calendar API sync is tabled in favour of
+-- the subscribable .ics feed (0023_calendar_feed.sql). Run it only when that
+-- work resumes.
+--
 -- ── Per user, not per company ────────────────────────────────────────────────
 --
 -- Each person connects their OWN Google account and gets their own copy of the

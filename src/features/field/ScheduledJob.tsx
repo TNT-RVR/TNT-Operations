@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
-import { ClipboardList, CalendarDays } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ClipboardList, CalendarDays, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
@@ -56,10 +57,71 @@ export function ScheduledJob({
     return fieldSupplies(field.geometry as Record<string, unknown>, count, placed)
   }, [field, placedShelters])
 
-  if (!myCrewId) return null
-
   const crewName = crews.find((c) => c.id === myCrewId)?.name ?? 'Your crew'
   const lines = supplies ? supplyLines(task, supplies) : []
+
+  /**
+   * Dismissed for the rest of the day.
+   *
+   * This is a map screen; a banner across the top of it every minute of a
+   * shift earns nothing after the first read. It comes back tomorrow, and the
+   * button brings it back sooner.
+   */
+  const dismissKey = `field.schedule.dismissed.${today}`
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(dismissKey) === '1'
+    } catch {
+      return false
+    }
+  })
+  const dismiss = () => {
+    setDismissed(true)
+    try {
+      localStorage.setItem(dismissKey, '1')
+    } catch {
+      /* private mode — it just comes back on reload */
+    }
+  }
+
+  // Not on a crew: say so rather than showing nothing. An empty space is
+  // indistinguishable from a broken screen, and the fix is one tap away.
+  if (!myCrewId) {
+    if (dismissed) return null
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-default bg-inset px-2 py-1 text-xs">
+        <CalendarDays size={14} className="text-faint" />
+        <span className="text-muted">
+          You are not on a crew, so nothing is scheduled here.{' '}
+          <Link to="/field/crews" className="text-brand underline">
+            Join one
+          </Link>
+        </span>
+        <button className="ml-auto text-faint hover:text-primary" onClick={dismiss} aria-label="Hide">
+          <X size={14} />
+        </button>
+      </div>
+    )
+  }
+
+  if (dismissed) {
+    return (
+      <button
+        className="rounded-md border border-default bg-inset px-2 py-1 text-xs text-muted"
+        onClick={() => {
+          setDismissed(false)
+          try {
+            localStorage.removeItem(dismissKey)
+          } catch {
+            /* nothing to clear */
+          }
+        }}
+      >
+        <ClipboardList size={13} className="mr-1 inline" />
+        {job ? job.title : "Today's job"}
+      </button>
+    )
+  }
 
   return (
     <div className="rounded-md border border-default bg-inset p-2 text-sm">
@@ -79,11 +141,27 @@ export function ScheduledJob({
                 Open this field
               </button>
             )}
+            <button
+              className={`${job.fieldId !== currentFieldId ? '' : 'ml-auto'} text-faint hover:text-primary`}
+              onClick={dismiss}
+              aria-label="Hide today's job"
+            >
+              <X size={14} />
+            </button>
           </>
         ) : (
-          <span className="text-xs text-muted">
-            {crewName} has nothing booked for {task === 'tray' ? 'trays' : 'shelters'} today.
-          </span>
+          <>
+            <span className="text-xs text-muted">
+              {crewName} has nothing booked for {task === 'tray' ? 'trays' : 'shelters'} today.
+            </span>
+            <button
+              className="ml-auto text-faint hover:text-primary"
+              onClick={dismiss}
+              aria-label="Hide today's job"
+            >
+              <X size={14} />
+            </button>
+          </>
         )}
       </div>
 

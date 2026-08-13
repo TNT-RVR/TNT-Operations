@@ -129,7 +129,13 @@ _Last reviewed 2026-08-03._
           COLUMN, one across each ROW, plus the DIAGONALS to the nearest pin
           above/below in the next column; each feature carries
           `axis: 'column' | 'row' | 'diagonal'` so a caller can style one family
-          without inferring it from the vertex count) and `sprayOverlays.ts`
+          without inferring it from the vertex count). Each guide is a straight
+          LINE spanning the field extent, not a polyline visiting the pins — it
+          carries through gaps, reaches past the last shelter, and cannot kink;
+          the map trims it with `clipToField`. Collinear guides dedupe by
+          endpoint, and the axis is deliberately NOT in that key, so an
+          unstaggered grid's "diagonals" collapse into its row lines instead of
+          being drawn twice) and `sprayOverlays.ts`
           (sprayer passes, outer sprayer limit inset, tire + edge zones, shelter
           buffer squares) build on it. NOTE sprayer geometry uses `sprayAngle`,
           which may differ from the planting angle — see the doc comments.

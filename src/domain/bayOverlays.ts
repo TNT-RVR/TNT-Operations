@@ -575,19 +575,36 @@ const LEVEL_TOL_M = 0.05
  * The pins passed in are the ones actually on screen — apply `shelter_overrides`
  * BEFORE calling, so a dragged pin drags its guide lines with it.
  *
- * Method: project every pin into the field's (lateral, along) frame, then emit
- *   • one polyline down each COLUMN — pins sharing a lateral (±0.5 m), sorted
- *     along the pass;
- *   • one polyline across each ROW — pins sharing an along (±0.5 m), sorted
- *     laterally; and
- *   • a DIAGONAL from every pin to its nearest neighbour above AND below it in
- *     the next column across.
+ * ── These are LINES, not polylines through the pins ─────────────────────────
  *
- * Columns and diagonals alone make a triangular lattice, which is what a crew
- * sights along when the grid is staggered. The row lines are the sight line
- * straight across the field — on a staggered grid they link every OTHER column,
- * because those are the pins that are genuinely level with each other, and a
- * line through pins that are not level would be a worse guide than none.
+ * Each guide is a straight line spanning the whole field, positioned by the
+ * pins that lie on it — not a path that visits them. That is the difference
+ * between a guide and a record of where things already are:
+ *
+ *   • it carries on THROUGH a gap, so shelters either side of a wet spot or a
+ *     slough can be put on the same line as each other;
+ *   • it reaches past the outermost shelter, so the next one placed has a line
+ *     to go on; and
+ *   • it cannot kink. A polyline through pins that are 20 cm out of true bends
+ *     at each one and quietly certifies the error; a fitted line shows it.
+ *
+ * Method: project every pin into the field's (lateral, along) frame, then
+ *   • group by lateral (±0.5 m) → a COLUMN line down the field at that lateral;
+ *   • group by along (±0.5 m) → a ROW line across the field at that along; and
+ *   • take every pin's nearest neighbour above and below in the next column,
+ *     and extend the line through that pair to the field extent → the
+ *     DIAGONALS. Collinear ones collapse to a single line, so a diagonal that
+ *     runs through six pins is drawn once rather than five times.
+ *
+ * Column position is the group's MEAN lateral, not its first pin's, so one
+ * shelter set slightly off does not drag the whole guide with it. Rows likewise.
+ *
+ * On a staggered grid a row links every OTHER column, because those are the
+ * pins genuinely level with each other; a line through pins that are not level
+ * would be a worse guide than none.
+ *
+ * Lines span the frame's bounding box by design — the map trims them with
+ * `clipToField`, the same contract the bay and pass generators follow.
  *
  * Each feature carries `axis: 'column' | 'row' | 'diagonal'` alongside
  * `kind: 'alignment'`, so a caller can style or filter one family without
@@ -646,9 +663,62 @@ export function alignmentLines(
   const columns = groupBy((p) => p.lateral, (p) => p.along, COLUMN_TOL_M)
   const rows = groupBy((p) => p.along, (p) => p.lateral, ROW_TOL_M)
 
+  const [latMin, latMax, alongMin, alongMax] = frameExtent(f)
+
   const feats: Feature<LineString>[] = []
-  const push = (coords: Position[], axis: 'column' | 'row' | 'diagonal') => {
-    if (coords.length < 2 || !coords.every(finitePair)) return
+  /** Lines already drawn, keyed by their extent-clipped endpoints. */
+  const drawn = new Set<string>()
+
+  /**
+   * Extend the line through two frame points to the edges of the field extent,
+   * and emit it once.
+   *
+   * Slab clipping: walk the parameter `t` along the direction and keep the
+   * window that stays inside the box on both axes. A direction parallel to an
+   * axis simply has no constraint from that axis, which is why the zero-guard
+   * checks whether the point is already inside rather than rejecting outright.
+   */
+  const pushLine = (
+    a: { lateral: number; along: number },
+    b: { lateral: number; along: number },
+    axis: 'column' | 'row' | 'diagonal',
+  ) => {
+    const dLat = b.lateral - a.lateral
+    const dAlong = b.along - a.along
+    if (!Number.isFinite(dLat) || !Number.isFinite(dAlong)) return
+    if (dLat === 0 && dAlong === 0) return
+
+    let t0 = -Infinity
+    let t1 = Infinity
+    const slab = (origin: number, delta: number, lo: number, hi: number): boolean => {
+      if (delta === 0) return origin >= lo && origin <= hi
+      const ta = (lo - origin) / delta
+      const tb = (hi - origin) / delta
+      t0 = Math.max(t0, Math.min(ta, tb))
+      t1 = Math.min(t1, Math.max(ta, tb))
+      return true
+    }
+    if (!slab(a.lateral, dLat, latMin, latMax)) return
+    if (!slab(a.along, dAlong, alongMin, alongMax)) return
+    if (!(t1 > t0) || !Number.isFinite(t0) || !Number.isFinite(t1)) return
+
+    const at = (t: number): Position =>
+      latAlongToLonLat(f, a.lateral + dLat * t, a.along + dAlong * t)
+    const coords: Position[] = [at(t0), at(t1)]
+    if (!coords.every(finitePair)) return
+
+    // Collinear guides land on the same two endpoints, so rounding them is
+    // enough to draw each line once — a diagonal through six pins would
+    // otherwise be emitted five times, one per adjacent pair.
+    //
+    // The axis is NOT part of the key, deliberately. On an unstaggered grid the
+    // "diagonal" to the neighbour level with a pin IS that pin's row line, and
+    // labelling the same geometry twice would draw it twice. Rows and columns
+    // are emitted first, so the more meaningful label wins.
+    const key = coords.map((c) => `${c[0].toFixed(7)},${c[1].toFixed(7)}`).join('|')
+    if (drawn.has(key)) return
+    drawn.add(key)
+
     feats.push({
       type: 'Feature',
       properties: { kind: 'alignment', axis },
@@ -656,14 +726,20 @@ export function alignmentLines(
     })
   }
 
-  // Down each column, and across each row.
+  /** The mean of a group's positions on one axis — robust to one stray pin. */
+  const meanOf = (g: Pin[], key: (p: Pin) => number) =>
+    g.reduce((sum, p) => sum + key(p), 0) / g.length
+
+  // A line down each column and across each row, spanning the field.
   for (const col of columns) {
     if (col.length < 2) continue
-    push(col.map((p) => [p.lon, p.lat] as Position), 'column')
+    const lateral = meanOf(col, (p) => p.lateral)
+    pushLine({ lateral, along: alongMin }, { lateral, along: alongMax }, 'column')
   }
   for (const row of rows) {
     if (row.length < 2) continue
-    push(row.map((p) => [p.lon, p.lat] as Position), 'row')
+    const along = meanOf(row, (p) => p.along)
+    pushLine({ lateral: latMin, along }, { lateral: latMax, along }, 'row')
   }
 
   // Across to the next column: nearest above + nearest below → triangles.
@@ -684,13 +760,7 @@ export function alignmentLines(
         const key = `${c}:${p.lateral},${p.along}->${q.lateral},${q.along}`
         if (seen.has(key)) continue
         seen.add(key)
-        push(
-          [
-            [p.lon, p.lat],
-            [q.lon, q.lat],
-          ],
-          'diagonal',
-        )
+        pushLine(p, q, 'diagonal')
       }
     }
   }

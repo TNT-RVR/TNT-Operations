@@ -34,6 +34,12 @@ function toLateral(f: FieldFrame, p: Position): number {
   return enuToLatAlong(f, e - f.easting, n - f.northing)[0]
 }
 
+/** [lon,lat] → the frame's ALONG coordinate. Companion to `toLateral`. */
+function toAlong(f: FieldFrame, p: Position): number {
+  const [e, n] = fromLonLat(p[0], p[1], f.pivotLon)
+  return enuToLatAlong(f, e - f.easting, n - f.northing)[1]
+}
+
 const allFinite = (coords: Position[]): boolean =>
   coords.every((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]))
 
@@ -374,7 +380,51 @@ describe('alignmentLines', () => {
     }
     expect(axis(fc, 'column')).toHaveLength(3) // one down each lateral column
     expect(axis(fc, 'row')).toHaveLength(3) // one across each rank
-    expect(axis(fc, 'diagonal')).toHaveLength(6) // 3 pins × 2 adjacent column pairs
+    // On an UNSTAGGERED grid the neighbour level with a pin lies on that pin's
+    // row, so every diagonal is collinear with a row line and collapses into
+    // it. Drawing the same line twice under two labels would be a bug.
+    expect(axis(fc, 'diagonal')).toHaveLength(0)
+  })
+
+  it('draws each guide as one straight line, not a path through the pins', () => {
+    // The point of the change: a guide is a line, so it has two ends and no
+    // kinks. A polyline visiting pins would have as many vertices as pins and
+    // would bend at each one.
+    for (const feat of alignmentLines(grid(50), FIELD).features) {
+      expect(feat.geometry.coordinates).toHaveLength(2)
+    }
+  })
+
+  it('carries a guide THROUGH a gap in the shelters', () => {
+    // Three columns with the middle one missing entirely. The row guides must
+    // still run the full width, so shelters either side of the gap can be put
+    // on the same line as each other.
+    const pins: Array<{ lat: number; lng: number }> = []
+    for (const lateral of [-40.5, 40.5]) {
+      for (const along of [-100, 0, 100]) {
+        const [lng, lat] = latAlongToLonLat(f, lateral, along)
+        pins.push({ lat, lng })
+      }
+    }
+    const fc = alignmentLines(pins, FIELD)
+    const rows = axis(fc, 'row')
+    expect(rows).toHaveLength(3)
+    // Each row spans far more than the 81 m between the two occupied columns —
+    // it reaches the field extent, which is 800 m across for this pivot.
+    for (const r of rows) {
+      const span = Math.abs(toLateral(f, r.geometry.coordinates[1]) - toLateral(f, r.geometry.coordinates[0]))
+      expect(span).toBeGreaterThan(700)
+    }
+  })
+
+  it('reaches past the outermost shelter', () => {
+    // So the NEXT shelter placed has a line to go on.
+    const fc = alignmentLines(grid(), FIELD)
+    const col = axis(fc, 'column')[0]
+    const alongs = col.geometry.coordinates.map((c) => toAlong(f, c))
+    // The pins only reach ±100 m; the guide runs the full extent.
+    expect(Math.max(...alongs)).toBeGreaterThan(300)
+    expect(Math.min(...alongs)).toBeLessThan(-300)
   })
 
   it('runs each row across the columns, not back on itself', () => {
@@ -400,14 +450,30 @@ describe('alignmentLines', () => {
     for (const r of rows) expect(r.geometry.coordinates).toHaveLength(2)
   })
 
-  it('makes real triangles when the columns are staggered', () => {
+  it('makes real diagonals when the columns are staggered', () => {
     const fc = alignmentLines(grid(50), FIELD)
     const links = axis(fc, 'diagonal')
-    // Every pin now has a distinct neighbour above and below in the next column,
-    // except the ends of the run where only one side exists.
-    expect(links.length).toBeGreaterThan(6)
-    expect(links.every((l) => l.geometry.coordinates.length === 2)).toBe(true)
+    // Staggering means the neighbour above/below is no longer level, so these
+    // are genuine diagonals rather than rows in disguise.
+    expect(links.length).toBeGreaterThan(0)
     expect(allFinite(links.flatMap((l) => l.geometry.coordinates))).toBe(true)
+    for (const l of links) {
+      const [a, b] = l.geometry.coordinates
+      const dLat = toLateral(f, b) - toLateral(f, a)
+      const dAlong = toAlong(f, b) - toAlong(f, a)
+      // A real slope in both axes — not a row (dAlong 0) or a column (dLat 0).
+      expect(Math.abs(dLat)).toBeGreaterThan(1)
+      expect(Math.abs(dAlong)).toBeGreaterThan(1)
+    }
+  })
+
+  it('draws a diagonal that runs through many pins only once', () => {
+    // Six pins on one diagonal used to emit five overlapping segments.
+    const fc = alignmentLines(grid(50), FIELD)
+    const keys = axis(fc, 'diagonal').map((l) =>
+      l.geometry.coordinates.map((c) => `${c[0].toFixed(7)},${c[1].toFixed(7)}`).join('|'),
+    )
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('emits no row line for a single column of pins', () => {

@@ -1067,15 +1067,6 @@ export default function MapsHome() {
           'circle-stroke-width': 1.5,
         },
       })
-      // Pin labels — shelter number or tray count (§6.5).
-      map.addLayer({
-        id: 'shelters-label',
-        type: 'symbol',
-        source: 'shelters',
-        layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-offset': [0, -1.1] },
-        paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
-      })
-
       map.addSource('shelters', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'shelters',
@@ -1087,6 +1078,18 @@ export default function MapsHome() {
           'circle-stroke-color': PIN_OUTLINE,
           'circle-stroke-width': 1,
         },
+      })
+      // Pin labels — shelter number or tray count (§6.5). MUST come after the
+      // source it reads: MapLibre does not throw on a layer whose source is
+      // missing, it fires an error event and silently skips the layer. This one
+      // sat four lines too early and so was never created — the Numbers toggle
+      // ran, set the property, and nothing ever drew it.
+      map.addLayer({
+        id: 'shelters-label',
+        type: 'symbol',
+        source: 'shelters',
+        layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-offset': [0, -1.1] },
+        paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
       })
       map.addSource('pivot', { type: 'geojson', data: EMPTY })
       map.addLayer({
@@ -1184,7 +1187,11 @@ export default function MapsHome() {
     ;(map.getSource('tirezone') as GeoJSONSource | undefined)?.setData((tireEdge?.tire as FeatureCollection) ?? EMPTY)
     ;(map.getSource('edgezone') as GeoJSONSource | undefined)?.setData((tireEdge?.edge as FeatureCollection) ?? EMPTY)
     ;(map.getSource('alignment') as GeoJSONSource | undefined)?.setData(
-      visibility.alignment ? (alignmentLines(shelters, geom) as FeatureCollection) : EMPTY,
+      // Guides span the frame's bounding box so they carry through gaps and
+      // past the last shelter; the field outline is what trims them.
+      visibility.alignment
+        ? (clipToField(alignmentLines(shelters, geom), geom) as FeatureCollection)
+        : EMPTY,
     )
     ;(map.getSource('buffers') as GeoJSONSource | undefined)?.setData(
       visibility.buffers ? (shelterBufferSquares(shelters, geom) as FeatureCollection) : EMPTY,
@@ -1277,12 +1284,26 @@ export default function MapsHome() {
       shelterMarkersRef.current = []
       return
     }
-    shelterMarkersRef.current = shelters.map((pin) => {
+    shelterMarkersRef.current = shelters.map((pin, i) => {
       const el = document.createElement('div')
       el.title = 'Drag to move · double-click to delete'
       el.style.cssText =
-        `width:14px;height:14px;border-radius:9999px;background:${BRAND};` +
+        `position:relative;width:14px;height:14px;border-radius:9999px;background:${BRAND};` +
         `border:2px solid ${PIN_OUTLINE};box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:grab`
+      // While editing, the pins are these markers rather than the labelled
+      // symbol layer, so the label has to be drawn here too — otherwise the
+      // Numbers toggle appears to do nothing the moment you press Edit.
+      const text =
+        pinNumbers === 'shelter' ? String(i + 1) : pinNumbers === 'trays' ? String(trayCounts[i] ?? '') : ''
+      if (text) {
+        const tag = document.createElement('span')
+        tag.textContent = text
+        tag.style.cssText =
+          'position:absolute;bottom:130%;left:50%;transform:translateX(-50%);' +
+          'font-size:11px;line-height:1;white-space:nowrap;color:#FFFFFF;' +
+          'text-shadow:0 1px 2px #000,0 0 2px #000;pointer-events:none'
+        el.appendChild(tag)
+      }
       el.addEventListener('dblclick', (ev) => {
         ev.stopPropagation()
         if (manualEditing) deleteManualPin(pin.gridIdx)
@@ -1297,7 +1318,7 @@ export default function MapsHome() {
       return marker
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, editing, manualEditing, shelters])
+  }, [ready, editing, manualEditing, shelters, pinNumbers, trayCounts])
 
   // Placing TEST shelters — blue, counted separately from the working grid (§6.5).
   useEffect(() => {
@@ -1555,7 +1576,22 @@ export default function MapsHome() {
    * authoring tools belong to an open field.
    */
   const toolActions: ToolAction[] = useMemo(() => {
-    if (!editing || !draft) return []
+    /**
+     * Cycle the pin labels: off → shelter number → tray count.
+     *
+     * Defined out here because it is the one action that belongs to READING a
+     * field, not authoring one. "Which shelter is this?" and "how many trays
+     * go here?" are questions you ask standing in front of the map, and until
+     * now the toggle was locked behind Edit, where the pins are draggable
+     * markers rather than the labelled layer.
+     */
+    const numbersAction: ToolAction = {
+      id: 'numbers',
+      label: `Numbers: ${pinNumbers === 'off' ? 'off' : pinNumbers === 'shelter' ? 'shelter #' : 'tray count'}`,
+      active: pinNumbers !== 'off',
+      onClick: () => setPinNumbers((m) => (m === 'off' ? 'shelter' : m === 'shelter' ? 'trays' : 'off')),
+    }
+    if (!editing || !draft) return tool === 'shelters' ? [numbersAction] : []
     /** Vertex-edit the MOST RECENT ring of a list type (§6.2 "Edit …"). */
     const editRingAction = (t: Exclude<RingTarget, 'boundary'>): ToolAction => {
       const n = ringCount(t)
@@ -1647,7 +1683,7 @@ export default function MapsHome() {
       case 'shelters':
         return [
           { id: 'view', label: `Showing: ${shelterView}`, onClick: () => setShelterView((v) => (v === 'planned' ? 'actual' : 'planned')) },
-          { id: 'numbers', label: `Numbers: ${pinNumbers === 'off' ? 'off' : pinNumbers === 'shelter' ? 'shelter #' : 'tray count'}`, onClick: () => setPinNumbers((m) => (m === 'off' ? 'shelter' : m === 'shelter' ? 'trays' : 'off')) },
+          numbersAction,
           { id: 'reflow', label: 'Reflow to grid', disabled: overrideCount === 0, onClick: onReflow },
           ...(manualEditing
             ? [{ id: 'add-shelter', label: placing ? 'Click the map…' : 'Add shelter pin', active: placing, onClick: () => { setPlacingTest(false); setPlacing((v) => !v) } }]

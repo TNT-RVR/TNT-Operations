@@ -8,7 +8,9 @@ import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
-import { getTentPositions } from '@/domain/tentGrid'
+import { getTentPositions, getTentPositionsWithRows } from '@/domain/tentGrid'
+import { tireAndEdgeZones } from '@/domain/sprayOverlays'
+import { rowGuideLines } from '@/domain/rowGuides'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
@@ -31,6 +33,8 @@ const PIN = '#FFCE3A'
 const PIN_OUTLINE = '#1A1A1A'
 const FIELD_LINE = '#00CED1'
 const GPS_BLUE = '#5AA9E6'
+const EDGE_ZONE = '#FF8A2B' // token-exempt: map overlay over imagery
+const ROW_GUIDE = '#7DD3FC' // token-exempt: map overlay over imagery
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 interface Pin {
@@ -47,6 +51,31 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+/**
+ * Row guides for a field, as GeoJSON.
+ *
+ * Uses the grid's own row indices rather than clustering the pins: the grid
+ * knows which shelters share a row, and inferring it from coordinates would
+ * disagree with the office map on a field with an odd shape.
+ */
+function rowGuideFC(g: Record<string, unknown>): GeoJSON.FeatureCollection {
+  try {
+    const { positions, rows } = getTentPositionsWithRows(g)
+    return {
+      type: 'FeatureCollection',
+      features: rowGuideLines(positions, rows).map((l) => ({
+        type: 'Feature',
+        properties: { row: l.row + 1 },
+        geometry: { type: 'LineString', coordinates: l.coordinates },
+      })),
+    }
+  } catch {
+    // A field the grid cannot compute (pass-following, bad geometry) simply
+    // gets no guides — never a crash on a screen someone is driving with.
+    return { type: 'FeatureCollection', features: [] }
+  }
 }
 
 export default function ShelterPlacement() {
@@ -90,7 +119,18 @@ export default function ShelterPlacement() {
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null)
   const [ready, setReady] = useState(false)
   const [layersOpen, setLayersOpen] = useState(false)
-  const [show, setShow] = useState({ boundary: true, tracks: true, wet: false })
+  /**
+   * Layer toggles. `edges` and `rowGuides` are off by default: they answer
+   * questions asked at the headland, not while placing, and a map with
+   * everything on is a map nobody reads.
+   */
+  const [show, setShow] = useState({
+    boundary: true,
+    tracks: true,
+    wet: false,
+    edges: false,
+    rowGuides: false,
+  })
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -114,6 +154,33 @@ export default function ShelterPlacement() {
       map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': '#FF8A2B', 'line-width': 1.5, 'line-dasharray': [2, 2] } })
       map.addSource('wet', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'wet-fill', type: 'fill', source: 'wet', paint: { 'fill-color': '#39B7D6', 'fill-opacity': 0.3 } })
+      // Sprayer edge zones — where the boom overlaps the neighbouring pass.
+      // Drawn UNDER the pins: it is context for where a shelter sits, not the
+      // thing being placed.
+      map.addSource('edges', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'edges-fill',
+        type: 'fill',
+        source: 'edges',
+        paint: { 'fill-color': EDGE_ZONE, 'fill-opacity': 0.22 },
+      })
+      map.addLayer({
+        id: 'edges-line',
+        type: 'line',
+        source: 'edges',
+        paint: { 'line-color': EDGE_ZONE, 'line-width': 1, 'line-opacity': 0.5 },
+      })
+
+      // Row guides, extended past the boundary so the row is identifiable from
+      // the headland — before the turn, not after it.
+      map.addSource('row-guides', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'row-guides-line',
+        type: 'line',
+        source: 'row-guides',
+        paint: { 'line-color': ROW_GUIDE, 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.9 },
+      })
+
       map.addSource('pins', { type: 'geojson', data: EMPTY })
       // Not-placed: hollow ring. Placed: filled dot with dark outline.
       map.addLayer({
@@ -172,6 +239,14 @@ export default function ShelterPlacement() {
     )
     ;(map.getSource('tracks') as GeoJSONSource | undefined)?.setData(show.tracks ? trackRings(g) : EMPTY)
     ;(map.getSource('wet') as GeoJSONSource | undefined)?.setData(show.wet ? ringPolygons(g.wet_zones) : EMPTY)
+    // Only the EDGE bands, not the tire tracks: this answers "does a shelter
+    // sit where two passes overlap", and the tire lines would bury the pins.
+    ;(map.getSource('edges') as GeoJSONSource | undefined)?.setData(
+      show.edges ? tireAndEdgeZones(g).edge : EMPTY,
+    )
+    ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(
+      show.rowGuides ? rowGuideFC(g) : EMPTY,
+    )
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
       features: pins.map((p) => ({
@@ -440,6 +515,8 @@ export default function ShelterPlacement() {
                 ['boundary', 'Boundary'],
                 ['tracks', 'Pivot tracks'],
                 ['wet', 'Wet zones'],
+                ['edges', 'Sprayer edge zones'],
+                ['rowGuides', 'Row guides'],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">

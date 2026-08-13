@@ -336,3 +336,29 @@ describe('seasonSummary weigh counts', () => {
     expect(s.placed + s.retrieved + s.stripped).toBe(3)
   })
 })
+
+describe('blockStage after a correction', () => {
+  it('drops back a stage when the weight is cleared', () => {
+    // Fixing a mis-scan clears the weight AND its timestamp. Keying the stage
+    // off the timestamp alone left "Weighed out" on a row with no weight.
+    const corrected = p({
+      grossWeightLbs: 12.6,
+      retrievedAt: '2026-08-01T00:00:00Z',
+      strippedWeightLbs: null,
+      strippedAt: null,
+    })
+    expect(blockStage(corrected)).toBe('retrieved')
+  })
+
+  it('still reads a stage from a timestamp with no weight', () => {
+    // Imported rows can carry a date and no number; that is history, not a
+    // correction, and it should not read as "never weighed".
+    expect(blockStage(p({ strippedAt: '2026-08-05T00:00:00Z' }))).toBe('stripped')
+  })
+
+  it('goes back to in-field when both weights are removed', () => {
+    expect(
+      blockStage(p({ grossWeightLbs: null, retrievedAt: null, strippedWeightLbs: null, strippedAt: null })),
+    ).toBe('placed')
+  })
+})

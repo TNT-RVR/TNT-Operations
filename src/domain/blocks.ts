@@ -44,8 +44,13 @@ export function hasImpossibleWeights(
  * so it can never disagree with the data it describes.
  */
 export function blockStage(p: BlockPlacement): BlockStage {
-  if (p.strippedAt) return 'stripped'
-  if (p.retrievedAt) return 'retrieved'
+  // A stage is reached by having the WEIGHT, not by carrying a timestamp.
+  // Correcting a mis-scan clears the weight; keying off the timestamp then
+  // left the block claiming "weighed out" with nothing weighed — a stage that
+  // contradicts the row it sits in. The timestamp still stands as when it
+  // happened, for anything that has one without a number.
+  if (p.strippedWeightLbs != null || p.strippedAt) return 'stripped'
+  if (p.grossWeightLbs != null || p.retrievedAt) return 'retrieved'
   return 'placed'
 }
 

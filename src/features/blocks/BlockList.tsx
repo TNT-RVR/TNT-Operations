@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Download, History, AlertTriangle, Upload } from 'lucide-react'
 import { PageHeader, SearchBar, Select, Badge, EmptyState, Modal, Button, matchesQuery } from '@/components/ui'
 import { useData } from '@/data/context'
+import { useSession } from '@/auth/session'
 import type { BlockPlacement } from '@/data/types'
 import {
   blockStage,
@@ -11,6 +12,8 @@ import {
   seasonsOf,
   blockHistory,
   STAGE_LABEL,
+  checkWeight,
+  lbsToKgWeight,
 } from '@/domain/blocks'
 import { TrayScanButton } from '@/features/incubation/TrayScanButton'
 import { BlockImport } from './BlockImport'
@@ -22,13 +25,17 @@ type SortKey = 'label' | 'field' | 'stage' | 'return' | 'placed'
 
 /** Every block placement, filterable — the register you check things against. */
 export default function BlockList() {
-  const { fields, blocks, blockPlacements, blocksLoading, loadBlocks, blockSeasons, loadBlockHistory } = useData()
+  const { fields, blocks, blockPlacements, blocksLoading, loadBlocks, blockSeasons, loadBlockHistory, saveBlockPlacement } = useData()
+  const s = useSession()
+  const canEdit = s.can('blocks', 'edit')
   const [q, setQ] = useState('')
   const [season, setSeason] = useState<string>('')
   const [fieldId, setFieldId] = useState('')
   const [stage, setStage] = useState('')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'label', dir: 1 })
   const [historyFor, setHistoryFor] = useState<string | null>(null)
+  /** The placement being corrected by hand, if any. */
+  const [editing, setEditing] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
 
   const seasons = useMemo(
@@ -193,7 +200,8 @@ export default function BlockList() {
                   <th className="py-2 pr-3 text-right font-medium">Full</th>
                   <th className="py-2 pr-3 text-right font-medium">Empty</th>
                   {th('return', 'Return', true)}
-                  <th className="py-2 text-right font-medium">Days out</th>
+                  <th className="py-2 pr-3 text-right font-medium">Days out</th>
+                  <th className="py-2 text-right font-medium" />
                 </tr>
               </thead>
               <tbody>
@@ -230,7 +238,17 @@ export default function BlockList() {
                           num(ret)
                         )}
                       </td>
-                      <td className="py-2 text-right text-muted">{daysInField(p) ?? '—'}</td>
+                      <td className="py-2 pr-3 text-right text-muted">{daysInField(p) ?? '—'}</td>
+                      <td className="py-2 text-right">
+                        {canEdit && (
+                          <button
+                            className="text-xs text-muted underline hover:text-primary"
+                            onClick={() => setEditing(p.id)}
+                          >
+                            Fix
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}
@@ -244,6 +262,17 @@ export default function BlockList() {
         <BlockImport
           season={season ? Number(season) : new Date().getFullYear()}
           onClose={() => setImporting(false)}
+        />
+      )}
+
+      {editing && (
+        <FixPlacement
+          placement={blockPlacements.find((p) => p.id === editing)!}
+          label={labelOf(blockPlacements.find((p) => p.id === editing)!.blockId)}
+          fields={fields}
+          peers={blockPlacements}
+          onSave={saveBlockPlacement}
+          onClose={() => setEditing(null)}
         />
       )}
 
@@ -282,5 +311,163 @@ export default function BlockList() {
         </Modal>
       )}
     </div>
+  )
+}
+
+/**
+ * Correct a placement by hand.
+ *
+ * The scanner deliberately never refuses a scan, which means wrong numbers do
+ * get in: a stray label off the next pallet, a decimal point, a block filed to
+ * the field the crew was working yesterday. Until this existed the only repair
+ * was someone running SQL.
+ *
+ * Clearing a weight is a first-class action, not an oversight — an accidental
+ * weigh-in has to be removable, and setting it to 0 would be a lie.
+ */
+function FixPlacement({
+  placement,
+  label,
+  fields,
+  peers,
+  onSave,
+  onClose,
+}: {
+  placement: BlockPlacement
+  label: string
+  fields: Array<{ id: string; name: string }>
+  /** This season's weights for the same stage, for the 'is this plausible' check. */
+  peers: BlockPlacement[]
+  onSave: (id: string, patch: Partial<BlockPlacement>) => Promise<{ ok: boolean; error?: string }>
+  onClose: () => void
+}) {
+  const [fieldId, setFieldId] = useState(placement.fieldId ?? '')
+  const [gross, setGross] = useState(placement.grossWeightLbs?.toString() ?? '')
+  const [stripped, setStripped] = useState(placement.strippedWeightLbs?.toString() ?? '')
+  const [notes, setNotes] = useState(placement.notes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const parse = (raw: string): number | null => {
+    const t = raw.trim()
+    if (t === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : NaN
+  }
+  const g = parse(gross)
+  const st = parse(stripped)
+  const ret = g != null && st != null && !Number.isNaN(g) && !Number.isNaN(st) ? g - st : null
+
+  async function save() {
+    if (Number.isNaN(g) || Number.isNaN(st)) return setError('Weights must be numbers, or blank.')
+    // Same guard the scanner uses, so a correction can't put in something the
+    // scan itself would have refused.
+    for (const [value, stage] of [
+      [g, 'retrieve'],
+      [st, 'strip'],
+    ] as Array<[number | null, 'retrieve' | 'strip']>) {
+      if (value == null) continue
+      const peerWeights = peers
+        .filter((x) => x.season === placement.season && x.id !== placement.id)
+        .map((x) => (stage === 'retrieve' ? x.grossWeightLbs : x.strippedWeightLbs))
+        .filter((n): n is number => n != null)
+      const check = checkWeight(value, stage, { ...placement, grossWeightLbs: g }, peerWeights)
+      // Only refuse the impossible. A merely unusual weight is exactly what
+      // someone is here to correct, so a warning must not block the fix.
+      if (check?.level === 'error') return setError(check.message ?? 'That weight is not possible.')
+    }
+    if (ret != null && ret < 0) {
+      return setError('The empty weight is heavier than the full one. Check both figures.')
+    }
+    setSaving(true)
+    setError(null)
+    // Clearing a weight clears WHEN it was weighed too. They are one fact, and
+    // a lone timestamp makes the stage claim work that has no number behind it.
+    const r = await onSave(placement.id, {
+      fieldId: fieldId || null,
+      grossWeightLbs: g,
+      strippedWeightLbs: st,
+      ...(g == null ? { retrievedAt: null } : {}),
+      ...(st == null ? { strippedAt: null } : {}),
+      notes,
+    })
+    setSaving(false)
+    if (!r.ok) return setError(r.error ?? 'Could not save.')
+    onClose()
+  }
+
+  const kg = (lbs: number | null) => (lbs == null ? '' : ` (${(lbsToKgWeight(lbs) ?? 0).toFixed(2)} kg)`)
+
+  return (
+    <Modal title={`Fix ${label} — ${placement.season}`} onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block">
+          <span className="label">Field</span>
+          <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
+            <option value="">No field</option>
+            {fields.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="label">Weigh-in (full), lbs</span>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={gross}
+              onChange={(e) => setGross(e.target.value)}
+              placeholder="blank = not weighed"
+            />
+            <span className="text-xs text-faint">{kg(Number.isNaN(g) ? null : g)}</span>
+          </label>
+          <label className="block">
+            <span className="label">Weigh-out (empty), lbs</span>
+            <input
+              className="input"
+              inputMode="decimal"
+              value={stripped}
+              onChange={(e) => setStripped(e.target.value)}
+              placeholder="blank = not weighed"
+            />
+            <span className="text-xs text-faint">{kg(Number.isNaN(st) ? null : st)}</span>
+          </label>
+        </div>
+
+        {/* The number this all exists to produce, shown as it will land. */}
+        <p className="text-sm text-secondary">
+          Bee return:{' '}
+          <span className="font-semibold text-primary">
+            {ret == null ? '—' : `${ret.toFixed(2)} lbs (${(lbsToKgWeight(ret) ?? 0).toFixed(2)} kg)`}
+          </span>
+          {ret == null && ' — needs both weights.'}
+        </p>
+
+        <label className="block">
+          <span className="label">Notes</span>
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </label>
+
+        <p className="text-xs text-faint">
+          Leave a weight blank to remove it — an accidental weigh-in has to be undoable, and a zero
+          would count as a real weight.
+        </p>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+
+        <div className="flex gap-2">
+          <Button onClick={() => void save()} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }

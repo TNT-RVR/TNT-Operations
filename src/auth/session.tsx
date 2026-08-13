@@ -327,6 +327,17 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           .then(({ error }) => {
             if (error) {
               console.error('[auth] updateUserRole:', error.message)
+              // A refused role change used to fail into the console, so the
+              // control simply did nothing and an admin had no way to know why.
+              // `device` was rejected for a year's worth of reasons — an enum
+              // that had never heard of it — and looked like a broken button.
+              alert(
+                `Could not set that role: ${error.message}
+
+` +
+                  'If this mentions the app_role type, the database has not been ' +
+                  'taught the role yet — see migration 0028.',
+              )
               return
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))

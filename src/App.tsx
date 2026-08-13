@@ -54,10 +54,10 @@ export default function App() {
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
-        <Route path="blocks" element={<Protected module="blocks"><BlocksHome /></Protected>} />
+        <Route path="blocks" element={<Protected module="blocks" denyRoles={['device']}><BlocksHome /></Protected>} />
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
         <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />
-        <Route path="blocks/map" element={<Protected module="blocks"><ReturnsMap /></Protected>} />
+        <Route path="blocks/map" element={<Protected module="blocks" denyRoles={['device']}><ReturnsMap /></Protected>} />
         <Route path="tasks" element={<Protected module="tasks"><TasksHome /></Protected>} />
         <Route path="tasks/checklists" element={<Protected module="tasks"><ChecklistsHome /></Protected>} />
         <Route path="sales" element={<Protected module="sales"><EstimatesHome /></Protected>} />

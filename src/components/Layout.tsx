@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Map, Bug, Bell, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, SlidersHorizontal, type LucideIcon } from 'lucide-react'
-import { useSession, type Module } from '@/auth/session'
+import { useSession, type Module, type Role } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
 import { Avatar, IconButton } from './ui'
@@ -22,6 +22,11 @@ interface SubNavItem {
   label: string
   /** Exact-match highlight (for an index child that shares the parent path). */
   end?: boolean
+  /**
+   * Roles that never see this link. The route refuses them too (see
+   * Protected's denyRoles) — a hidden link is tidiness, not a permission.
+   */
+  denyRoles?: readonly Role[]
 }
 
 interface NavItem {
@@ -85,10 +90,12 @@ const NAV: NavItem[] = [
     icon: Boxes,
     module: 'blocks',
     children: [
-      { to: '/blocks', label: 'Overview', end: true },
+      // A crew iPad scans and looks things up; the season overview and the
+      // returns map are office reading.
+      { to: '/blocks', label: 'Overview', end: true, denyRoles: ['device'] },
       { to: '/blocks/scan', label: 'Scan' },
       { to: '/blocks/list', label: 'Register' },
-      { to: '/blocks/map', label: 'Returns map' },
+      { to: '/blocks/map', label: 'Returns map', denyRoles: ['device'] },
     ],
   },
   {
@@ -248,7 +255,9 @@ export default function Layout() {
                 <NavItemLink item={n} />
                 {n.children && sectionActive && (
                   <div className="mb-1 ml-9 flex flex-col border-l border-subtle pl-2">
-                    {n.children.map((c) => (
+                    {n.children
+                      .filter((c) => !c.denyRoles?.includes(s.user.role))
+                      .map((c) => (
                       <NavLink
                         key={c.to}
                         to={c.to}
@@ -285,7 +294,9 @@ export default function Layout() {
               cannot reach a subsection at all. */}
           {activeSection?.children && (
             <div className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-subtle bg-surface px-3 py-2 md:hidden">
-              {activeSection.children.map((c) => (
+              {activeSection.children
+                .filter((c) => !c.denyRoles?.includes(s.user.role))
+                .map((c) => (
                 <NavLink
                   key={c.to}
                   to={c.to}

@@ -15,7 +15,10 @@ import { trackRings, ringPolygons } from '../maps/overlays'
 import { ProgressBar } from '@/components/ui'
 
 /**
- * Shelter Placement — one of Field Mode's three crew views (see FieldMode.tsx).
+ * Shelter Placement — one of Field Mode's three crew views, alongside Tray
+ * Placement and Crews. They are separate ROUTES under /field rather than tabs
+ * inside one screen, so they appear in the side navigation like every other
+ * section of the app.
  *
  * Touch-first over the same
  * satellite map + canonical overlay colours as the office view. One field at a

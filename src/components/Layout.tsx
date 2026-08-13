@@ -51,7 +51,18 @@ const NAV: NavItem[] = [
       { to: '/maps/costs', label: 'Costs' },
     ],
   },
-  { to: '/field', label: 'Field Mode', icon: Navigation, module: 'maps', mobilePrimary: true },
+  {
+    to: '/field',
+    label: 'Field Mode',
+    icon: Navigation,
+    module: 'maps',
+    mobilePrimary: true,
+    children: [
+      { to: '/field', label: 'Shelter placement', end: true },
+      { to: '/field/trays', label: 'Tray placement' },
+      { to: '/field/crews', label: 'Crews' },
+    ],
+  },
   {
     to: '/incubation',
     label: 'Incubation',

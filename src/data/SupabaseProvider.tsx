@@ -21,6 +21,7 @@ import type {
   GrantTask,
   FieldAnalysis,
   FieldWeather,
+  CalendarEvent,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import { planJoin, planTakeLead, type Crew, type CrewMember } from '@/domain/crews'
@@ -159,6 +160,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   /** Whether the pre-season inspection history has been pulled in. */
   const [earlierInspectionsLoaded, setEarlierInspectionsLoaded] = useState(false)
   const [crews, setCrews] = useState<Crew[]>([])
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const calendarPromiseRef = useRef<Promise<void> | null>(null)
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
   const crewsPromiseRef = useRef<Promise<void> | null>(null)
   const earlierInspPromiseRef = useRef<Promise<void> | null>(null)
@@ -781,6 +784,99 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         crewsPromiseRef.current = null
         await refreshCrews()
         return { ok: true, crewId: String((data as { id: string }).id) }
+      },
+
+      calendarEvents,
+      loadCalendarEvents: () => {
+        if (calendarPromiseRef.current) return calendarPromiseRef.current
+        if (!supabase) return Promise.resolve()
+        const run = (async () => {
+          const { data, error } = await supabase!
+            .from('calendar_events')
+            .select('*')
+            .order('start_date', { ascending: true })
+          if (error) {
+            // Before migration 0029 the table does not exist. The calendar
+            // still shows incubation milestones; it just cannot hold anything
+            // anyone typed.
+            console.warn('[data] loadCalendarEvents:', error.message)
+            calendarPromiseRef.current = null
+            return
+          }
+          setCalendarEvents(
+            ((data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+              id: String(r.id),
+              title: String(r.title ?? ''),
+              startDate: String(r.start_date),
+              endDate: (r.end_date as string | null) ?? null,
+              startTime: (r.start_time as string | null) ?? null,
+              notes: String(r.notes ?? ''),
+              category: String(r.category ?? ''),
+              fieldId: (r.field_id as string | null) ?? null,
+              incubatorId: (r.incubator_id as string | null) ?? null,
+            })),
+          )
+        })()
+        calendarPromiseRef.current = run
+        return run
+      },
+      saveCalendarEvent: async (input) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row: Record<string, unknown> = {
+          title: input.title.trim(),
+          start_date: input.startDate,
+          end_date: input.endDate ?? null,
+          start_time: input.startTime || null,
+          notes: input.notes ?? '',
+          category: input.category ?? '',
+          field_id: input.fieldId ?? null,
+          incubator_id: input.incubatorId ?? null,
+        }
+        if (!row.title) return { ok: false, error: 'Give the event a name.' }
+
+        const res = input.id
+          ? await supabase
+              .from('calendar_events')
+              .update({ ...row, updated_at: new Date().toISOString() })
+              .eq('id', input.id)
+              .select()
+              .single()
+          : await supabase
+              .from('calendar_events')
+              .insert({ ...row, created_by: userId })
+              .select()
+              .single()
+        if (res.error) {
+          console.error('[data] saveCalendarEvent:', res.error.message)
+          return { ok: false, error: res.error.message }
+        }
+        const r = res.data as Record<string, unknown>
+        const saved: CalendarEvent = {
+          id: String(r.id),
+          title: String(r.title ?? ''),
+          startDate: String(r.start_date),
+          endDate: (r.end_date as string | null) ?? null,
+          startTime: (r.start_time as string | null) ?? null,
+          notes: String(r.notes ?? ''),
+          category: String(r.category ?? ''),
+          fieldId: (r.field_id as string | null) ?? null,
+          incubatorId: (r.incubator_id as string | null) ?? null,
+        }
+        setCalendarEvents((prev) => {
+          const i = prev.findIndex((x) => x.id === saved.id)
+          if (i < 0) return [...prev, saved].sort((a, b) => a.startDate.localeCompare(b.startDate))
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, id: saved.id }
+      },
+      deleteCalendarEvent: async (id: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const { error } = await supabase.from('calendar_events').delete().eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        setCalendarEvents((prev) => prev.filter((e) => e.id !== id))
+        return { ok: true }
       },
 
       latestReading: (incubatorId: string) =>
@@ -1813,6 +1909,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       blockPlacements,
       crews,
       crewMembers,
+      calendarEvents,
       blocksLoading,
       upsertPlacement,
       grants,

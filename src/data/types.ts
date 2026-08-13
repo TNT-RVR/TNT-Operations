@@ -924,3 +924,22 @@ export interface CalendarFeed {
   lastFetchedAt: string | null
   fetchCount: number
 }
+
+/**
+ * A calendar entry somebody typed, as opposed to an incubation milestone,
+ * which is derived from a run's start date and cannot be edited.
+ */
+export interface CalendarEvent {
+  id: string
+  title: string
+  /** Local calendar date, YYYY-MM-DD. */
+  startDate: string
+  /** Last day for a multi-day event; null for a single day. */
+  endDate: string | null
+  /** HH:MM, or null for all day — which is how most farm work is planned. */
+  startTime: string | null
+  notes: string
+  category: string
+  fieldId: string | null
+  incubatorId: string | null
+}

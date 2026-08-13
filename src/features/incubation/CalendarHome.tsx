@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSession } from '@/auth/session'
+import type { CalendarEvent } from '@/data/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
-import { PageHeader, Badge, EmptyState } from '@/components/ui'
+import { PageHeader, Badge, EmptyState, Modal, Input, Select, Button } from '@/components/ui'
 import { useData } from '@/data/context'
 import {
   INCUBATION_MILESTONES,
@@ -22,6 +24,13 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+/** The next calendar day, as YYYY-MM-DD. */
+function addDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
 
 /** Today in the operation's timezone, as YYYY-MM-DD. */
 function todayYmd(): string {
@@ -52,11 +61,27 @@ export function monthGrid(year: number, month0: number): string[][] {
 }
 
 export default function CalendarHome() {
-  const { incubators, trays, readings, loadReadings, loadTrays } = useData()
+  const {
+    incubators,
+    trays,
+    readings,
+    loadReadings,
+    loadTrays,
+    fields,
+    calendarEvents,
+    loadCalendarEvents,
+    saveCalendarEvent,
+    deleteCalendarEvent,
+  } = useData()
+  const session = useSession()
+  const canEdit = session.can('calendar', 'edit')
   // Trays aren't hydrated on mount (thousands of rows); this screen needs them.
   useEffect(() => {
     void loadTrays()
   }, [loadTrays])
+  useEffect(() => {
+    void loadCalendarEvents()
+  }, [loadCalendarEvents])
   const today = todayYmd()
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month0, setMonth0] = useState(() => Number(today.slice(5, 7)) - 1)
@@ -80,6 +105,27 @@ export default function CalendarHome() {
     }
     return m
   }, [events])
+
+  /**
+   * Typed events by day, INCLUDING every day a multi-day event covers — a
+   * three-day delivery window that only appeared on its first day would be
+   * missed by anyone looking at the day it actually matters.
+   */
+  const eventsByDate = useMemo(() => {
+    const m = new Map<string, CalendarEvent[]>()
+    for (const e of calendarEvents) {
+      const last = e.endDate && e.endDate > e.startDate ? e.endDate : e.startDate
+      for (let d = e.startDate; d <= last; d = addDay(d)) {
+        const list = m.get(d)
+        if (list) list.push(e)
+        else m.set(d, [e])
+      }
+    }
+    return m
+  }, [calendarEvents])
+
+  /** The event being edited, or a blank one for a given day. */
+  const [editing, setEditing] = useState<Partial<CalendarEvent> | null>(null)
 
   const weeks = useMemo(() => monthGrid(year, month0), [year, month0])
 
@@ -213,8 +259,22 @@ export default function CalendarHome() {
                             inMonth ? '' : 'opacity-40'
                           } ${isToday ? 'bg-brand-subtle' : ''}`}
                         >
-                          <div className={`font-mono text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}>
-                            {Number(ymd.slice(8, 10))}
+                          <div className="flex items-baseline justify-between">
+                            <span
+                              className={`font-mono text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}
+                            >
+                              {Number(ymd.slice(8, 10))}
+                            </span>
+                            {canEdit && inMonth && (
+                              <button
+                                className="px-1 text-xs leading-none text-faint hover:text-brand"
+                                onClick={() => setEditing({ startDate: ymd, title: '' })}
+                                aria-label={`Add an event on ${ymd}`}
+                                title="Add an event"
+                              >
+                                +
+                              </button>
+                            )}
                           </div>
                           {/* Cool days: a thin bar per incubator that sat below
                               the incubation band that day. */}
@@ -231,6 +291,20 @@ export default function CalendarHome() {
                               ))}
                           </div>
                           <div className="mt-0.5 space-y-0.5">
+                            {/* Typed events first: they are the ones somebody
+                                chose to put there. */}
+                            {(eventsByDate.get(ymd) ?? []).map((e) => (
+                              <button
+                                key={e.id}
+                                className="block w-full truncate rounded-sm border-l-2 bg-overlay px-1 py-0.5 text-left text-[10px] leading-tight text-primary"
+                                style={{ borderColor: 'var(--brand)' }}
+                                title={`${e.title}${e.notes ? ` — ${e.notes}` : ''}`}
+                                onClick={() => setEditing(e)}
+                              >
+                                {e.startTime ? `${e.startTime} ` : ''}
+                                {e.title}
+                              </button>
+                            ))}
                             {dayEvents.map((e) => (
                               <div
                                 key={`${e.incubatorId}-${e.day}`}
@@ -305,6 +379,163 @@ export default function CalendarHome() {
           </>
         )}
       </div>
+    {editing && (
+        <EventDialog
+          draft={editing}
+          fields={fields}
+          incubators={incubators}
+          onSave={saveCalendarEvent}
+          onDelete={deleteCalendarEvent}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Add or edit a calendar entry.
+ *
+ * Everything except the name is optional. A calendar people have to fill in
+ * properly is a calendar that gets used for the first week — most of what goes
+ * on this one is "sprayer, Thursday" and nothing more.
+ */
+function EventDialog({
+  draft,
+  fields,
+  incubators,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  draft: Partial<CalendarEvent>
+  fields: Array<{ id: string; name: string }>
+  incubators: Array<{ id: string; name: string }>
+  onSave: (e: Partial<CalendarEvent> & { title: string; startDate: string }) => Promise<{ ok: boolean; error?: string }>
+  onDelete: (id: string) => Promise<{ ok: boolean; error?: string }>
+  onClose: () => void
+}) {
+  const [title, setTitle] = useState(draft.title ?? '')
+  const [startDate, setStartDate] = useState(draft.startDate ?? '')
+  const [endDate, setEndDate] = useState(draft.endDate ?? '')
+  const [startTime, setStartTime] = useState(draft.startTime ?? '')
+  const [category, setCategory] = useState(draft.category ?? '')
+  const [notes, setNotes] = useState(draft.notes ?? '')
+  const [fieldId, setFieldId] = useState(draft.fieldId ?? '')
+  const [incubatorId, setIncubatorId] = useState(draft.incubatorId ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async () => {
+    if (!title.trim()) return setError('Give the event a name.')
+    if (endDate && endDate < startDate) return setError('The last day is before the first one.')
+    setBusy(true)
+    setError(null)
+    const r = await onSave({
+      id: draft.id,
+      title,
+      startDate,
+      endDate: endDate || null,
+      startTime: startTime || null,
+      category,
+      notes,
+      fieldId: fieldId || null,
+      incubatorId: incubatorId || null,
+    })
+    setBusy(false)
+    if (!r.ok) return setError(r.error ?? 'Could not save.')
+    onClose()
+  }
+
+  return (
+    <Modal title={draft.id ? 'Edit event' : 'New event'} onClose={onClose}>
+      <div className="space-y-3">
+        <label className="block">
+          <span className="label">What</span>
+          <Input value={title} autoFocus onChange={(e) => setTitle(e.target.value)} placeholder="Sprayer booked" />
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="label">Day</span>
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">Until (optional)</span>
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="label">Time (optional)</span>
+            <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+          </label>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="block">
+            <span className="label">Kind</span>
+            <Input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="field, shop, delivery…"
+            />
+          </label>
+          <label className="block">
+            <span className="label">Field (optional)</span>
+            <Select value={fieldId} onChange={(e) => setFieldId(e.target.value)}>
+              <option value="">—</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="block">
+            <span className="label">Incubator (optional)</span>
+            <Select value={incubatorId} onChange={(e) => setIncubatorId(e.target.value)}>
+              <option value="">—</option>
+              {incubators.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="label">Notes</span>
+          <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </label>
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+
+        <div className="flex items-center gap-2">
+          <Button onClick={() => void save()} disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          {draft.id && (
+            <Button
+              variant="ghost"
+              className="ml-auto text-danger"
+              disabled={busy}
+              onClick={async () => {
+                if (!window.confirm(`Delete "${draft.title}"?`)) return
+                setBusy(true)
+                const r = await onDelete(draft.id!)
+                setBusy(false)
+                if (!r.ok) return setError(r.error ?? 'Could not delete.')
+                onClose()
+              }}
+            >
+              Delete
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   )
 }

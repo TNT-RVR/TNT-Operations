@@ -17,6 +17,7 @@ import type {
   ShelterTrayLink,
   NestingBlock,
   BlockSeason,
+  CalendarEvent,
   Grant,
   GrantTask,
   FieldAnalysis,
@@ -242,6 +243,19 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
     id: string,
     assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
   ) => Promise<{ ok: boolean; error?: string }>
+
+  // ── Calendar (migration 0029) ─────────────────────────────────────────────
+  /**
+   * Events people have typed. Incubation milestones are NOT in here: those are
+   * derived from run start dates and shown alongside these, so that moving a
+   * run moves its milestones without touching anything anyone wrote.
+   */
+  calendarEvents: CalendarEvent[]
+  loadCalendarEvents: () => Promise<void>
+  saveCalendarEvent: (
+    input: Partial<CalendarEvent> & { title: string; startDate: string },
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+  deleteCalendarEvent: (id: string) => Promise<{ ok: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

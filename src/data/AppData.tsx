@@ -19,6 +19,7 @@ import type {
   GrantTask,
   FieldAnalysis,
   FieldWeather,
+  CalendarEvent,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
 import { planJoin, planTakeLead, type Crew, type CrewMember } from '@/domain/crews'
@@ -113,6 +114,20 @@ function MockProvider({ children }: { children: ReactNode }) {
   ])
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([
     { id: 'cm1', crewId: 'crew1', userId: 'u_op', role: 'lead', joinedAt: new Date().toISOString(), leftAt: null },
+  ])
+  // A couple of typed events, so the calendar shows what it is for.
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([
+    {
+      id: 'ce1',
+      title: 'Sprayer booked — BASF plots',
+      startDate: new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10),
+      endDate: null,
+      startTime: '08:00',
+      notes: '',
+      category: 'field',
+      fieldId: null,
+      incubatorId: null,
+    },
   ])
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
@@ -289,6 +304,36 @@ function MockProvider({ children }: { children: ReactNode }) {
           },
         ])
         return { ok: true, crewId: id }
+      },
+      calendarEvents,
+      loadCalendarEvents: async () => {},
+      saveCalendarEvent: async (input) => {
+        const title = input.title.trim()
+        if (!title) return { ok: false, error: 'Give the event a name.' }
+        const id = input.id ?? nextId('ce')
+        const saved: CalendarEvent = {
+          id,
+          title,
+          startDate: input.startDate,
+          endDate: input.endDate ?? null,
+          startTime: input.startTime || null,
+          notes: input.notes ?? '',
+          category: input.category ?? '',
+          fieldId: input.fieldId ?? null,
+          incubatorId: input.incubatorId ?? null,
+        }
+        setCalendarEvents((prev) => {
+          const i = prev.findIndex((x) => x.id === id)
+          if (i < 0) return [...prev, saved].sort((a, b) => a.startDate.localeCompare(b.startDate))
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, id }
+      },
+      deleteCalendarEvent: async (id: string) => {
+        setCalendarEvents((prev) => prev.filter((e) => e.id !== id))
+        return { ok: true }
       },
       latestReading: (incubatorId) =>
         readings
@@ -746,6 +791,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       blockPlacements,
       crews,
       crewMembers,
+      calendarEvents,
       mockUserId,
       grants,
       grantTasks,

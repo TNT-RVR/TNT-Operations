@@ -214,6 +214,33 @@ export default function TrayPlacement() {
     return () => navigator.geolocation.clearWatch(id)
   }, [])
 
+
+  /**
+   * Dragging the map turns following OFF.
+   *
+   * Wanting to look somewhere else and having the map yank you back a second
+   * later is the single most irritating thing a follow-me view does. The
+   * button stays, but nobody should have to find it first.
+   *
+   * Keyed on `dragstart` with an `originalEvent`: our own easeTo() calls are
+   * programmatic and carry none, so the camera following a fix cannot switch
+   * itself off. Zoom is deliberately NOT included — pinching to see more of
+   * the row ahead is not a request to stop following.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const onDrag = (e: { originalEvent?: unknown }) => {
+      if (e?.originalEvent) setFollow(false)
+    }
+    map.on('dragstart', onDrag)
+    map.on('rotatestart', onDrag)
+    return () => {
+      map.off('dragstart', onDrag)
+      map.off('rotatestart', onDrag)
+    }
+  }, [ready])
+
   // Position broadcast (channel 'crew_live'), same as shelter placement.
   const gpsRef = useRef<{ lat: number; lng: number } | null>(null)
   useEffect(() => {
@@ -279,7 +306,25 @@ export default function TrayPlacement() {
             background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)',
             color: follow ? 'var(--brand)' : 'var(--text-secondary)',
           }}
-          onClick={() => setFollow((v) => !v)}
+          onClick={() =>
+            setFollow((v) => {
+              const fix = gpsRef.current
+              if (!v && fix && mapRef.current) {
+                mapRef.current.easeTo({
+                  ...cameraFor({
+                    lng: fix.lng,
+                    lat: fix.lat,
+                    heading: headingRef.current,
+                    mode: navModeRef.current,
+                    currentBearing: mapRef.current.getBearing(),
+                  }),
+                  duration: 500,
+                  essential: true,
+                })
+              }
+              return !v
+            })
+          }
           aria-label="Follow me"
         >
           <Crosshair size={18} />

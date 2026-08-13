@@ -484,6 +484,33 @@ export default function ShelterPlacement() {
     return () => navigator.geolocation.clearWatch(id)
   }, [])
 
+
+  /**
+   * Dragging the map turns following OFF.
+   *
+   * Wanting to look somewhere else and having the map yank you back a second
+   * later is the single most irritating thing a follow-me view does. The
+   * button stays, but nobody should have to find it first.
+   *
+   * Keyed on `dragstart` with an `originalEvent`: our own easeTo() calls are
+   * programmatic and carry none, so the camera following a fix cannot switch
+   * itself off. Zoom is deliberately NOT included — pinching to see more of
+   * the row ahead is not a request to stop following.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const onDrag = (e: { originalEvent?: unknown }) => {
+      if (e?.originalEvent) setFollow(false)
+    }
+    map.on('dragstart', onDrag)
+    map.on('rotatestart', onDrag)
+    return () => {
+      map.off('dragstart', onDrag)
+      map.off('rotatestart', onDrag)
+    }
+  }, [ready])
+
   // ── Crew-position broadcast (office map subscribes on channel 'crew_live') ──
   const gpsRef = useRef(gps)
   gpsRef.current = gps
@@ -783,7 +810,26 @@ export default function ShelterPlacement() {
             background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)',
             color: follow ? 'var(--brand)' : 'var(--text-secondary)',
           }}
-          onClick={() => setFollow((v) => !v)}
+          onClick={() =>
+            setFollow((v) => {
+              // Turning it back ON should snap to you now — waiting for the
+              // next fix makes the button feel broken for a few seconds.
+              if (!v && gps && mapRef.current) {
+                mapRef.current.easeTo({
+                  ...cameraFor({
+                    lng: gps.lng,
+                    lat: gps.lat,
+                    heading: headingRef.current,
+                    mode: navModeRef.current,
+                    currentBearing: mapRef.current.getBearing(),
+                  }),
+                  duration: 500,
+                  essential: true,
+                })
+              }
+              return !v
+            })
+          }
           aria-label="Follow me"
         >
           <Crosshair size={18} />

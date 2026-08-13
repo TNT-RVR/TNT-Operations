@@ -215,6 +215,52 @@ function MockProvider({ children }: { children: ReactNode }) {
         )
         return { ok: true }
       },
+      setCrewLead: async (crewId: string, targetUserId: string) => {
+        const plan = planTakeLead(crewMembers, targetUserId, crewId)
+        setCrewMembers((prev) =>
+          prev.map((m) => {
+            if (plan.demote.includes(m.id)) return { ...m, role: 'member' as const }
+            if (m.id === plan.promote) return { ...m, role: 'lead' as const }
+            return m
+          }),
+        )
+        return { ok: true }
+      },
+      addCrewMember: async (crewId: string, targetUserId: string, asLead = false) => {
+        const plan = planJoin(crewMembers, targetUserId, crewId)
+        const now = new Date().toISOString()
+        setCrewMembers((prev) => {
+          let next = prev.map((m) => (plan.leave.includes(m.id) ? { ...m, leftAt: now } : m))
+          if (asLead) {
+            next = next.map((m) =>
+              m.crewId === crewId && m.leftAt == null && m.role === 'lead'
+                ? { ...m, role: 'member' as const }
+                : m,
+            )
+          }
+          if (plan.join) {
+            next.push({
+              id: nextId('cm'),
+              crewId,
+              userId: targetUserId,
+              role: asLead ? 'lead' : 'member',
+              joinedAt: now,
+              leftAt: null,
+            })
+          } else if (asLead) {
+            next = next.map((m) =>
+              m.userId === targetUserId && m.leftAt == null ? { ...m, role: 'lead' as const } : m,
+            )
+          }
+          return next
+        })
+        return { ok: true }
+      },
+      removeCrewMember: async (membershipId: string) => {
+        const now = new Date().toISOString()
+        setCrewMembers((prev) => prev.map((m) => (m.id === membershipId ? { ...m, leftAt: now } : m)))
+        return { ok: true }
+      },
       assignCrew: async (
         id: string,
         assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },

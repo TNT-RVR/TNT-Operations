@@ -49,8 +49,20 @@ const CREW_TRAY = '#4ADE80'
 const CREW_STALE = '#8A8A8A'
 
 export default function CrewsView() {
-  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew, updateCrew, assignCrew } =
-    useData()
+  const {
+    fields,
+    crews,
+    crewMembers,
+    loadCrews,
+    joinCrew,
+    leaveCrew,
+    createCrew,
+    updateCrew,
+    assignCrew,
+    setCrewLead,
+    addCrewMember,
+    removeCrewMember,
+  } = useData()
   const session = useSession()
   const me = session.user.id
   const [busy, setBusy] = useState(false)
@@ -60,6 +72,13 @@ export default function CrewsView() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameTo, setRenameTo] = useState('')
   const canEdit = session.can('maps', 'edit')
+  /**
+   * Admin-only crew wrangling. Self-service needs the device in your hands;
+   * this is for the office deciding on Sunday which iPad belongs to which
+   * crew, or fixing a crew whose lead drove home with the iPad in a pocket.
+   */
+  const isAdmin = session.can('users', 'edit')
+  const [managing, setManaging] = useState<string | null>(null)
 
   /** Run a crew action, surfacing whatever it refuses to do. */
   const act = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
@@ -321,17 +340,96 @@ export default function CrewsView() {
                       )}
                     </div>
                   )}
-                  {canEdit && renaming !== c.id && (
-                    <div className="mt-1 flex gap-3">
-                      <button
-                        className="text-xs text-faint underline"
-                        onClick={() => {
-                          setRenaming(c.id)
-                          setRenameTo(c.name)
+                  {/* Who is on this crew, and which device speaks for it.
+                      Admins only: naming somebody else's device as the
+                      reporter is not a decision to leave lying around on a
+                      screen every crew has open. */}
+                  {isAdmin && managing === c.id && (
+                    <div className="mt-2 rounded-sm border border-default bg-inset p-2">
+                      <div className="label">Crew members</div>
+                      {mates.length === 0 ? (
+                        <p className="text-xs text-muted">Nobody on this crew yet.</p>
+                      ) : (
+                        <ul className="mb-2 space-y-1">
+                          {mates.map((m) => {
+                            const u = session.users.find((x) => x.id === m.userId)
+                            return (
+                              <li key={m.id} className="flex items-center gap-2 text-xs">
+                                <span className="text-primary">{u?.name ?? m.userId}</span>
+                                {m.role === 'lead' ? (
+                                  <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-brand">
+                                    reports position
+                                  </span>
+                                ) : (
+                                  <button
+                                    className="text-brand underline"
+                                    disabled={busy}
+                                    onClick={() => act(() => setCrewLead(c.id, m.userId))}
+                                  >
+                                    Make this the reporting device
+                                  </button>
+                                )}
+                                <button
+                                  className="ml-auto text-muted underline"
+                                  disabled={busy}
+                                  onClick={() => act(() => removeCrewMember(m.id))}
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+
+                      <div className="label">Add someone</div>
+                      <select
+                        className="w-full rounded-sm border border-default bg-raised px-1.5 py-1 text-xs text-primary"
+                        value=""
+                        disabled={busy}
+                        onChange={(e) => {
+                          const uid = e.target.value
+                          if (uid) act(() => addCrewMember(c.id, uid, false))
                         }}
                       >
-                        Rename
-                      </button>
+                        <option value="">Choose a person…</option>
+                        {session.users
+                          .filter((u) => !mates.some((m) => m.userId === u.id))
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="mt-1 text-xs text-faint">
+                        Adding somebody takes them off whatever crew they were on — one crew at a
+                        time, same as joining from their own device.
+                      </p>
+                    </div>
+                  )}
+
+                  {(canEdit || isAdmin) && renaming !== c.id && (
+                    <div className="mt-1 flex gap-3">
+                      {isAdmin && (
+                        <button
+                          className="text-xs text-faint underline"
+                          onClick={() => setManaging(managing === c.id ? null : c.id)}
+                        >
+                          {managing === c.id ? 'Done' : 'Manage people'}
+                        </button>
+                      )}
+                      {canEdit && (
+                        <button
+                          className="text-xs text-faint underline"
+                          onClick={() => {
+                            setRenaming(c.id)
+                            setRenameTo(c.name)
+                          }}
+                        >
+                          Rename
+                        </button>
+                      )}
+                      {canEdit && (
                       <button
                         className="text-xs text-faint underline"
                         disabled={busy || mates.length > 0}
@@ -344,6 +442,7 @@ export default function CrewsView() {
                       >
                         Retire
                       </button>
+                      )}
                     </div>
                   )}
                 </div>

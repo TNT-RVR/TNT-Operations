@@ -674,6 +674,80 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         await refreshCrews()
         return { ok: true }
       },
+      setCrewLead: async (crewId: string, targetUserId: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const plan = planTakeLead(crewMembers, targetUserId, crewId)
+        // Demote first: one lead per crew is a unique index, so promoting
+        // before demoting is rejected outright.
+        for (const id of plan.demote) {
+          const { error } = await supabase.from('field_crew_members').update({ role: 'member' }).eq('id', id)
+          if (error) return { ok: false, error: error.message }
+        }
+        if (plan.promote) {
+          const { error } = await supabase
+            .from('field_crew_members')
+            .update({ role: 'lead' })
+            .eq('id', plan.promote)
+          if (error) return { ok: false, error: error.message }
+        }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
+      addCrewMember: async (crewId: string, targetUserId: string, asLead = false) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const plan = planJoin(crewMembers, targetUserId, crewId)
+        const now = new Date().toISOString()
+        for (const id of plan.leave) {
+          const { error } = await supabase.from('field_crew_members').update({ left_at: now }).eq('id', id)
+          if (error) return { ok: false, error: error.message }
+        }
+        if (plan.join) {
+          const { error } = await supabase
+            .from('field_crew_members')
+            .insert({ crew_id: crewId, user_id: targetUserId, role: 'member' })
+          if (error) return { ok: false, error: error.message }
+        }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        if (!asLead) return { ok: true }
+        // Re-read before promoting: the row we just inserted is not in the
+        // state this closure captured.
+        const fresh = await supabase
+          .from('field_crew_members')
+          .select('*')
+          .is('left_at', null)
+          .eq('crew_id', crewId)
+        const rows = ((fresh.data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+          id: String(r.id),
+          crewId: String(r.crew_id),
+          userId: String(r.user_id),
+          role: r.role === 'lead' ? ('lead' as const) : ('member' as const),
+          joinedAt: String(r.joined_at),
+          leftAt: (r.left_at as string | null) ?? null,
+        }))
+        const promote = planTakeLead(rows, targetUserId, crewId)
+        for (const id of promote.demote) {
+          await supabase.from('field_crew_members').update({ role: 'member' }).eq('id', id)
+        }
+        if (promote.promote) {
+          await supabase.from('field_crew_members').update({ role: 'lead' }).eq('id', promote.promote)
+        }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
+      removeCrewMember: async (membershipId: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const { error } = await supabase
+          .from('field_crew_members')
+          .update({ left_at: new Date().toISOString() })
+          .eq('id', membershipId)
+        if (error) return { ok: false, error: error.message }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
       assignCrew: async (
         id: string,
         assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },

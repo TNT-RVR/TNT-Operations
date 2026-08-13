@@ -221,6 +221,23 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * and it can be set the night before rather than discovered at 7am.
    * Passing nulls clears it.
    */
+  /**
+   * Admin-only: name which member's device reports a crew's position, or move
+   * somebody onto a crew, without touching that device.
+   *
+   * The self-service buttons need the device in your hands. An office deciding
+   * on Sunday which iPad belongs to which crew, or fixing a crew whose lead
+   * went home with the iPad in a pocket, cannot work that way.
+   */
+  setCrewLead: (crewId: string, userId: string) => Promise<{ ok: boolean; error?: string }>
+  /** Admin-only: put someone on a crew (or move them), as lead or member. */
+  addCrewMember: (
+    crewId: string,
+    userId: string,
+    asLead?: boolean,
+  ) => Promise<{ ok: boolean; error?: string }>
+  /** Admin-only: take someone off a crew. */
+  removeCrewMember: (membershipId: string) => Promise<{ ok: boolean; error?: string }>
   assignCrew: (
     id: string,
     assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },

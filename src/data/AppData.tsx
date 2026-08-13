@@ -431,6 +431,19 @@ function MockProvider({ children }: { children: ReactNode }) {
       addPlacedShelter: (input) => setPlacedShelters((prev) => [{ ...input, id: nextId('ps') }, ...prev]),
       shelterTrayLinks,
       linkTrayToShelter: (input) => setShelterTrayLinks((prev) => [{ ...input, id: nextId('stl') }, ...prev]),
+      releaseTrayToShelter: async ({ trayId, shelterId, moveFrom }) => {
+        const now = nowIso()
+        setShelterTrayLinks((prev) => [
+          { id: nextId('stl'), shelterId, trayId, scannedAt: now, scannedBy: 'demo' },
+          ...prev.filter((l) => !(moveFrom && l.trayId === trayId && l.shelterId === moveFrom)),
+        ])
+        setTrays((prev) =>
+          prev.map((t) =>
+            t.id === trayId ? { ...t, status: 'released', incubatorId: null, outDate: now } : t,
+          ),
+        )
+        return { ok: true }
+      },
       nestingBlocks,
       addNestingBlock: (input) =>
         setNestingBlocks((prev) => [{ ...input, id: nextId('nb'), createdAt: nowIso() }, ...prev]),

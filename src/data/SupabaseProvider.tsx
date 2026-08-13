@@ -1725,6 +1725,59 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             setShelterTrayLinks((prev) => [toShelterTrayLink(data as ShelterTrayLinkRow), ...prev])
           })
       },
+      releaseTrayToShelter: async ({ trayId, shelterId, crewId, moveFrom }) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const now = new Date().toISOString()
+
+        // Moving a tray: close the old link rather than leaving two shelters
+        // both claiming it.
+        if (moveFrom) {
+          const { error } = await supabase
+            .from('shelter_tray_links')
+            .delete()
+            .eq('tray_id', trayId)
+            .eq('shelter_id', moveFrom)
+          if (error) return { ok: false, error: error.message }
+          setShelterTrayLinks((prev) =>
+            prev.filter((l) => !(l.trayId === trayId && l.shelterId === moveFrom)),
+          )
+        }
+
+        const link = await supabase
+          .from('shelter_tray_links')
+          .insert({
+            shelter_id: shelterId,
+            tray_id: trayId,
+            scanned_at: now,
+            scanned_by: userLabel,
+            crew_id: crewId ?? null,
+          })
+          .select()
+          .single()
+        if (link.error) {
+          console.error('[data] releaseTrayToShelter/link:', link.error.message)
+          return { ok: false, error: link.error.message }
+        }
+        setShelterTrayLinks((prev) => [toShelterTrayLink(link.data as ShelterTrayLinkRow), ...prev])
+
+        // The other half of the same event. Done AFTER the link so a failure
+        // here leaves a tray that is recorded as placed but still shown in its
+        // incubator — visibly wrong, rather than invisibly lost.
+        const upd = await supabase
+          .from('trays')
+          .update({ status: 'released', incubator_id: null, out_date: now })
+          .eq('id', trayId)
+          .select()
+          .single()
+        if (upd.error) {
+          console.error('[data] releaseTrayToShelter/tray:', upd.error.message)
+          return { ok: false, error: `Linked, but could not release the tray: ${upd.error.message}` }
+        }
+        const saved = toTray(upd.data as TrayRow)
+        setTrays((prev) => prev.map((t) => (t.id === saved.id ? saved : t)))
+        return { ok: true }
+      },
+
       nestingBlocks,
       addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => {
         if (!supabase) return

@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Mountain, Layers } from 'lucide-react'
+import { Crosshair, Mountain, Layers, Camera } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
+import { decideTrayRelease } from '@/domain/trayRelease'
+import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
+import { parseScan } from '@/features/incubation/trayLookup'
+import { Button } from '@/components/ui'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
@@ -38,7 +42,17 @@ const GPS_BLUE = '#5AA9E6'
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 export default function TrayPlacement() {
-  const { fields, crews, crewMembers, loadCrews, shelterTrayLinks } = useData()
+  const {
+    fields,
+    crews,
+    crewMembers,
+    loadCrews,
+    shelterTrayLinks,
+    trays,
+    loadTrays,
+    placedShelters,
+    releaseTrayToShelter,
+  } = useData()
   const session = useSession()
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
   const [fieldId, setFieldId] = useState<string | null>(null)
@@ -78,6 +92,98 @@ export default function TrayPlacement() {
       ? (myCrew?.name ?? session.user.name)
       : null
     : session.user.name
+
+  useEffect(() => {
+    void loadTrays()
+  }, [loadTrays])
+
+  const [scanning, setScanning] = useState(false)
+  const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
+  const [log, setLog] = useState<Array<{ label: string; text: string; ok: boolean; at: number }>>([])
+  /** A tray already in another shelter, waiting on replace-or-skip. */
+  const [moveAsk, setMoveAsk] = useState<{ trayId: string; label: string; from: string } | null>(null)
+  const seqRef = useRef(0)
+  const lastRef = useRef<{ label: string; at: number }>({ label: '', at: 0 })
+  const [gpsFix, setGpsFix] = useState<{ lat: number; lng: number } | null>(null)
+
+  /**
+   * The shelter trays are going into: the nearest one already PLACED in this
+   * field. Not the nearest grid pin — a tray goes into a shelter that exists,
+   * and the link is to the placed shelter's record.
+   */
+  const targetShelter = useMemo(() => {
+    const here = placedShelters.filter(
+      (p) => p.fieldId === field?.id && p.status === 'placed' && p.lat != null && p.lng != null,
+    )
+    if (here.length === 0 || !gpsFix) return here[0] ?? null
+    let best = here[0]
+    let bestD = Infinity
+    for (const p of here) {
+      const d = Math.hypot(
+        (p.lng! - gpsFix.lng) * 71_700,
+        (p.lat! - gpsFix.lat) * 111_320,
+      )
+      if (d < bestD) {
+        bestD = d
+        best = p
+      }
+    }
+    return { ...best, dist: bestD }
+  }, [placedShelters, field?.id, gpsFix])
+
+  const trayCount = useMemo(
+    () => (targetShelter ? shelterTrayLinks.filter((l) => l.shelterId === targetShelter.id).length : 0),
+    [shelterTrayLinks, targetShelter],
+  )
+
+  const note = (label: string, text: string, ok: boolean) =>
+    setLog((prev) => [{ label, text, ok, at: Date.now() }, ...prev].slice(0, 30))
+
+  const flash = (kind: ScanFeedback['kind'], title: string, detail?: string) => {
+    setFeedback({ kind, title, detail, seq: ++seqRef.current })
+    try {
+      navigator.vibrate?.(kind === 'ok' ? 40 : [30, 60, 30])
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  async function handleScan(text: string) {
+    const label = parseScan(text)
+    if (!label || !targetShelter) return
+    const now = Date.now()
+    // The same code re-decoding while it sits in frame is not a second tray.
+    if (label === lastRef.current.label && now - lastRef.current.at < 2000) return
+    lastRef.current = { label, at: now }
+
+    const d = decideTrayRelease({ label, shelterId: targetShelter.id, trays, links: shelterTrayLinks })
+    if (d.action === 'unknown') {
+      flash('error', label, 'No tray with that number.')
+      return note(label, 'Not a known tray', false)
+    }
+    if (d.action === 'already-here') {
+      flash('warn', d.tray.trayNumber, 'Already in this shelter.')
+      return note(d.tray.trayNumber, 'Already here', true)
+    }
+    if (d.action === 'confirm-move') {
+      flash('warn', d.tray.trayNumber, 'Already in another shelter — move it?')
+      setMoveAsk({ trayId: d.tray.id, label: d.tray.trayNumber, from: d.fromShelterId })
+      setScanning(false)
+      return
+    }
+
+    const r = await releaseTrayToShelter({
+      trayId: d.tray.id,
+      shelterId: targetShelter.id,
+      crewId: myCrewId,
+    })
+    if (!r.ok) {
+      flash('error', d.tray.trayNumber, r.error ?? 'Could not save.')
+      return note(d.tray.trayNumber, r.error ?? 'Could not save', false)
+    }
+    flash(d.caveat ? 'warn' : 'ok', d.tray.trayNumber, d.caveat ?? 'Placed · out of incubator')
+    note(d.tray.trayNumber, d.caveat ? 'Placed (was not in an incubator)' : 'Placed · released', true)
+  }
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -167,6 +273,7 @@ export default function TrayPlacement() {
         if (!map) return
         const fix = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         gpsRef.current = fix
+        setGpsFix(fix)
         headingRef.current = nextHeading(headingRef.current, {
           heading: pos.coords.heading,
           speed: pos.coords.speed,
@@ -372,20 +479,98 @@ export default function TrayPlacement() {
         </button>
       </div>
 
-      {/* What this view does NOT do yet, said plainly rather than left to be
-          discovered by a crew standing in a field. */}
+      {/* Bottom bar: which shelter, and the scanner. */}
       <div
         className="absolute bottom-3 left-3 right-3 rounded-md border border-default p-3"
         style={{ background: 'color-mix(in srgb, var(--bg-raised) 94%, transparent)' }}
       >
-        <div className="text-sm font-semibold text-primary">
-          {field?.name ?? 'No field'} · {pins.length} shelter{pins.length === 1 ? '' : 's'}
-        </div>
-        <p className="mt-1 text-xs text-muted">
-          Shelter positions from Shelter Maps. Scanning trays into shelters isn&apos;t wired up here
-          yet — use Incubation → Scan for now.
-        </p>
+        {moveAsk ? (
+          <>
+            <div className="text-sm font-semibold text-primary">{moveAsk.label}</div>
+            <p className="mt-1 text-xs text-muted">
+              This tray is already recorded in another shelter. Moving it takes it off that one —
+              two shelters both claiming the same trays is worse than a refused scan.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  if (!targetShelter) return
+                  const r = await releaseTrayToShelter({
+                    trayId: moveAsk.trayId,
+                    shelterId: targetShelter.id,
+                    crewId: myCrewId,
+                    moveFrom: moveAsk.from,
+                  })
+                  note(moveAsk.label, r.ok ? 'Moved here' : (r.error ?? 'Could not move'), r.ok)
+                  setMoveAsk(null)
+                  setScanning(true)
+                }}
+              >
+                Move it here
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  note(moveAsk.label, 'Skipped — left where it was', true)
+                  setMoveAsk(null)
+                  setScanning(true)
+                }}
+              >
+                Leave it
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold text-primary">
+                {targetShelter
+                  ? `Shelter #${(targetShelter.gridIdx ?? 0) + 1}`
+                  : `${field?.name ?? 'No field'} — no shelters placed yet`}
+              </span>
+              <span className="text-xs text-muted">
+                {targetShelter
+                  ? `${trayCount} tray${trayCount === 1 ? '' : 's'} in it` +
+                    ('dist' in targetShelter && Number.isFinite(targetShelter.dist)
+                      ? ` · ${Math.round(targetShelter.dist as number)} m away`
+                      : '')
+                  : 'Place shelters first'}
+              </span>
+            </div>
+
+            <Button
+              className="mt-2 w-full py-3 text-base"
+              disabled={!targetShelter}
+              onClick={() => setScanning(true)}
+            >
+              <Camera size={18} className="mr-2 inline" />
+              Scan trays into this shelter
+            </Button>
+
+            {log.length > 0 && (
+              <ul className="mt-2 max-h-24 space-y-1 overflow-y-auto text-xs">
+                {log.map((e) => (
+                  <li key={e.at} className="flex justify-between gap-2">
+                    <span className="font-medium text-primary">{e.label}</span>
+                    <span className={e.ok ? 'text-muted' : 'text-danger'}>{e.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </div>
+
+      <ScannerOverlay
+        open={scanning}
+        title={targetShelter ? `Into shelter #${(targetShelter.gridIdx ?? 0) + 1}` : 'Scan trays'}
+        feedback={feedback}
+        onScan={(t) => void handleScan(t)}
+        onClose={() => setScanning(false)}
+      />
+
     </div>
   )
 }

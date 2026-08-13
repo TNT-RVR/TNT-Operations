@@ -264,6 +264,22 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   /** Tray↔shelter scan links. */
   shelterTrayLinks: ShelterTrayLink[]
   linkTrayToShelter: (input: Omit<ShelterTrayLink, 'id'>) => void
+  /**
+   * Put a tray out: link it to the shelter AND take it out of the incubator.
+   *
+   * One call because it is one event seen from two sides. Writing the link
+   * without releasing the tray leaves an incubator showing trays that are
+   * sitting in a field, which is the sort of wrong that survives a season.
+   *
+   * `moveFrom` is the shelter it was previously scanned into, when the crew
+   * has confirmed moving it.
+   */
+  releaseTrayToShelter: (input: {
+    trayId: string
+    shelterId: string
+    crewId?: string | null
+    moveFrom?: string | null
+  }) => Promise<{ ok: boolean; error?: string }>
   /** Nesting blocks (bees' homes), tied to their shelter. */
   nestingBlocks: NestingBlock[]
   addNestingBlock: (input: Omit<NestingBlock, 'id' | 'createdAt'>) => void

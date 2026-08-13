@@ -1,5 +1,9 @@
 -- ── What a crew is working on ────────────────────────────────────────────────
 --
+-- Numbered 0027 after the fact: this and 0026 were written as 0023/0024 and
+-- collided with the calendar work landing in parallel. Both were applied to
+-- production under the old numbers; the contents are unchanged.
+--
 -- Until now "what is Crew 2 doing?" was inferred from whichever screen the
 -- crew's iPad happened to have open, and only while it was broadcasting. Put
 -- the iPad down, open the Crews view to look at someone else, or lose signal,

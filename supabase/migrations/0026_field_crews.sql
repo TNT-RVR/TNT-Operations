@@ -1,5 +1,8 @@
 -- ── Crews ────────────────────────────────────────────────────────────────────
 --
+-- Numbered 0026 after the fact — written as 0023, collided with the calendar
+-- feed work. Already applied to production under the old number; unchanged.
+--
 -- NAMED `field_crews`, not `crews`. The old desktop app already owns
 -- `public.field_crews` — a GPS position log with lat/lon/course/sats — and CLAUDE.md
 -- is explicit that its tables are never dropped or altered. A `create table if

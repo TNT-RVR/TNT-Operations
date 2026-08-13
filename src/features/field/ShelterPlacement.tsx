@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -10,7 +11,6 @@ import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { shiftToParkedBay } from '@/domain/bayGuides'
-import { ScheduledJob } from './ScheduledJob'
 import { shiftToParkedSprayPass } from '@/domain/sprayNudge'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
@@ -69,7 +69,14 @@ export default function ShelterPlacement() {
   const canEdit = s.can('field', 'edit')
 
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
-  const [fieldId, setFieldId] = useState<string | null>(null)
+  const [search] = useSearchParams()
+  /**
+   * A field can be named in the URL — that is how "Open <field>" on a work
+   * order lands here on the right one. Read once as the initial value rather
+   * than watched, so a crew that switches fields afterwards is not dragged
+   * back by a stale link.
+   */
+  const [fieldId, setFieldId] = useState<string | null>(() => search.get('field'))
   /**
    * In-the-moment nudge, in FEET, east/west and north/south.
    *
@@ -489,11 +496,6 @@ export default function ShelterPlacement() {
   return (
     <div className="relative h-full">
       <div ref={containerRef} className="absolute inset-0" />
-
-      {/* What this crew is booked on today, and what to load for it. */}
-      <div className="absolute inset-x-2 top-14 z-10">
-        <ScheduledJob task="shelter" currentFieldId={field?.id ?? null} onUseField={setFieldId} />
-      </div>
 
       {/* Top bar: field switcher + GPS pill */}
       <div className="absolute inset-x-2 top-2 flex items-center gap-2">

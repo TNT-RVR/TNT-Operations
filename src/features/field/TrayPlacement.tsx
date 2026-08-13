@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Mountain, Layers, Camera } from 'lucide-react'
@@ -7,7 +8,6 @@ import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { decideTrayRelease } from '@/domain/trayRelease'
-import { ScheduledJob } from './ScheduledJob'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
 import { Button } from '@/components/ui'
@@ -56,7 +56,14 @@ export default function TrayPlacement() {
   } = useData()
   const session = useSession()
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
-  const [fieldId, setFieldId] = useState<string | null>(null)
+  const [search] = useSearchParams()
+  /**
+   * A field can be named in the URL — that is how "Open <field>" on a work
+   * order lands here on the right one. Read once as the initial value rather
+   * than watched, so a crew that switches fields afterwards is not dragged
+   * back by a stale link.
+   */
+  const [fieldId, setFieldId] = useState<string | null>(() => search.get('field'))
   const field: Field | null = useMemo(
     () => mapped.find((f) => f.id === fieldId) ?? mapped[0] ?? null,
     [mapped, fieldId],
@@ -380,11 +387,6 @@ export default function TrayPlacement() {
   return (
     <div className="relative h-full">
       <div ref={containerRef} className="h-full" />
-
-      {/* What this crew is booked on today, and what to load for it. */}
-      <div className="absolute inset-x-3 top-14 z-10">
-        <ScheduledJob task="tray" currentFieldId={field?.id ?? null} onUseField={setFieldId} />
-      </div>
 
       {/* Field picker */}
       <div className="absolute left-3 right-3 top-3 flex gap-2">

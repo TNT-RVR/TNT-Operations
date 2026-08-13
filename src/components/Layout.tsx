@@ -66,6 +66,7 @@ const NAV: NavItem[] = [
       { to: '/field', label: 'Shelter placement', end: true },
       { to: '/field/trays', label: 'Tray placement' },
       { to: '/field/crews', label: 'Crews' },
+      { to: '/field/schedule', label: 'Work orders' },
     ],
   },
   {

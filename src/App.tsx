@@ -16,6 +16,7 @@ import CostsHome from './features/maps/CostsHome'
 import ShelterPlacement from './features/field/ShelterPlacement'
 import TrayPlacement from './features/field/TrayPlacement'
 import CrewsView from './features/field/CrewsView'
+import ScheduleHome from './features/field/ScheduleHome'
 import IncubationHome from './features/incubation/IncubationHome'
 import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
@@ -84,6 +85,7 @@ export default function App() {
         <Route path="field" element={<Protected module="field"><ShelterPlacement /></Protected>} />
         <Route path="field/trays" element={<Protected module="field"><TrayPlacement /></Protected>} />
         <Route path="field/crews" element={<Protected module="field"><CrewsView /></Protected>} />
+        <Route path="field/schedule" element={<Protected module="field"><ScheduleHome /></Protected>} />
         <Route path="calendar" element={<Protected module="calendar"><CalendarHome /></Protected>} />
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="incubation/samples" element={<Protected module="incubation"><SamplesHome /></Protected>} />

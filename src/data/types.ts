@@ -459,6 +459,27 @@ export interface TrayInspection {
   notes: string
 }
 
+/**
+ * A recorded change of an incubator's temperature setting.
+ *
+ * Written by a database trigger on `incubators.temp_mode` (migration 0025), so
+ * it captures a change made anywhere — the modal, a script, the SQL editor —
+ * not only the ones an app code path remembered to log.
+ */
+export interface IncubatorModeEvent {
+  id: string
+  incubatorId: string
+  /** Null on the first record for an incubator: nothing to have changed from. */
+  fromMode: string | null
+  toMode: string
+  /** ISO UTC. For a backfilled row this is when LOGGING began, not when set. */
+  changedAt: string
+  changedBy: string | null
+  /** True for the seed row written when logging began — its date is unknown. */
+  backfilled: boolean
+  note: string
+}
+
 export type SensorSource = 'govee' | 'esp32'
 
 export interface SensorReading {

@@ -40,7 +40,7 @@ const todayYmd = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ })
 type Format = 'pdf' | 'csv'
 
 export function IncubatorExport({ incubator }: { incubator: Incubator }) {
-  const { trays, traysLoading, inspections, fetchReadings } = useData()
+  const { trays, traysLoading, inspections, fetchReadings, fetchModeEvents } = useData()
 
   const today = todayYmd()
   const [from, setFrom] = useState(() => addDays(today, -89))
@@ -77,17 +77,19 @@ export function IncubatorExport({ incubator }: { incubator: Incubator }) {
     try {
       // Local midnight to local end-of-day, so a window means the same thing to
       // the person picking it as it does to the query.
-      const windowReadings = await fetchReadings(
-        incubator.id,
-        new Date(`${from}T00:00:00`).toISOString(),
-        new Date(`${to}T23:59:59.999`).toISOString(),
-      )
+      const fromIso = new Date(`${from}T00:00:00`).toISOString()
+      const toIso = new Date(`${to}T23:59:59.999`).toISOString()
+      const [windowReadings, modeEvents] = await Promise.all([
+        fetchReadings(incubator.id, fromIso, toIso),
+        fetchModeEvents(incubator.id, fromIso, toIso),
+      ])
 
       const report = buildIncubatorReport({
         incubator,
         readings: windowReadings,
         trays: trays as unknown as ReportTray[],
         inspections: inspections.filter((i) => i.incubatorId === incubator.id),
+        modeEvents,
         from,
         to,
         toYmd,

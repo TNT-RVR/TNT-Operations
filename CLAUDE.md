@@ -194,9 +194,24 @@ _Last reviewed 2026-08-03._
           (`bee-light.png`, downscaled through a canvas — the source is
           3000 px), vector charts drawn with jsPDF primitives, highs/lows with
           timestamps, settings, trays in, key dates and inspections.
-        - **The settings timeline is DERIVED from measured temperature**, not
-          from a log — `incubators.temp_mode` stores only the CURRENT setting,
-          with no history, so this is the only thing that works retroactively.
+        - **Setting history** (`0025_temp_mode_history.sql`) —
+          `incubator_mode_events`, written by a TRIGGER on
+          `incubators.temp_mode` so a change made anywhere is caught, not only
+          the ones an app path remembered to log. Client-insertable is revoked:
+          the SECURITY DEFINER trigger is the only writer, so nobody can invent
+          or erase history. The seed row per incubator carries
+          `backfilled = true` — its `changed_at` is when logging began, NOT
+          when the mode was set, and the UI/PDF say so. Shown in the modal
+          (`ModeHistory.tsx`) and as the PDF's "Setting changes" section.
+        - **The derived timeline stays**, and is now titled "Settings held" when
+          a log exists — the two answer different questions. The log says when
+          someone CHANGED it (including a change that never moved the
+          temperature, e.g. off → cool storage on an already-cold chamber); the
+          derived timeline says what the chamber HELD, and is the only thing
+          that reaches back before logging began.
+        - **The derived timeline is read from measured temperature**, not from
+          a log — `incubators.temp_mode` stores only the CURRENT setting, so
+          this is the only thing that works retroactively.
           `classifyDay` maps a day's mean into a `TEMP_MODES` band; a
           between-bands day is `transition`, never rounded to the nearest. A
           gap in the readings ENDS a period rather than bridging it.

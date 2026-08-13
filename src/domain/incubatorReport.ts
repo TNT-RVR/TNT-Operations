@@ -51,6 +51,15 @@ export interface ReportInspection {
   notes?: string | null
 }
 
+/** A recorded change of the temperature setting (migration 0025). */
+export interface ReportModeEvent {
+  fromMode: string | null
+  toMode: string
+  changedAt: string
+  backfilled: boolean
+  note: string
+}
+
 export interface ReportInput {
   incubator: {
     id: string
@@ -65,6 +74,8 @@ export interface ReportInput {
   readings: ReportReading[]
   trays: ReportTray[]
   inspections: ReportInspection[]
+  /** Recorded setting changes. Empty before migration 0025 is applied. */
+  modeEvents?: ReportModeEvent[]
   /** Inclusive calendar-date window, `YYYY-MM-DD`. */
   from: string
   to: string
@@ -130,6 +141,8 @@ export interface IncubatorReport {
   humidity: MetricStats | null
   daily: DailyPoint[]
   modePeriods: ModePeriod[]
+  /** Logged setting changes inside the window, oldest first. */
+  modeChanges: ReportModeEvent[]
   intake: TrayIntake[]
   totals: { trays: number; gallons: number; weightLbs: number; samples: number; undated: number }
   keyDates: KeyDate[]
@@ -347,12 +360,18 @@ export function buildIncubatorReport(input: ReportInput): IncubatorReport {
     undated,
   }
 
-  // ── Key dates: what the schedule said against what happened ──
-  const keyDates = buildKeyDates(incubator.incubationStart ?? null, held)
-
   const inspections = input.inspections
     .filter((i) => inWindow(toYmd(i.at), from, to))
     .sort((a, b) => a.at.localeCompare(b.at))
+
+  // ── Key dates: what the schedule said against what happened ──
+  // Declared after `inspections` because it reads them — the emergence
+  // milestone's actual is an observation, not a computed date.
+  const keyDates = buildKeyDates(incubator.incubationStart ?? null, held, inspections, toYmd)
+
+  const modeChanges = (input.modeEvents ?? [])
+    .filter((e) => inWindow(toYmd(e.changedAt), from, to))
+    .sort((a, b) => a.changedAt.localeCompare(b.changedAt))
 
   return {
     incubator,
@@ -363,6 +382,7 @@ export function buildIncubatorReport(input: ReportInput): IncubatorReport {
     humidity: stats(humVals),
     daily,
     modePeriods: modePeriods(daily),
+    modeChanges,
     intake,
     totals,
     keyDates,
@@ -379,7 +399,13 @@ export function buildIncubatorReport(input: ReportInput): IncubatorReport {
  * cool-date or out-date. Everything else has no recorded actual, and is shown
  * as planned-only rather than being quietly filled in with the plan.
  */
-export function buildKeyDates(incubationStart: string | null, trays: ReportTray[]): KeyDate[] {
+export function buildKeyDates(
+  incubationStart: string | null,
+  trays: ReportTray[],
+  /** Inspections, for the one milestone somebody actually observes. */
+  inspections: ReportInspection[] = [],
+  toYmd: (iso: string) => string = (iso) => iso.slice(0, 10),
+): KeyDate[] {
   if (!incubationStart) return []
   const start = incubationStart.slice(0, 10)
 
@@ -389,10 +415,22 @@ export function buildKeyDates(incubationStart: string | null, trays: ReportTray[
     .sort()
   const firstOut = outs[0] ?? null
 
+  // The first round where someone ticked "Bees emerging". That is an OBSERVED
+  // date, unlike the rest of the schedule, so it is the only sensible actual
+  // for the emergence milestone.
+  const firstEmergence =
+    inspections
+      .filter((i) => i.beesEmerging)
+      .map((i) => toYmd(i.at))
+      .sort()[0] ?? null
+
   return INCUBATION_MILESTONES.map(({ day, label }) => {
     const planned = addDays(start, day - 1)
-    // "Expected Release" is the one milestone with something to compare against.
-    const actual = /release/i.test(label) ? firstOut : null
+    const actual = /release/i.test(label)
+      ? firstOut
+      : /emergence/i.test(label)
+        ? firstEmergence
+        : null
     return {
       label,
       planned,

@@ -376,3 +376,74 @@ describe('trays with no dates recorded', () => {
     expect(r.totals.trays).toBe(0)
   })
 })
+
+describe('recorded setting changes', () => {
+  const evt = (changedAt: string, toMode: string, fromMode: string | null = null, backfilled = false) => ({
+    fromMode,
+    toMode,
+    changedAt,
+    backfilled,
+    note: '',
+  })
+
+  it('keeps only changes inside the window, oldest first', () => {
+    const r = build({
+      modeEvents: [
+        evt('2026-05-08T12:00:00.000Z', 'holding', 'incubation'),
+        evt('2026-04-20T12:00:00.000Z', 'incubation', 'cool_storage'),
+        evt('2026-05-03T12:00:00.000Z', 'incubation', 'off'),
+        evt('2026-06-01T12:00:00.000Z', 'off', 'holding'),
+      ],
+    })
+    expect(r.modeChanges.map((e) => e.changedAt.slice(0, 10))).toEqual(['2026-05-03', '2026-05-08'])
+  })
+
+  it('is empty when the log has not been created yet', () => {
+    // Before migration 0025 the provider returns nothing. The report must still
+    // build — the derived timeline is what answers the question until then.
+    const r = build()
+    expect(r.modeChanges).toEqual([])
+    expect(r.modePeriods).toEqual([])
+  })
+
+  it('keeps the backfilled marker, which the PDF renders differently', () => {
+    const r = build({ modeEvents: [evt('2026-05-02T12:00:00.000Z', 'incubation', null, true)] })
+    expect(r.modeChanges[0].backfilled).toBe(true)
+  })
+
+  it('is independent of the derived timeline', () => {
+    // A change that never moved the temperature — off to cool storage on an
+    // already-cold chamber — is invisible to the measured-temperature timeline
+    // and visible only here. That is the whole point of logging it.
+    const readings = [reading('2026-05-01', 6, 3), reading('2026-05-02', 6, 3)]
+    const r = build({
+      readings,
+      modeEvents: [evt('2026-05-02T12:00:00.000Z', 'cool_storage', 'off')],
+    })
+    expect(r.modeChanges).toHaveLength(1)
+    expect(r.modePeriods.every((p) => p.mode === 'cool_storage')).toBe(true)
+  })
+})
+
+describe('first emergence observed', () => {
+  const insp = (at: string, beesEmerging: boolean) => ({ at, beesEmerging })
+
+  it('uses the first inspection that saw bees as the emergence actual', () => {
+    const r = build({
+      inspections: [
+        insp('2026-05-06T16:00:00.000Z', false),
+        insp('2026-05-08T16:00:00.000Z', true),
+        insp('2026-05-09T16:00:00.000Z', true),
+      ],
+    })
+    const e = r.keyDates.find((k) => /emergence/i.test(k.label))!
+    expect(e.actual).toBe('2026-05-08')
+    expect(e.planned).toBe('2026-05-18') // day 18 from a May 1 start
+    expect(e.varianceDays).toBe(-10)
+  })
+
+  it('leaves it null when nobody has seen any', () => {
+    const r = build({ inspections: [insp('2026-05-06T16:00:00.000Z', false)] })
+    expect(r.keyDates.find((k) => /emergence/i.test(k.label))!.actual).toBeNull()
+  })
+})

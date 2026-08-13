@@ -6,6 +6,7 @@ import type {
   Incubator,
   IncubationBatch,
   IncubatorAlert,
+  IncubatorModeEvent,
   Inspection,
   Sample,
   SensorReading,
@@ -122,6 +123,19 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * would build the report from stale rows.
    */
   fetchReadings: (incubatorId: string, fromIso: string, toIso: string) => Promise<SensorReading[]>
+  /**
+   * Recorded temperature-setting changes for one incubator, oldest first.
+   *
+   * Same shape as `fetchReadings` and for the same reasons: bounded and
+   * returned rather than merged into state. The log is written by a database
+   * trigger (migration 0025), so it holds changes made from anywhere, not only
+   * the ones the app performed.
+   */
+  fetchModeEvents: (
+    incubatorId: string,
+    fromIso: string,
+    toIso: string,
+  ) => Promise<IncubatorModeEvent[]>
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
   /**

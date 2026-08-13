@@ -35,6 +35,12 @@ const PAGE_W = 612 // Letter, portrait, points
 const PAGE_H = 792
 const MARGIN = 42
 const CONTENT_W = PAGE_W - MARGIN * 2
+/**
+ * Blank space above each section heading. Sections previously sat directly on
+ * top of one another, which reads as one long block — the humidity chart in
+ * particular looked welded to the temperature note above it.
+ */
+const SECTION_GAP = 16
 
 type Doc = import('jspdf').jsPDF
 
@@ -71,6 +77,30 @@ async function loadLogo(): Promise<string | null> {
 const f1 = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : n.toFixed(1))
 const f0 = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : n.toFixed(0))
 const cToF = (c: number) => c * 9 / 5 + 32
+
+/** A stored mode key → the label the app shows. */
+const modeName = (mode: string) =>
+  TEMP_MODES[mode as keyof typeof TEMP_MODES]?.label ?? mode
+
+/**
+ * What the inspector saw emerging on that round.
+ *
+ * The underlying fields are two checkboxes on the inspection form ("Bees
+ * emerging", "Parasites emerging"), so the honest reading is "observed at this
+ * inspection" — not a stage, and not a claim about whether emergence had just
+ * begun or was already under way. The three-way distinction matters: `false`
+ * means they looked and saw none, `null`/absent means nobody recorded it.
+ */
+export function emergingLabel(
+  bees: boolean | null | undefined,
+  parasites: boolean | null | undefined,
+): string {
+  const seen = [bees && 'Bees', parasites && 'Parasites'].filter(Boolean) as string[]
+  if (seen.length) return seen.join(' + ')
+  // Not recorded at all — say so rather than implying nothing was there.
+  if (bees == null && parasites == null) return '—'
+  return 'None'
+}
 
 /** `2026-05-01` → `May 1, 2026`. Dates are plain strings; no Date parsing. */
 function prettyDate(ymd: string): string {
@@ -129,18 +159,27 @@ class Layout {
     return at
   }
 
+  /**
+   * A section heading, with air above it.
+   *
+   * The leading gap is the whole reason this is not just a text call: sections
+   * butted together read as one undifferentiated block, and the eye needs the
+   * white space more than the rule to know a new thing has started. Suppressed
+   * at the top of a page, where the masthead already provides the separation.
+   */
   sectionTitle(text: string) {
-    const y = this.space(26)
+    const lead = this.y > MARGIN + 54 ? SECTION_GAP : 0
+    const y = this.space(lead + 26)
     this.doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...INK)
-    this.doc.text(text.toUpperCase(), MARGIN, y + 12)
+    this.doc.text(text.toUpperCase(), MARGIN, y + lead + 12)
     this.doc.setDrawColor(...RULE)
-    this.doc.line(MARGIN, y + 17, PAGE_W - MARGIN, y + 17)
+    this.doc.line(MARGIN, y + lead + 17, PAGE_W - MARGIN, y + lead + 17)
   }
 
   note(text: string) {
-    const y = this.space(13)
+    const y = this.space(15)
     this.doc.setFont('helvetica', 'italic').setFontSize(8).setTextColor(...INK_FAINT)
-    this.doc.text(text, MARGIN, y + 8)
+    this.doc.text(text, MARGIN, y + 9)
   }
 
   /** A table. `widths` are fractions of the content width. */
@@ -219,7 +258,7 @@ function chart(
 ) {
   const { doc } = L
   const H = opts.height
-  const top = L.space(H + 20)
+  const top = L.space(H + 24)
   const plotL = MARGIN + 34
   const plotR = PAGE_W - MARGIN
   const plotW = plotR - plotL
@@ -401,8 +440,28 @@ export async function incubatorReportPdf(
   )
   L.note(`Solid line: daily average. Dashed: target ${f0(inc.humidityTargetPct)}%.`)
 
+  // ── Recorded setting changes ──
+  //
+  // The log, where there is one. Distinct from the derived timeline below and
+  // deliberately shown first: this answers "when did someone change it", which
+  // is a different question from "what did the chamber hold".
+  if (report.modeChanges.length > 0) {
+    L.sectionTitle('Setting changes')
+    L.table(
+      ['When', 'From', 'To', 'Note'],
+      report.modeChanges.map((e) => [
+        e.backfilled ? '—' : fmtLocal(e.changedAt),
+        e.fromMode ? modeName(e.fromMode) : '—',
+        modeName(e.toMode),
+        e.backfilled ? 'Setting when logging began; the date it was set is not recorded.' : e.note,
+      ]),
+      [0.22, 0.18, 0.18, 0.42],
+    )
+    L.note('Recorded when the setting was changed, from any source — the app, a script, or the database.')
+  }
+
   // ── Settings timeline ──
-  L.sectionTitle('Settings')
+  L.sectionTitle(report.modeChanges.length > 0 ? 'Settings held' : 'Settings')
   L.table(
     ['Setting', 'From', 'To', 'Days', 'Average temp'],
     report.modePeriods.map((p) => [
@@ -463,23 +522,26 @@ export async function incubatorReportPdf(
   // ── Inspections ──
   L.sectionTitle('Inspections')
   L.table(
-    ['When', 'Thermometer', 'Faults', 'Emergence'],
+    ['When', 'Thermometer', 'Faults', 'Seen emerging'],
     report.inspections.map((i) => {
       const faults = [
         i.heatPumpsOk === false && 'heat pumps',
         i.fansOk === false && 'fans',
         i.blackLightsOk === false && 'black lights',
       ].filter(Boolean) as string[]
-      const emerge = [i.beesEmerging && 'bees', i.parasitesEmerging && 'parasites'].filter(Boolean) as string[]
       return [
         fmtLocal(i.at),
         i.tempC != null ? `${f1(i.tempC)}°C` : '—',
         faults.length ? faults.join(', ') : 'none',
-        emerge.length ? emerge.join(', ') : '—',
+        emergingLabel(i.beesEmerging, i.parasitesEmerging),
       ]
     }),
-    [0.28, 0.16, 0.32, 0.24],
+    [0.26, 0.15, 0.29, 0.30],
     'No inspections logged during the period.',
+  )
+  L.note(
+    'Seen emerging is what the inspector observed on that round — bees or parasites coming out of the ' +
+      'cells. "None" means they looked and saw none; a dash means it was not recorded.',
   )
 
   // ── Footer on every page ──

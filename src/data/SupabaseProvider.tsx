@@ -44,6 +44,7 @@ import {
   toIncubator,
   toInspection,
   toSensorReading,
+  toIncubatorModeEvent,
   toNotification,
   toSample,
   toTray,
@@ -65,6 +66,7 @@ import {
   type IncubatorRow,
   type InspectionRow,
   type SensorReadingRow,
+  type IncubatorModeEventRow,
   type NotificationRow,
   type SampleRow,
   type TrayRow,
@@ -617,6 +619,24 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           if (rows.length < PAGE) break
         }
         return out
+      },
+      fetchModeEvents: async (incubatorId: string, fromIso: string, toIso: string) => {
+        if (!supabase) return []
+        const res = await supabase
+          .from('incubator_mode_events')
+          .select('*')
+          .eq('incubator_id', incubatorId)
+          .gte('changed_at', fromIso)
+          .lte('changed_at', toIso)
+          .order('changed_at', { ascending: true })
+        if (res.error) {
+          // A missing table means migration 0025 has not been applied yet. The
+          // report still works — it falls back to reading the setting timeline
+          // out of the measured temperature — so this must not throw.
+          console.warn('[data] fetchModeEvents:', res.error.message)
+          return []
+        }
+        return ((res.data as IncubatorModeEventRow[]) ?? []).map(toIncubatorModeEvent)
       },
       saveField: (id: string, patch: Partial<Field>) => {
         if (!supabase) return

@@ -23,6 +23,7 @@ import type {
   AppNotification,
   NotificationSeverity,
   IncubatorAlert,
+  IncubatorModeEvent,
   TrayInspection,
   PlacedShelter,
   ShelterTrayLink,
@@ -161,6 +162,30 @@ export function toSensorReading(row: SensorReadingRow): SensorReading {
     tempC: Number(row.temp_c),
     humidityPct: Number(row.humidity_pct),
     source: row.source as SensorSource,
+  }
+}
+
+export interface IncubatorModeEventRow {
+  id: string
+  incubator_id: string
+  from_mode: string | null
+  to_mode: string
+  changed_at: string
+  changed_by: string | null
+  backfilled?: boolean | null
+  note?: string | null
+}
+
+export function toIncubatorModeEvent(row: IncubatorModeEventRow): IncubatorModeEvent {
+  return {
+    id: row.id,
+    incubatorId: row.incubator_id,
+    fromMode: row.from_mode,
+    toMode: row.to_mode,
+    changedAt: row.changed_at,
+    changedBy: row.changed_by,
+    backfilled: row.backfilled ?? false,
+    note: row.note ?? '',
   }
 }
 

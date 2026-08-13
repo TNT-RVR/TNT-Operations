@@ -5,6 +5,7 @@ import type {
   BlockPlacement,
   Field,
   Incubator,
+  IncubatorModeEvent,
   Sample,
   Tray,
   Inspection,
@@ -80,6 +81,9 @@ function mockWeather(key: string, year: string, lat: number, lng: number): Field
 function MockProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>(seedFields)
   const [incubators, setIncubators] = useState<Incubator[]>(seedIncubators)
+  // Mode-change log. Live mode gets this from a database trigger; here it is
+  // whatever this session has changed, so the history UI has something to show.
+  const [modeEvents, setModeEvents] = useState<IncubatorModeEvent[]>([])
   const [inspections, setInspections] = useState<Inspection[]>(seedInspections)
   const [trayInspections, setTrayInspections] = useState<TrayInspection[]>(seedTrayInspections)
   const [trays, setTrays] = useState<Tray[]>(seedTrays)
@@ -147,14 +151,45 @@ function MockProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => b.at.localeCompare(a.at))[0],
       // Mock holds every seeded reading already — nothing to fetch.
       loadReadings: async () => {},
+      // Mock has no trigger, so the log is whatever this session has done —
+      // populated by saveIncubator below, empty on a fresh load.
+      fetchModeEvents: async (incubatorId, fromIso, toIso) =>
+        modeEvents
+          .filter((e) => e.incubatorId === incubatorId && e.changedAt >= fromIso && e.changedAt <= toIso)
+          .sort((a, b) => a.changedAt.localeCompare(b.changedAt)),
       fetchReadings: async (incubatorId, fromIso, toIso) =>
         readings
           .filter((r) => r.incubatorId === incubatorId && r.at >= fromIso && r.at <= toIso)
           .sort((a, b) => a.at.localeCompare(b.at)),
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
-      saveIncubator: (id, patch) =>
-        setIncubators((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i))),
+      saveIncubator: (id, patch) => {
+        // Mirror the database trigger: a mode change is logged, everything
+        // else is a plain edit. Without this, mock mode could never show the
+        // history UI and the screen would only be exercised in production.
+        setIncubators((prev) =>
+          prev.map((i) => {
+            if (i.id !== id) return i
+            const nextMode = patch.tempMode
+            if (nextMode !== undefined && nextMode !== i.tempMode) {
+              setModeEvents((evts) => [
+                ...evts,
+                {
+                  id: `me_${evts.length + 1}`,
+                  incubatorId: id,
+                  fromMode: i.tempMode ?? null,
+                  toMode: String(nextMode),
+                  changedAt: new Date().toISOString(),
+                  changedBy: null,
+                  backfilled: false,
+                  note: '',
+                },
+              ])
+            }
+            return { ...i, ...patch }
+          }),
+        )
+      },
       saveSample: async (id, patch) => {
         setSamples((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)))
         return { ok: true }

@@ -32,11 +32,22 @@ create table if not exists public.incubator_mode_events (
   -- a change made with the service key or directly in SQL — recorded honestly
   -- as "we do not know" rather than attributed to nobody in particular.
   changed_by    uuid references auth.users(id) on delete set null,
+  -- True for the seed row written below when logging began. Its changed_at is
+  -- the moment we STARTED recording, not the moment the mode was set.
+  backfilled    boolean not null default false,
   note          text
 );
 
+-- Separate from the create, so re-running this on a database that already has
+-- the table (an earlier draft, a partial apply) adds the column rather than
+-- silently skipping it.
+alter table public.incubator_mode_events
+  add column if not exists backfilled boolean not null default false;
+
 comment on table public.incubator_mode_events is
   'Append-only log of temperature-setting changes. Written by a trigger on incubators.temp_mode.';
+comment on column public.incubator_mode_events.backfilled is
+  'True for the seed row written when logging began. Its changed_at is when we started recording, NOT when the mode was set.';
 
 create index if not exists incubator_mode_events_inc_at_idx
   on public.incubator_mode_events (incubator_id, changed_at desc);
@@ -81,12 +92,6 @@ create trigger incubators_log_mode_change
 -- everything earlier from the measured temperature. (`incubators` has no
 -- created_at to borrow a better date from; inventing one would be worse than
 -- saying plainly that we do not know.)
-alter table public.incubator_mode_events
-  add column if not exists backfilled boolean not null default false;
-
-comment on column public.incubator_mode_events.backfilled is
-  'True for the seed row written when logging began. Its changed_at is when we started recording, NOT when the mode was set.';
-
 insert into public.incubator_mode_events (incubator_id, from_mode, to_mode, backfilled, note)
 select i.id, null, i.temp_mode, true,
        'Mode on the day logging began. The date it was actually set is not recorded.'

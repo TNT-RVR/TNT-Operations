@@ -11,6 +11,7 @@ import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Checklist, ChecklistStep } from '@/data/types'
 import { Avatar, Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
+import { SavedText } from '@/components/SavedText'
 import { ClipboardList, Plus, Send, Trash2 } from 'lucide-react'
 import { stepProgress, todayInTz } from '@/domain/tasks'
 import { TasksChrome } from './TasksChrome'
@@ -137,27 +138,27 @@ function ChecklistEditor({ checklist, onClose }: { checklist: Checklist; onClose
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="label">Name</span>
-            <Input
+            <SavedText
               value={checklist.name}
               disabled={!canEdit}
-              onChange={(e) => void saveChecklist(checklist.id, { name: e.target.value })}
+              onSave={(v) => void saveChecklist(checklist.id, { name: v })}
             />
           </label>
           <label className="block">
             <span className="label">Category</span>
-            <Input
+            <SavedText
               value={checklist.category}
               disabled={!canEdit}
               placeholder="Field, Shop, Season start…"
-              onChange={(e) => void saveChecklist(checklist.id, { category: e.target.value })}
+              onSave={(v) => void saveChecklist(checklist.id, { category: v })}
             />
           </label>
           <label className="block sm:col-span-2">
             <span className="label">Description</span>
-            <Input
+            <SavedText
               value={checklist.description}
               disabled={!canEdit}
-              onChange={(e) => void saveChecklist(checklist.id, { description: e.target.value })}
+              onSave={(v) => void saveChecklist(checklist.id, { description: v })}
             />
           </label>
         </div>

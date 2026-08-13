@@ -10,6 +10,7 @@ import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Task, TaskStatus } from '@/data/types'
 import { Avatar, Badge, Button, EmptyState, Input, Modal, ProgressBar, Select } from '@/components/ui'
+import { SavedText } from '@/components/SavedText'
 import { CheckCircle2, Circle, CloudOff, Plus, RefreshCw, Repeat, Trash2 } from 'lucide-react'
 import {
   DUE_ORDER,
@@ -229,7 +230,7 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block sm:col-span-2">
             <span className="label">Title</span>
-            <Input value={task.title} disabled={!canEdit} onChange={(e) => patch({ title: e.target.value })} />
+            <SavedText value={task.title} disabled={!canEdit} onSave={(v) => patch({ title: v })} />
           </label>
           <label className="block">
             <span className="label">Assignee</span>
@@ -269,16 +270,16 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
           </label>
           <label className="block">
             <span className="label">Remind (days before)</span>
-            <Input
-              value={task.remindDaysBefore}
+            <SavedText
+              value={String(task.remindDaysBefore)}
               disabled={!canEdit}
               inputMode="numeric"
-              onChange={(e) => patch({ remindDaysBefore: Math.max(0, Number(e.target.value) || 0) })}
+              onSave={(v) => patch({ remindDaysBefore: Math.max(0, Number(v) || 0) })}
             />
           </label>
           <label className="block sm:col-span-2 lg:col-span-4">
             <span className="label">Notes</span>
-            <Input value={task.notes} disabled={!canEdit} onChange={(e) => patch({ notes: e.target.value })} />
+            <SavedText value={task.notes} disabled={!canEdit} onSave={(v) => patch({ notes: v })} />
           </label>
         </div>
 

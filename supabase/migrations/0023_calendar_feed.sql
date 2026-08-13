@@ -20,8 +20,8 @@
 --     personal, no customer data — so a leaked link is embarrassing rather
 --     than damaging.
 --
--- This is deliberately NOT the OAuth integration (0022), which stays in the
--- codebase unused until the Google verification review is done.
+-- This is deliberately NOT the OAuth integration (0024_google_calendar.sql),
+-- which stays in the codebase UNAPPLIED until that work is picked back up.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create table if not exists public.calendar_feed (

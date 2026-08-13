@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(//c/Users/tyler/RVR Management App/**)",
+      "Edit(//c/Users/tyler/RVR Management App/**)",
+      "Write(//c/Users/tyler/RVR Management App/**)",
+      "Read(//C:/Users/tyler/RVR Management App/**)",
+      "Edit(//C:/Users/tyler/RVR Management App/**)",
+      "Write(//C:/Users/tyler/RVR Management App/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|Write|Glob|Grep|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -qiF \"RVR Management App\" && printf \"%s\" \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\",\\\"permissionDecisionReason\\\":\\\"This session is scoped to TNT Operations. The RVR Management App has its own Claude session — make the change there. If you really do want this session to touch RVR, remove the guard in .claude/settings.json.\\\"}}\" || true",
+            "statusMessage": "Checking project boundary"
+          }
+        ]
+      }
+    ]
+  }
+}

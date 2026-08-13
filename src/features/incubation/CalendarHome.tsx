@@ -69,6 +69,8 @@ export default function CalendarHome() {
     loadTrays,
     fields,
     calendarEvents,
+    crews,
+    loadCrews,
     loadCalendarEvents,
     saveCalendarEvent,
     deleteCalendarEvent,
@@ -82,6 +84,9 @@ export default function CalendarHome() {
   useEffect(() => {
     void loadCalendarEvents()
   }, [loadCalendarEvents])
+  useEffect(() => {
+    void loadCrews()
+  }, [loadCrews])
   const today = todayYmd()
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month0, setMonth0] = useState(() => Number(today.slice(5, 7)) - 1)
@@ -388,6 +393,7 @@ export default function CalendarHome() {
           draft={editing}
           fields={fields}
           incubators={incubators}
+          crews={crews}
           onSave={saveCalendarEvent}
           onDelete={deleteCalendarEvent}
           onClose={() => setEditing(null)}
@@ -408,6 +414,7 @@ function EventDialog({
   draft,
   fields,
   incubators,
+  crews,
   onSave,
   onDelete,
   onClose,
@@ -415,6 +422,7 @@ function EventDialog({
   draft: Partial<CalendarEvent>
   fields: Array<{ id: string; name: string }>
   incubators: Array<{ id: string; name: string }>
+  crews: Array<{ id: string; name: string }>
   onSave: (e: Partial<CalendarEvent> & { title: string; startDate: string }) => Promise<{ ok: boolean; error?: string }>
   onDelete: (id: string) => Promise<{ ok: boolean; error?: string }>
   onClose: () => void
@@ -426,6 +434,8 @@ function EventDialog({
   const [category, setCategory] = useState(draft.category ?? '')
   const [notes, setNotes] = useState(draft.notes ?? '')
   const [fieldId, setFieldId] = useState(draft.fieldId ?? '')
+  const [crewId, setCrewId] = useState(draft.crewId ?? '')
+  const [task, setTask] = useState<'' | 'shelter' | 'tray'>(draft.task ?? '')
   const [incubatorId, setIncubatorId] = useState(draft.incubatorId ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -445,6 +455,8 @@ function EventDialog({
       notes,
       fieldId: fieldId || null,
       incubatorId: incubatorId || null,
+      crewId: crewId || null,
+      task: task || null,
     })
     setBusy(false)
     if (!r.ok) return setError(r.error ?? 'Could not save.')
@@ -506,6 +518,35 @@ function EventDialog({
             </Select>
           </label>
         </div>
+
+        {/* Scheduling. Fill both and the field views pick the job up on the
+            day; leave them and this is an ordinary calendar entry. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="label">Crew (optional)</span>
+            <Select value={crewId} onChange={(e) => setCrewId(e.target.value)}>
+              <option value="">—</option>
+              {crews.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="block">
+            <span className="label">Job</span>
+            <Select value={task} onChange={(e) => setTask(e.target.value as '' | 'shelter' | 'tray')}>
+              <option value="">—</option>
+              <option value="shelter">Shelter placement</option>
+              <option value="tray">Tray placement</option>
+            </Select>
+          </label>
+        </div>
+        {crewId && task && !fieldId && (
+          <p className="text-xs text-amber-600">
+            Pick a field too — a crew cannot be sent to a job without one.
+          </p>
+        )}
 
         <label className="block">
           <span className="label">Notes</span>

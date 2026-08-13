@@ -814,6 +814,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
               category: String(r.category ?? ''),
               fieldId: (r.field_id as string | null) ?? null,
               incubatorId: (r.incubator_id as string | null) ?? null,
+              crewId: (r.crew_id as string | null) ?? null,
+              task: (r.task as 'shelter' | 'tray' | null) ?? null,
             })),
           )
         })()
@@ -831,6 +833,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           category: input.category ?? '',
           field_id: input.fieldId ?? null,
           incubator_id: input.incubatorId ?? null,
+          crew_id: input.crewId ?? null,
+          task: input.task ?? null,
         }
         if (!row.title) return { ok: false, error: 'Give the event a name.' }
 
@@ -861,6 +865,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           category: String(r.category ?? ''),
           fieldId: (r.field_id as string | null) ?? null,
           incubatorId: (r.incubator_id as string | null) ?? null,
+          crewId: (r.crew_id as string | null) ?? null,
+          task: (r.task as 'shelter' | 'tray' | null) ?? null,
         }
         setCalendarEvents((prev) => {
           const i = prev.findIndex((x) => x.id === saved.id)

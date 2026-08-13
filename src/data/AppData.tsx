@@ -127,6 +127,22 @@ function MockProvider({ children }: { children: ReactNode }) {
       category: 'field',
       fieldId: null,
       incubatorId: null,
+      crewId: null,
+      task: null,
+    },
+    // A crew booked onto a field, so the field views have a schedule to read.
+    {
+      id: 'ce2',
+      title: 'Shelters — Bow Island',
+      startDate: new Date().toISOString().slice(0, 10),
+      endDate: null,
+      startTime: null,
+      notes: '',
+      category: 'field',
+      fieldId: 'f2',
+      incubatorId: null,
+      crewId: 'crew1',
+      task: 'shelter',
     },
   ])
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
@@ -321,6 +337,8 @@ function MockProvider({ children }: { children: ReactNode }) {
           category: input.category ?? '',
           fieldId: input.fieldId ?? null,
           incubatorId: input.incubatorId ?? null,
+          crewId: input.crewId ?? null,
+          task: input.task ?? null,
         }
         setCalendarEvents((prev) => {
           const i = prev.findIndex((x) => x.id === id)

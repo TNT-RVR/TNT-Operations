@@ -942,4 +942,10 @@ export interface CalendarEvent {
   category: string
   fieldId: string | null
   incubatorId: string | null
+  /**
+   * Scheduling: which crew, doing what. Both null on an ordinary entry — a
+   * delivery is not somebody's job for the day.
+   */
+  crewId: string | null
+  task: 'shelter' | 'tray' | null
 }

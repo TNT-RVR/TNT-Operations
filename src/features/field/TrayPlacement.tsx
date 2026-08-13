@@ -7,6 +7,7 @@ import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { decideTrayRelease } from '@/domain/trayRelease'
+import { ScheduledJob } from './ScheduledJob'
 import { ScannerOverlay, type ScanFeedback } from '@/features/incubation/ScannerOverlay'
 import { parseScan } from '@/features/incubation/trayLookup'
 import { Button } from '@/components/ui'
@@ -379,6 +380,11 @@ export default function TrayPlacement() {
   return (
     <div className="relative h-full">
       <div ref={containerRef} className="h-full" />
+
+      {/* What this crew is booked on today, and what to load for it. */}
+      <div className="absolute inset-x-3 top-14 z-10">
+        <ScheduledJob task="tray" currentFieldId={field?.id ?? null} onUseField={setFieldId} />
+      </div>
 
       {/* Field picker */}
       <div className="absolute left-3 right-3 top-3 flex gap-2">

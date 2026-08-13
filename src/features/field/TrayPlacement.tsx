@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Mountain } from 'lucide-react'
+import { Crosshair, Mountain, Layers } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
@@ -11,6 +11,14 @@ import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import { SATELLITE_STYLE } from '../maps/basemap'
+import {
+  addFieldLayers,
+  updateFieldLayers,
+  DEFAULT_LAYERS,
+  LAYER_TOGGLES,
+  PIN,
+  PIN_OUTLINE,
+} from './fieldLayers'
 
 /**
  * Tray Placement — putting trays into shelters that are already out.
@@ -26,9 +34,6 @@ import { SATELLITE_STYLE } from '../maps/basemap'
  * unpicking it later.
  */
 
-const PIN = '#FFCE3A'
-const PIN_OUTLINE = '#1A1A1A'
-const FIELD_LINE = '#00CED1'
 const GPS_BLUE = '#5AA9E6'
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
@@ -79,6 +84,10 @@ export default function TrayPlacement() {
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null)
   const headingRef = useRef<number | null>(null)
   const [ready, setReady] = useState(false)
+  const [layersOpen, setLayersOpen] = useState(false)
+  const [show, setShow] = useState(DEFAULT_LAYERS)
+  /** Marker pins live outside the map's layer list; kept to be removed. */
+  const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const [follow, setFollow] = useState(true)
   const followRef = useRef(follow)
   followRef.current = follow
@@ -100,13 +109,8 @@ export default function TrayPlacement() {
     })
     mapRef.current = map
     map.on('style.load', () => {
-      map.addSource('boundary', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'boundary-line',
-        type: 'line',
-        source: 'boundary',
-        paint: { 'line-color': FIELD_LINE, 'line-width': 2 },
-      })
+      addFieldLayers(map)
+
       map.addSource('pins', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'pins-dot',
@@ -122,6 +126,8 @@ export default function TrayPlacement() {
       setReady(true)
     })
     return () => {
+      pinMarkersRef.current.forEach((m) => m.remove())
+      pinMarkersRef.current = []
       map.remove()
       mapRef.current = null
     }
@@ -133,24 +139,9 @@ export default function TrayPlacement() {
     const map = mapRef.current
     if (!map || !ready) return
     const g = field?.geometry as Record<string, unknown> | undefined
-    const boundary = (g?.boundary ?? null) as Array<[number, number]> | null
-    ;(map.getSource('boundary') as GeoJSONSource | undefined)?.setData(
-      boundary && boundary.length > 2
-        ? {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                properties: {},
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [...boundary, boundary[0]].map(([lat, lng]) => [lng, lat]),
-                },
-              },
-            ],
-          }
-        : EMPTY,
-    )
+    pinMarkersRef.current.forEach((m) => m.remove())
+    pinMarkersRef.current = updateFieldLayers(map, g, pins, show)
+
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
       features: pins.map((p) => ({
@@ -165,7 +156,7 @@ export default function TrayPlacement() {
       for (const p of pins) b.extend([p.lng, p.lat])
       map.fitBounds(b, { padding: 50, duration: 500 })
     }
-  }, [field, pins, ready])
+  }, [field, pins, ready, show])
 
   // GPS — same driving view as Shelter Placement, so the two feel identical.
   useEffect(() => {
@@ -298,8 +289,36 @@ export default function TrayPlacement() {
         </select>
       </div>
 
-      {/* Same two camera controls as Shelter Placement. */}
+      {/* Same controls as Shelter Placement, so the two views feel identical. */}
       <div className="absolute right-3 top-16 flex flex-col gap-2">
+        <button
+          className="grid h-11 w-11 place-items-center rounded-md border border-default"
+          style={{
+            background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)',
+            color: layersOpen ? 'var(--brand)' : 'var(--text-secondary)',
+          }}
+          onClick={() => setLayersOpen((v) => !v)}
+          aria-label="Layers"
+        >
+          <Layers size={18} />
+        </button>
+        {layersOpen && (
+          <div
+            className="absolute right-14 top-0 w-52 rounded-md border border-default p-3 text-sm"
+            style={{ background: 'color-mix(in srgb, var(--bg-raised) 96%, transparent)' }}
+          >
+            {LAYER_TOGGLES.map(([k, label]) => (
+              <label key={k} className="flex items-center gap-2 text-secondary">
+                <input
+                  type="checkbox"
+                  checked={show[k]}
+                  onChange={(e) => setShow((p) => ({ ...p, [k]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
         <button
           className="grid h-11 w-11 place-items-center rounded-md border border-default"
           style={{

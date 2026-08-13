@@ -9,13 +9,18 @@ import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
-import { tireAndEdgeZones } from '@/domain/sprayOverlays'
-import { bayGuides, shiftToParkedBay } from '@/domain/bayGuides'
+import { shiftToParkedBay } from '@/domain/bayGuides'
 import { shiftToParkedSprayPass } from '@/domain/sprayNudge'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
-import { trackRings, ringPolygons, overlayPins } from '../maps/overlays'
-import { navigationUrl } from '@/domain/navLink'
+import {
+  addFieldLayers,
+  updateFieldLayers,
+  DEFAULT_LAYERS,
+  LAYER_TOGGLES,
+  PIN,
+  PIN_OUTLINE,
+} from './fieldLayers'
 import { ProgressBar, Button } from '@/components/ui'
 
 /**
@@ -31,16 +36,7 @@ import { ProgressBar, Button } from '@/components/ui'
  * office map listens to. Installable as a PWA; tiles + shell cached offline.
  */
 
-const PIN = '#FFCE3A'
-const PIN_OUTLINE = '#1A1A1A'
-const FIELD_LINE = '#00CED1'
 const GPS_BLUE = '#5AA9E6'
-const EDGE_ZONE = '#FF8A2B' // token-exempt: map overlay over imagery
-const ROW_GUIDE = '#7DD3FC' // token-exempt: map overlay over imagery
-const PARKING = '#4ADE80' // token-exempt: map pin over imagery
-const PIN_OTHER = '#E5E7EB' // token-exempt: map pin over imagery
-const PIN_LABEL = { entrance: 'E', parking: 'P', home: 'H' } as const
-const PIN_TITLE = { entrance: 'Entrance', parking: 'Parking', home: 'Home' } as const
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 const FT_TO_M = 0.3048
 
@@ -64,46 +60,6 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(h))
-}
-
-/**
- * Guide lines down the male bays that have shelters beside them.
- *
- * Not every pass — most bays have no shelters, and drawing them all buries the
- * few that matter. Not the crew route either: that is a driving path with
- * headland links, which answers "where next" rather than "which one is this".
- *
- * Extended past the field so the line is visible from the headland, which is
- * where the row gets chosen.
- */
-function bayGuideFC(
-  g: Record<string, unknown>,
-  shelters: Array<{ lat: number; lng: number }>,
-): { lines: GeoJSON.FeatureCollection; labels: GeoJSON.FeatureCollection } {
-  // The boundary decides how far the lines run: the bays only span the pivot's
-  // circle, and on a square quarter that stops well short of the headland.
-  const boundary = Array.isArray(g.boundary_polygon)
-    ? (g.boundary_polygon as Array<[number, number]>)
-    : null
-  const guides = bayGuides(g, shelters, 40, boundary)
-  return {
-    lines: {
-      type: 'FeatureCollection',
-      features: guides.map((gd) => ({
-        type: 'Feature',
-        properties: { pass: gd.pass },
-        geometry: { type: 'LineString', coordinates: gd.coordinates },
-      })),
-    },
-    labels: {
-      type: 'FeatureCollection',
-      features: guides.map((gd) => ({
-        type: 'Feature',
-        properties: { number: gd.pass },
-        geometry: { type: 'Point', coordinates: gd.label },
-      })),
-    },
-  }
 }
 
 export default function ShelterPlacement() {
@@ -206,19 +162,7 @@ export default function ShelterPlacement() {
   const [nudgeOpen, setNudgeOpen] = useState(false)
   /** What the last line-up did, so a bad snap is visible immediately. */
   const [snapNote, setSnapNote] = useState<string | null>(null)
-  /**
-   * Layer toggles. `edges` and `rowGuides` are off by default: they answer
-   * questions asked at the headland, not while placing, and a map with
-   * everything on is a map nobody reads.
-   */
-  const [show, setShow] = useState({
-    boundary: true,
-    tracks: true,
-    wet: false,
-    edges: false,
-    rowGuides: false,
-    pins: true,
-  })
+  const [show, setShow] = useState(DEFAULT_LAYERS)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -236,53 +180,7 @@ export default function ShelterPlacement() {
     // 'style.load' not 'load' — see MapsHome: `load` blocks on the initial
     // viewport's tiles, which on a phone in the field is the slow part.
     map.on('style.load', () => {
-      map.addSource('boundary', { type: 'geojson', data: EMPTY })
-      map.addLayer({ id: 'boundary-line', type: 'line', source: 'boundary', paint: { 'line-color': FIELD_LINE, 'line-width': 2 } })
-      map.addSource('tracks', { type: 'geojson', data: EMPTY })
-      map.addLayer({ id: 'tracks-line', type: 'line', source: 'tracks', paint: { 'line-color': '#FF8A2B', 'line-width': 1.5, 'line-dasharray': [2, 2] } })
-      map.addSource('wet', { type: 'geojson', data: EMPTY })
-      map.addLayer({ id: 'wet-fill', type: 'fill', source: 'wet', paint: { 'fill-color': '#39B7D6', 'fill-opacity': 0.3 } })
-      // Sprayer edge zones — where the boom overlaps the neighbouring pass.
-      // Drawn UNDER the pins: it is context for where a shelter sits, not the
-      // thing being placed.
-      map.addSource('edges', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'edges-fill',
-        type: 'fill',
-        source: 'edges',
-        paint: { 'fill-color': EDGE_ZONE, 'fill-opacity': 0.22 },
-      })
-      map.addLayer({
-        id: 'edges-line',
-        type: 'line',
-        source: 'edges',
-        paint: { 'line-color': EDGE_ZONE, 'line-width': 1, 'line-opacity': 0.5 },
-      })
-
-      // Row guides, extended past the boundary so the row is identifiable from
-      // the headland — before the turn, not after it.
-      map.addSource('row-guides', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'row-guides-line',
-        type: 'line',
-        source: 'row-guides',
-        paint: { 'line-color': ROW_GUIDE, 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.9 },
-      })
-
-      // Pass numbers, so the line says WHICH row it is — a line with no
-      // number tells you a row exists, which you could already see.
-      map.addSource('row-guide-labels', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'row-guide-labels-text',
-        type: 'symbol',
-        source: 'row-guide-labels',
-        layout: {
-          'text-field': ['to-string', ['get', 'number']],
-          'text-size': 13,
-          'text-allow-overlap': false,
-        },
-        paint: { 'text-color': ROW_GUIDE, 'text-halo-color': '#000', 'text-halo-width': 1.4 },
-      })
+      addFieldLayers(map)
 
       map.addSource('pins', { type: 'geojson', data: EMPTY })
       // Not-placed: hollow ring. Placed: filled dot with dark outline.
@@ -332,55 +230,10 @@ export default function ShelterPlacement() {
     // field.geometry here meant a nudge shifted the pins and left the bays and
     // guides behind — the exact drift this feature exists to remove.
     const g = nudgedGeometry ?? {}
-    const poly = Array.isArray(g.boundary_polygon) ? (g.boundary_polygon as Array<[number, number]>) : null
-    ;(map.getSource('boundary') as GeoJSONSource | undefined)?.setData(
-      show.boundary && poly && poly.length >= 3
-        ? {
-            type: 'FeatureCollection',
-            features: [
-              {
-                type: 'Feature',
-                properties: {},
-                geometry: { type: 'Polygon', coordinates: [[...poly, poly[0]].map(([lat, lon]) => [lon, lat])] },
-              },
-            ],
-          }
-        : EMPTY,
-    )
-    ;(map.getSource('tracks') as GeoJSONSource | undefined)?.setData(show.tracks ? trackRings(g) : EMPTY)
-    ;(map.getSource('wet') as GeoJSONSource | undefined)?.setData(show.wet ? ringPolygons(g.wet_zones) : EMPTY)
-    // Only the EDGE bands, not the tire tracks: this answers "does a shelter
-    // sit where two passes overlap", and the tire lines would bury the pins.
-    ;(map.getSource('edges') as GeoJSONSource | undefined)?.setData(
-      show.edges ? tireAndEdgeZones(g).edge : EMPTY,
-    )
-    const guides = show.rowGuides ? bayGuideFC(g, pins) : null
-    ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(guides?.lines ?? EMPTY)
-    ;(map.getSource('row-guide-labels') as GeoJSONSource | undefined)?.setData(guides?.labels ?? EMPTY)
-    // Parking, entrance and home. The parking pin is the one that matters in
-    // the truck: it is where the crew starts and ends, and it is the answer to
-    // "where did we leave everything" at the end of a pass.
+    // Markers are returned so they can be removed: they live outside the
+    // map's layer list and would leak one set per redraw.
     pinMarkersRef.current.forEach((m) => m.remove())
-    pinMarkersRef.current = (show.pins ? overlayPins(g as never) : []).map((pin) => {
-      const el = document.createElement('div')
-      el.textContent = PIN_LABEL[pin.kind]
-      el.title = `${PIN_TITLE[pin.kind]} — tap for directions`
-      el.style.cssText =
-        `display:grid;place-items:center;width:30px;height:30px;border-radius:9999px;` +
-        `background:${pin.kind === 'parking' ? PARKING : PIN_OTHER};color:#111;` +
-        `font:700 13px/1 system-ui;border:2px solid rgba(0,0,0,.6);` +
-        `box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:pointer`
-      // Tap for turn-by-turn to the gate. Confirmed first: this leaves the app
-      // for the phone's map, and a mis-tap while placing shelters would drop
-      // the crew out of the scan they were in the middle of.
-      el.addEventListener('click', (ev) => {
-        ev.stopPropagation()
-        const where = PIN_TITLE[pin.kind].toLowerCase()
-        if (!window.confirm(`Open directions to the ${where}?`)) return
-        window.open(navigationUrl(pin.lat, pin.lng), '_blank', 'noopener')
-      })
-      return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
-    })
+    pinMarkersRef.current = updateFieldLayers(map, g as Record<string, unknown>, pins, show)
 
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
@@ -791,16 +644,7 @@ export default function ShelterPlacement() {
             className="space-y-2 rounded-md border border-subtle p-3 text-sm"
             style={{ background: 'color-mix(in srgb, var(--bg-raised) 95%, transparent)' }}
           >
-            {(
-              [
-                ['boundary', 'Boundary'],
-                ['tracks', 'Pivot tracks'],
-                ['wet', 'Wet zones'],
-                ['edges', 'Sprayer edge zones'],
-                ['rowGuides', 'Bay guides'],
-                ['pins', 'Parking & gates'],
-              ] as const
-            ).map(([k, label]) => (
+            {LAYER_TOGGLES.map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">
                 <input type="checkbox" checked={show[k]} onChange={(e) => setShow((p) => ({ ...p, [k]: e.target.checked }))} />
                 {label}

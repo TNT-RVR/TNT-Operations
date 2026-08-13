@@ -8,9 +8,9 @@ import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
-import { getTentPositions, getTentPositionsWithRows } from '@/domain/tentGrid'
+import { getTentPositions } from '@/domain/tentGrid'
 import { tireAndEdgeZones } from '@/domain/sprayOverlays'
-import { rowGuideLines } from '@/domain/rowGuides'
+import { crewRoute } from '@/domain/crewRoute'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
@@ -54,26 +54,37 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 }
 
 /**
- * Row guides for a field, as GeoJSON.
+ * The crew's driving route, as GeoJSON.
  *
- * Uses the grid's own row indices rather than clustering the pins: the grid
- * knows which shelters share a row, and inferring it from coordinates would
- * disagree with the office map on a field with an odd shape.
+ * Reuses `crewRoute()` — the same computation the office plans with on the
+ * Shelter Maps tab. It already does the hard part: each pass runs the FULL
+ * length to the field boundary, and consecutive passes are joined along the
+ * headland rather than across the crop.
+ *
+ * This replaced a hand-rolled version that projected a line through each row's
+ * end pins and extended it a fixed 40 m. That was straight where the route is
+ * boundary-aware, and on a pivot the short rows barely cleared the edge while
+ * the long ones overshot. Two implementations of "where do we drive" would
+ * have drifted apart anyway; the office and the cab should see one answer.
  */
-function rowGuideFC(g: Record<string, unknown>): GeoJSON.FeatureCollection {
+function crewRouteFC(g: Record<string, unknown>, shelters: Array<{ lat: number; lng: number }>): GeoJSON.FeatureCollection {
+  if (shelters.length < 2) return { type: 'FeatureCollection', features: [] }
   try {
-    const { positions, rows } = getTentPositionsWithRows(g)
+    const { route } = crewRoute(g, shelters)
+    if (route.length < 2) return { type: 'FeatureCollection', features: [] }
     return {
       type: 'FeatureCollection',
-      features: rowGuideLines(positions, rows).map((l) => ({
-        type: 'Feature',
-        properties: { row: l.row + 1 },
-        geometry: { type: 'LineString', coordinates: l.coordinates },
-      })),
+      features: [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: route.map(([lat, lon]) => [lon, lat]) },
+        },
+      ],
     }
   } catch {
-    // A field the grid cannot compute (pass-following, bad geometry) simply
-    // gets no guides — never a crash on a screen someone is driving with.
+    // A field the route cannot be built for (pass-following, odd geometry)
+    // simply gets no line — never a crash on a screen someone is driving with.
     return { type: 'FeatureCollection', features: [] }
   }
 }
@@ -245,7 +256,7 @@ export default function ShelterPlacement() {
       show.edges ? tireAndEdgeZones(g).edge : EMPTY,
     )
     ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(
-      show.rowGuides ? rowGuideFC(g) : EMPTY,
+      show.rowGuides ? crewRouteFC(g, pins) : EMPTY,
     )
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
@@ -516,7 +527,7 @@ export default function ShelterPlacement() {
                 ['tracks', 'Pivot tracks'],
                 ['wet', 'Wet zones'],
                 ['edges', 'Sprayer edge zones'],
-                ['rowGuides', 'Row guides'],
+                ['rowGuides', 'Crew route'],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">

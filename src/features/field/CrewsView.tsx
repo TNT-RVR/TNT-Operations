@@ -7,7 +7,15 @@ import { supabase } from '@/data/supabaseClient'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { ProgressBar } from '@/components/ui'
 import { useSession } from '@/auth/session'
-import { crewStatus, sortCrews, crewOf, membersOf, leadOf, type LiveCrew } from '@/domain/crews'
+import {
+  crewStatus,
+  sortCrews,
+  crewOf,
+  membersOf,
+  leadOf,
+  describeAssignment,
+  type LiveCrew,
+} from '@/domain/crews'
 
 /**
  * Crews — where everyone is and how far along they are.
@@ -25,12 +33,23 @@ import { crewStatus, sortCrews, crewOf, membersOf, leadOf, type LiveCrew } from 
  * when it last heard from someone.
  */
 
+/** An assignment older than this has probably been forgotten rather than set. */
+const ASSIGNMENT_STALE_H = 20
+
+const staleAssignment = (iso: string) => Date.now() - Date.parse(iso) > ASSIGNMENT_STALE_H * 3600_000
+
+const sinceDays = (iso: string) => {
+  const h = (Date.now() - Date.parse(iso)) / 3600_000
+  if (h < 48) return `${Math.round(h)} h ago`
+  return `${Math.round(h / 24)} days ago`
+}
+
 const CREW_SHELTER = '#FFCE3A'
 const CREW_TRAY = '#4ADE80'
 const CREW_STALE = '#8A8A8A'
 
 export default function CrewsView() {
-  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew, updateCrew } =
+  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew, updateCrew, assignCrew } =
     useData()
   const session = useSession()
   const me = session.user.id
@@ -253,6 +272,55 @@ export default function CrewsView() {
                       </>
                     )}
                   </div>
+                  {/* What this crew is on. Anyone can set it: the crew that
+                      moves to the next quarter is the crew that knows. */}
+                  {renaming !== c.id && (
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <select
+                        className="rounded-sm border border-default bg-inset px-1.5 py-1 text-xs text-primary"
+                        value={c.currentTask ?? ''}
+                        disabled={busy}
+                        onChange={(e) =>
+                          act(() =>
+                            assignCrew(c.id, {
+                              fieldId: c.currentFieldId,
+                              task: (e.target.value || null) as 'shelter' | 'tray' | null,
+                            }),
+                          )
+                        }
+                      >
+                        <option value="">No job</option>
+                        <option value="shelter">Shelters</option>
+                        <option value="tray">Trays</option>
+                      </select>
+                      <select
+                        className="max-w-[12rem] rounded-sm border border-default bg-inset px-1.5 py-1 text-xs text-primary"
+                        value={c.currentFieldId ?? ''}
+                        disabled={busy}
+                        onChange={(e) =>
+                          act(() =>
+                            assignCrew(c.id, {
+                              fieldId: e.target.value || null,
+                              task: c.currentTask,
+                            }),
+                          )
+                        }
+                      >
+                        <option value="">No field</option>
+                        {fields.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                      {/* An assignment set days ago and forgotten is worth
+                          spotting — it is the difference between "on trays at
+                          Bow Island" and "was, on Tuesday". */}
+                      {c.assignedAt && staleAssignment(c.assignedAt) && (
+                        <span className="text-xs text-amber-600">set {sinceDays(c.assignedAt)}</span>
+                      )}
+                    </div>
+                  )}
                   {canEdit && renaming !== c.id && (
                     <div className="mt-1 flex gap-3">
                       <button
@@ -346,6 +414,16 @@ export default function CrewsView() {
                     <span className="text-sm text-secondary">
                       {fieldName(c.fieldId) ?? c.fieldName}
                     </span>
+                    {/* What they are SUPPOSED to be doing, from the assignment
+                        — which survives the iPad locking, unlike the broadcast. */}
+                    {(() => {
+                      const assigned = crews.find((x) => x.name === c.name)
+                      if (!assigned?.currentTask) return null
+                      const fname = fields.find((f) => f.id === assigned.currentFieldId)?.name
+                      return (
+                        <span className="text-xs text-faint">{describeAssignment(assigned, fname)}</span>
+                      )
+                    })()}
                     <span
                       className={`ml-auto flex items-center gap-1 text-xs ${
                         status.stale ? 'text-danger' : 'text-faint'

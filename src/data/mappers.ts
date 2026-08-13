@@ -558,6 +558,7 @@ export function toPlacedShelter(row: PlacedShelterRow): PlacedShelter {
     lng: numOrNull(row.lon),
     placedAt: row.placed_at,
     placedBy: row.placed_by ?? '',
+    crewId: (row as { crew_id?: string | null }).crew_id ?? null,
     status: row.status ?? 'placed',
     notes: row.notes ?? '',
   }

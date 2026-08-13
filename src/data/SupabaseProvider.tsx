@@ -235,6 +235,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         name: String(r.name),
         season: Number(r.season),
         active: r.active !== false,
+        currentFieldId: (r.current_field_id as string | null) ?? null,
+        currentTask: (r.current_task as 'shelter' | 'tray' | null) ?? null,
+        assignedAt: (r.assigned_at as string | null) ?? null,
       })),
     )
     setCrewMembers(
@@ -666,6 +669,26 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if (patch.active !== undefined) row.active = patch.active
         if (Object.keys(row).length === 0) return { ok: true }
         const { error } = await supabase.from('field_crews').update(row).eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
+      assignCrew: async (
+        id: string,
+        assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+      ) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const { error } = await supabase
+          .from('field_crews')
+          .update({
+            current_field_id: assignment.fieldId,
+            current_task: assignment.task,
+            // Stamped so "no job set" and "set three days ago and forgotten"
+            // can be told apart.
+            assigned_at: assignment.task ? new Date().toISOString() : null,
+          })
+          .eq('id', id)
         if (error) return { ok: false, error: error.message }
         crewsPromiseRef.current = null
         await refreshCrews()
@@ -1596,6 +1619,10 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             lon: input.lng,
             placed_at: input.placedAt,
             placed_by: input.placedBy,
+            // Whose work this was. Without it, progress can only ever be the
+            // FIELD's progress — two crews in one quarter each reading as
+            // having done all of it.
+            crew_id: input.crewId ?? null,
             status: input.status,
             notes: input.notes,
           })

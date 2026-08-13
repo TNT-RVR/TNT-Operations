@@ -213,6 +213,18 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * would orphan a season of work to tidy a list.
    */
   updateCrew: (id: string, patch: { name?: string; active?: boolean }) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Set what a crew is working on — the field and the job.
+   *
+   * Stored rather than inferred from whichever screen a device has open: an
+   * assignment has to survive a locked iPad, a closed app and a dead battery,
+   * and it can be set the night before rather than discovered at 7am.
+   * Passing nulls clears it.
+   */
+  assignCrew: (
+    id: string,
+    assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+  ) => Promise<{ ok: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

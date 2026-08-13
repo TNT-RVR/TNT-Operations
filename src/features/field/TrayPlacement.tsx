@@ -3,6 +3,9 @@ import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Mountain } from 'lucide-react'
 import { useData } from '@/data/context'
+import { useSession } from '@/auth/session'
+import { supabase } from '@/data/supabaseClient'
+import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
@@ -30,7 +33,8 @@ const GPS_BLUE = '#5AA9E6'
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 export default function TrayPlacement() {
-  const { fields } = useData()
+  const { fields, crews, crewMembers, loadCrews, shelterTrayLinks } = useData()
+  const session = useSession()
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
   const [fieldId, setFieldId] = useState<string | null>(null)
   const field: Field | null = useMemo(
@@ -51,6 +55,24 @@ export default function TrayPlacement() {
       return []
     }
   }, [field])
+
+  useEffect(() => {
+    void loadCrews()
+  }, [loadCrews])
+
+  /**
+   * A tray crew has to appear on the Crews map too — a crew that is invisible
+   * because of which screen it has open is the failure this whole feature
+   * exists to remove. Same rule as shelter placement: only the lead device
+   * reports, and someone on no crew reports as themselves.
+   */
+  const myCrewId = crewOf(crewMembers, session.user.id)
+  const myCrew = crews.find((c) => c.id === myCrewId) ?? null
+  const broadcastAs = myCrewId
+    ? shouldBroadcastPosition(crewMembers, session.user.id)
+      ? (myCrew?.name ?? session.user.name)
+      : null
+    : session.user.name
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -153,6 +175,7 @@ export default function TrayPlacement() {
         const map = mapRef.current
         if (!map) return
         const fix = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        gpsRef.current = fix
         headingRef.current = nextHeading(headingRef.current, {
           heading: pos.coords.heading,
           speed: pos.coords.speed,
@@ -190,6 +213,43 @@ export default function TrayPlacement() {
     )
     return () => navigator.geolocation.clearWatch(id)
   }, [])
+
+  // Position broadcast (channel 'crew_live'), same as shelter placement.
+  const gpsRef = useRef<{ lat: number; lng: number } | null>(null)
+  useEffect(() => {
+    if (!supabase || !field || !broadcastAs) return
+    const channel = supabase.channel('crew_live')
+    let sub = false
+    channel.subscribe((status) => {
+      sub = status === 'SUBSCRIBED'
+    })
+    const t = setInterval(() => {
+      if (!sub || !gpsRef.current) return
+      const done = shelterTrayLinks.filter((l) =>
+        pins.some((p) => String(p.gridIdx) === String(l.shelterId)),
+      ).length
+      channel.send({
+        type: 'broadcast',
+        event: 'crew',
+        payload: {
+          name: broadcastAs,
+          task: myCrew?.currentTask ?? 'tray',
+          fieldId: field.id,
+          fieldName: field.name,
+          lat: gpsRef.current.lat,
+          lng: gpsRef.current.lng,
+          placed: done,
+          total: pins.length,
+          at: new Date().toISOString(),
+        },
+      })
+    }, 8000)
+    return () => {
+      clearInterval(t)
+      supabase?.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [field?.id, pins.length, broadcastAs])
 
   return (
     <div className="relative h-full">

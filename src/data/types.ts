@@ -163,6 +163,9 @@ export interface IncubationBatch {
 
 /** A physically placed shelter in a field (QR + GPS), as scanned by a crew. */
 export interface PlacedShelter {
+  /** The crew that placed it. Null on work done before crews existed,
+   *  or by anyone not on one — "not recorded", never "no crew". */
+  crewId?: string | null
   id: string
   fieldId: string | null
   qrCode: string | null

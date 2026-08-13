@@ -295,6 +295,20 @@ export default function ShelterPlacement() {
    * because the crew list has not been set up.
    */
   const myCrewId = crewOf(crewMembers, s.user.id)
+  const myCrew = crews.find((c) => c.id === myCrewId) ?? null
+
+  /** How many of this field's shelters THIS crew placed. */
+  const myPlacedCount = useMemo(
+    () =>
+      myCrewId
+        ? placedShelters.filter(
+            (p) => p.fieldId === field?.id && p.status === 'placed' && p.crewId === myCrewId,
+          ).length
+        : placedCount,
+    [placedShelters, field?.id, myCrewId, placedCount],
+  )
+  const myPlacedRef = useRef(myPlacedCount)
+  myPlacedRef.current = myPlacedCount
   const isLead = shouldBroadcastPosition(crewMembers, s.user.id)
   const broadcastAs = myCrewId
     ? isLead
@@ -316,14 +330,17 @@ export default function ShelterPlacement() {
         event: 'crew',
         payload: {
           name: broadcastAs,
-          // Which job — the Crews view separates shelter work from tray work,
-          // and two crews can be in the same field doing different things.
-          task: 'shelter',
+          // The job comes from the crew's ASSIGNMENT, not from which screen
+          // happens to be open: a crew assigned to trays does not become a
+          // shelter crew because someone glanced at this tab.
+          task: myCrew?.currentTask ?? 'shelter',
           fieldId: field.id,
           fieldName: field.name,
           lat: gpsRef.current.lat,
           lng: gpsRef.current.lng,
-          placed: placedRef.current,
+          // MY crew's count, not the field's. Two crews in one quarter each
+          // reporting the field total reads as double the work done.
+          placed: myPlacedRef.current,
           total: pins.length,
           at: new Date().toISOString(),
         },
@@ -368,6 +385,7 @@ export default function ShelterPlacement() {
       lng: gps?.lng ?? target.lng,
       placedAt: new Date().toISOString(),
       placedBy: s.user.name,
+      crewId: myCrewId,
       status: 'placed',
       notes: '',
     })

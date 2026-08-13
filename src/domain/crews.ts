@@ -76,6 +76,23 @@ export interface Crew {
   name: string
   season: number
   active: boolean
+  /** The field this crew is working, and which job. Null = unassigned. */
+  currentFieldId: string | null
+  currentTask: 'shelter' | 'tray' | null
+  assignedAt: string | null
+}
+
+/**
+ * What a crew is doing, in words.
+ *
+ * The assignment is the ANSWER; a live position only says where they are. A
+ * crew can be assigned and out of signal, which is normal, and reading
+ * "unassigned" for that would be worse than saying nothing.
+ */
+export function describeAssignment(crew: Crew, fieldName?: string | null): string {
+  if (!crew.currentTask || !crew.currentFieldId) return 'No job set'
+  const job = crew.currentTask === 'tray' ? 'Trays' : 'Shelters'
+  return `${job} · ${fieldName ?? 'unknown field'}`
 }
 
 export interface CrewMember {

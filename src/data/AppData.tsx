@@ -102,8 +102,14 @@ function MockProvider({ children }: { children: ReactNode }) {
   // Two crews with an iPad on one of them, so the Crews view has something to
   // show without anyone setting it up first.
   const [crews, setCrews] = useState<Crew[]>([
-    { id: 'crew1', name: 'Crew 1', season: new Date().getFullYear(), active: true },
-    { id: 'crew2', name: 'Crew 2', season: new Date().getFullYear(), active: true },
+    {
+      id: 'crew1', name: 'Crew 1', season: new Date().getFullYear(), active: true,
+      currentFieldId: 'f1', currentTask: 'shelter', assignedAt: new Date().toISOString(),
+    },
+    {
+      id: 'crew2', name: 'Crew 2', season: new Date().getFullYear(), active: true,
+      currentFieldId: null, currentTask: null, assignedAt: null,
+    },
   ])
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([
     { id: 'cm1', crewId: 'crew1', userId: 'u_op', role: 'lead', joinedAt: new Date().toISOString(), leftAt: null },
@@ -209,9 +215,33 @@ function MockProvider({ children }: { children: ReactNode }) {
         )
         return { ok: true }
       },
+      assignCrew: async (
+        id: string,
+        assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+      ) => {
+        setCrews((prev) =>
+          prev.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  currentFieldId: assignment.fieldId,
+                  currentTask: assignment.task,
+                  assignedAt: assignment.task ? new Date().toISOString() : null,
+                }
+              : c,
+          ),
+        )
+        return { ok: true }
+      },
       createCrew: async (name: string) => {
         const id = nextId('crew')
-        setCrews((prev) => [...prev, { id, name, season: new Date().getFullYear(), active: true }])
+        setCrews((prev) => [
+          ...prev,
+          {
+            id, name, season: new Date().getFullYear(), active: true,
+            currentFieldId: null, currentTask: null, assignedAt: null,
+          },
+        ])
         return { ok: true, crewId: id }
       },
       latestReading: (incubatorId) =>

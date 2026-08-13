@@ -25,6 +25,7 @@ import { planJoin, planTakeLead, type Crew, type CrewMember } from '@/domain/cre
 import { useSalesMock } from './useSalesMock'
 import { useTasksMock } from './useTasksMock'
 import { useSettings } from './useSettings'
+import { useSession } from '@/auth/session'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { weatherKey } from '@/domain/weather'
 import {
@@ -117,6 +118,13 @@ function MockProvider({ children }: { children: ReactNode }) {
   const sales = useSalesMock()
   // The mock user switcher is the 'current user'; tasks stamp completions with it.
   const tasks = useTasksMock('u_admin')
+  /**
+   * Who the mock is acting as. Read from the session rather than hardcoded:
+   * the user switcher exists precisely to try a screen as somebody else, and
+   * crew membership written for a different user than the one the screen reads
+   * makes joining appear to do nothing at all.
+   */
+  const mockUserId = useSession().user.id
   const settings2 = useSettings('u_admin', false)
 
   const value = useMemo<DataContextValue>(
@@ -159,7 +167,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       crewMembers,
       loadCrews: async () => {},
       joinCrew: async (crewId: string, asLead: boolean) => {
-        const me = 'u_admin'
+        const me = mockUserId
         const plan = planJoin(crewMembers, me, crewId)
         const now = new Date().toISOString()
         const handover = asLead ? planTakeLead(crewMembers, me, crewId) : { demote: [], promote: null }
@@ -187,7 +195,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       leaveCrew: async () => {
         const now = new Date().toISOString()
         setCrewMembers((prev) =>
-          prev.map((m) => (m.userId === 'u_admin' && m.leftAt == null ? { ...m, leftAt: now } : m)),
+          prev.map((m) => (m.userId === mockUserId && m.leftAt == null ? { ...m, leftAt: now } : m)),
         )
         return { ok: true }
       },
@@ -649,6 +657,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       blockPlacements,
       crews,
       crewMembers,
+      mockUserId,
       grants,
       grantTasks,
       fieldAnalysis,

@@ -12,10 +12,10 @@ export const MODULES = ['dashboard', 'maps', 'incubation', 'blocks', 'analysis',
 export type Module = (typeof MODULES)[number]
 export type Action = 'view' | 'edit'
 
-export type Role = 'admin' | 'developer' | 'operator' | 'viewer' | 'pending'
+export type Role = 'admin' | 'developer' | 'operator' | 'viewer' | 'device' | 'pending'
 
 /** Roles an admin can assign in the Users screen (excludes the transient `pending`). */
-export const ASSIGNABLE_ROLES: Role[] = ['admin', 'developer', 'operator', 'viewer']
+export const ASSIGNABLE_ROLES: Role[] = ['admin', 'developer', 'operator', 'viewer', 'device']
 
 export interface User {
   id: string
@@ -34,6 +34,19 @@ export const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Field/office staff: run the operation, but not user administration.
   // `analysis: edit` is what lets them upload the season sheet.
   operator: { dashboard: 'view', maps: 'edit', incubation: 'edit', blocks: 'edit', analysis: 'edit', sales: 'edit', tasks: 'edit', grants: 'edit' },
+  /**
+   * A shared iPad in a truck, signed in permanently and belonging to nobody.
+   *
+   * It exists to be a crew's position reporter and to show the field screens.
+   * Deliberately narrow: an unlocked iPad left on a seat is a set of
+   * credentials in a cab, and what it can reach should be what the crew is
+   * doing today.
+   *
+   * Note it can still join a crew and broadcast: those are field_crew_members
+   * writes gated on has_access(), not on a module grant. That is the one thing
+   * a device account is FOR.
+   */
+  device: { maps: 'view' },
   // Read-only.
   viewer: { dashboard: 'view', maps: 'view', incubation: 'view', blocks: 'view', analysis: 'view', sales: 'view', tasks: 'view', grants: 'view' },
   // Signed up, awaiting admin approval — no access to anything.

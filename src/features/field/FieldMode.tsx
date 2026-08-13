@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
+import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Layers, Check } from 'lucide-react'
+import { Crosshair, Layers, Check, Mountain } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
@@ -92,6 +93,9 @@ export default function FieldMode() {
       style: SATELLITE_STYLE,
       center: [-111.6, 49.83],
       zoom: 13,
+      // Open in whichever view was last used, so the crew isn't re-picking it
+      // every morning. The GPS fix then flies it in properly.
+      pitch: navMode === 'drive' ? 60 : 0,
       attributionControl: { compact: true },
     })
     mapRef.current = map
@@ -194,6 +198,21 @@ export default function FieldMode() {
   const followRef = useRef(follow)
   followRef.current = follow
 
+  /**
+   * 'drive' is the tractor-display view: tilted, zoomed in, turned so the
+   * ground you are heading into fills the screen. 'overhead' is flat and
+   * north-up, which is what you want when reading the whole field rather than
+   * driving it. Remembered, because a crew has a preference and re-picking it
+   * every time the app opens is friction.
+   */
+  const [navMode, setNavMode] = useState<'drive' | 'overhead'>(
+    () => (localStorage.getItem('field.navMode') as 'drive' | 'overhead') ?? 'drive',
+  )
+  const navModeRef = useRef(navMode)
+  navModeRef.current = navMode
+  /** Smoothed travel direction — see src/domain/navView.ts. */
+  const headingRef = useRef<number | null>(null)
+
   useEffect(() => {
     if (!('geolocation' in navigator)) return
     const id = navigator.geolocation.watchPosition(
@@ -202,16 +221,46 @@ export default function FieldMode() {
         setGps(fix)
         const map = mapRef.current
         if (!map) return
+
+        headingRef.current = nextHeading(headingRef.current, {
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+        })
+
         if (!gpsMarkerRef.current) {
+          // An arrow, not a dot: in a tilted view the thing you need to know is
+          // which way you are pointed, and a dot cannot say.
           const el = document.createElement('div')
+          el.className = 'field-gps-arrow'
           el.style.cssText =
-            `width:16px;height:16px;border-radius:9999px;background:${GPS_BLUE};` +
-            `border:3px solid #fff;box-shadow:0 0 0 2px rgba(90,169,230,.4),0 1px 4px rgba(0,0,0,.5)`
-          gpsMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat([fix.lng, fix.lat]).addTo(map)
+            `width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;` +
+            `border-bottom:26px solid ${GPS_BLUE};filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));` +
+            `transform-origin:50% 70%`
+          // rotationAlignment 'map' keeps the arrow glued to the ground as the
+          // map turns, rather than spinning with the screen.
+          gpsMarkerRef.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+            .setLngLat([fix.lng, fix.lat])
+            .addTo(map)
         } else {
           gpsMarkerRef.current.setLngLat([fix.lng, fix.lat])
         }
-        if (followRef.current) map.easeTo({ center: [fix.lng, fix.lat], duration: 500 })
+        if (headingRef.current != null) gpsMarkerRef.current.setRotation(headingRef.current)
+
+        if (followRef.current) {
+          const target = cameraFor({
+            lng: fix.lng,
+            lat: fix.lat,
+            heading: headingRef.current,
+            mode: navModeRef.current,
+            currentBearing: map.getBearing(),
+          })
+          const c = map.getCenter()
+          // Skip the moves too small to see — every one is an animation, and on
+          // a phone that is battery and judder for nothing.
+          if (shouldMoveCamera({ center: [c.lng, c.lat], bearing: map.getBearing() }, target)) {
+            map.easeTo({ ...target, duration: 700, essential: true })
+          }
+        }
       },
       () => setGps(null),
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
@@ -361,6 +410,46 @@ export default function FieldMode() {
           aria-label="Follow me"
         >
           <Crosshair size={18} />
+        </button>
+        <button
+          className="grid h-11 w-11 place-items-center rounded-md border border-default"
+          style={{
+            background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)',
+            color: navMode === 'drive' ? 'var(--brand)' : 'var(--text-secondary)',
+          }}
+          onClick={() => {
+            const next = navMode === 'drive' ? 'overhead' : 'drive'
+            setNavMode(next)
+            try {
+              localStorage.setItem('field.navMode', next)
+            } catch {
+              /* private mode — the choice just won't persist */
+            }
+            const map = mapRef.current
+            if (!map) return
+            // Apply immediately rather than waiting for the next fix, which
+            // may be seconds away and makes the button feel broken.
+            const g = gpsRef.current
+            map.easeTo({
+              ...(g
+                ? cameraFor({
+                    lng: g.lng,
+                    lat: g.lat,
+                    heading: headingRef.current,
+                    mode: next,
+                    currentBearing: map.getBearing(),
+                  })
+                : next === 'drive'
+                  ? { pitch: 60, zoom: Math.max(map.getZoom(), 17.5) }
+                  : { pitch: 0, bearing: 0, zoom: 16 }),
+              duration: 500,
+              essential: true,
+            })
+          }}
+          aria-label={navMode === 'drive' ? 'Switch to overhead view' : 'Switch to driving view'}
+          title={navMode === 'drive' ? 'Driving view (tilted, heading up)' : 'Overhead view (flat, north up)'}
+        >
+          <Mountain size={18} />
         </button>
       </div>
 

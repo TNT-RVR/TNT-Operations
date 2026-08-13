@@ -1,6 +1,8 @@
 import { Navigate, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
 import { Protected } from './components/Protected'
+import { useSession, type Module } from '@/auth/session'
+import { NoAccess } from './components/ui'
 import TasksHome from './features/tasks/TasksHome'
 import ChecklistsHome from './features/tasks/ChecklistsHome'
 import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
@@ -37,11 +39,46 @@ import AnalysisGrowers from './features/analysis/AnalysisGrowers'
 import AnalysisMap from './features/analysis/AnalysisMap'
 import AnalysisUpload from './features/analysis/AnalysisUpload'
 
+/**
+ * The first screen after signing in: the Dashboard for anyone who has it, and
+ * otherwise the first section this user can reach.
+ */
+function Home() {
+  const s = useSession()
+  if (s.can('dashboard', 'view')) {
+    return (
+      <Protected module="dashboard">
+        <Dashboard />
+      </Protected>
+    )
+  }
+  const first = LANDING.find((l) => s.can(l.module, 'view'))
+  return first ? <Navigate to={first.to} replace /> : <NoAccess />
+}
+
+/**
+ * Where to send someone with no Dashboard, in the order it makes sense to try.
+ * Field first: the accounts without a dashboard are the ones out in a truck.
+ */
+const LANDING: Array<{ module: Module; to: string }> = [
+  { module: 'field', to: '/field' },
+  { module: 'blocks', to: '/blocks/scan' },
+  { module: 'tasks', to: '/tasks' },
+  { module: 'calendar', to: '/calendar' },
+  { module: 'incubation', to: '/incubation' },
+  { module: 'maps', to: '/maps' },
+  { module: 'sales', to: '/sales' },
+  { module: 'users', to: '/users' },
+]
+
 export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route index element={<Protected module="dashboard"><Dashboard /></Protected>} />
+        {/* Land somewhere the signed-in user can actually GO. A crew iPad has
+            no Dashboard, so the app opened on "No access" and looked broken —
+            the role was right, the landing page was wrong. */}
+        <Route index element={<Home />} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
         <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
         <Route path="field" element={<Protected module="field"><ShelterPlacement /></Protected>} />

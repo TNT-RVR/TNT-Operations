@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSession } from '@/auth/session'
 import type { CalendarEvent } from '@/data/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
-import { PageHeader, Badge, EmptyState, Modal, Input, Select, Button } from '@/components/ui'
+import { PageHeader, Badge, Modal, Input, Select, Button } from '@/components/ui'
 import { useData } from '@/data/context'
 import {
   INCUBATION_MILESTONES,
@@ -201,15 +201,20 @@ export default function CalendarHome() {
 
   return (
     <div>
-      <PageHeader title="Calendar" subtitle="Incubation milestones across every running incubator" />
+      <PageHeader title="Calendar" subtitle="Everything the season has on it — and every incubation milestone" />
       <div className="space-y-4 p-4 md:p-6">
-        {scheduled.length === 0 ? (
-          <EmptyState>
-            No incubator has an incubation start date yet. Set one on an incubator, or scan trays in — the start is
-            taken from the most common in-date of its active trays.
-          </EmptyState>
-        ) : (
-          <>
+        {/* The grid ALWAYS renders. It used to be hidden until an incubator had
+            a start date, which was fair when this screen showed nothing but
+            milestones — and became a wall in front of the calendar the moment
+            it could hold anything else. */}
+        {scheduled.length === 0 && (
+          <p className="text-sm text-muted">
+            No incubator has a start date yet, so there are no milestones to show. Set one on an
+            incubator, or scan trays in — the start is taken from the most common in-date of its
+            active trays.
+          </p>
+        )}
+        <>
             {/* Month controls */}
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn-ghost px-2 py-1" onClick={() => step(-1)} aria-label="Previous month">
@@ -376,10 +381,9 @@ export default function CalendarHome() {
                 ))}
               </div>
             </section>
-          </>
-        )}
+        </>
       </div>
-    {editing && (
+      {editing && (
         <EventDialog
           draft={editing}
           fields={fields}

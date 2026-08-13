@@ -15,6 +15,7 @@ import { shiftToParkedSprayPass } from '@/domain/sprayNudge'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons, overlayPins } from '../maps/overlays'
+import { navigationUrl } from '@/domain/navLink'
 import { ProgressBar, Button } from '@/components/ui'
 
 /**
@@ -327,7 +328,10 @@ export default function ShelterPlacement() {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    const g = field?.geometry ?? {}
+    // The NUDGED geometry, so the overlays move with the shelters. Reading
+    // field.geometry here meant a nudge shifted the pins and left the bays and
+    // guides behind — the exact drift this feature exists to remove.
+    const g = nudgedGeometry ?? {}
     const poly = Array.isArray(g.boundary_polygon) ? (g.boundary_polygon as Array<[number, number]>) : null
     ;(map.getSource('boundary') as GeoJSONSource | undefined)?.setData(
       show.boundary && poly && poly.length >= 3
@@ -360,12 +364,21 @@ export default function ShelterPlacement() {
     pinMarkersRef.current = (show.pins ? overlayPins(g as never) : []).map((pin) => {
       const el = document.createElement('div')
       el.textContent = PIN_LABEL[pin.kind]
-      el.title = PIN_TITLE[pin.kind]
+      el.title = `${PIN_TITLE[pin.kind]} — tap for directions`
       el.style.cssText =
-        `display:grid;place-items:center;width:26px;height:26px;border-radius:9999px;` +
+        `display:grid;place-items:center;width:30px;height:30px;border-radius:9999px;` +
         `background:${pin.kind === 'parking' ? PARKING : PIN_OTHER};color:#111;` +
         `font:700 13px/1 system-ui;border:2px solid rgba(0,0,0,.6);` +
-        `box-shadow:0 1px 4px rgba(0,0,0,.5)`
+        `box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:pointer`
+      // Tap for turn-by-turn to the gate. Confirmed first: this leaves the app
+      // for the phone's map, and a mis-tap while placing shelters would drop
+      // the crew out of the scan they were in the middle of.
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        const where = PIN_TITLE[pin.kind].toLowerCase()
+        if (!window.confirm(`Open directions to the ${where}?`)) return
+        window.open(navigationUrl(pin.lat, pin.lng), '_blank', 'noopener')
+      })
       return new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)
     })
 
@@ -377,7 +390,7 @@ export default function ShelterPlacement() {
         geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
       })),
     })
-  }, [ready, field, pins, placedIdx, show])
+  }, [ready, field, nudgedGeometry, pins, placedIdx, show])
 
   // Fit to the field when it changes.
   useEffect(() => {

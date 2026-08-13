@@ -181,22 +181,10 @@ export async function shelterShapefileZip(name: string, positions: LatLng[], geo
   return out as Blob
 }
 
-/** Trigger a client-side download of a Blob. Browser-only. */
-export function downloadBlob(filename: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-/** Trigger a client-side download of text content. Browser-only. */
-export function downloadText(filename: string, mime: string, text: string): void {
-  downloadBlob(filename, new Blob([text], { type: mime }))
-}
+// The download helpers moved to @/lib/download once the incubator report
+// needed them too. Re-exported here so every existing caller in this feature
+// keeps working against one implementation rather than a copy.
+export { downloadBlob, downloadText } from '@/lib/download'
 
 /** Filesystem-safe slug for a field name. */
 export function slug(name: string): string {

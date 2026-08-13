@@ -596,6 +596,28 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           return added.length ? [...added, ...prev] : prev
         })
       },
+      fetchReadings: async (incubatorId: string, fromIso: string, toIso: string) => {
+        if (!supabase) return []
+        // Bounded at BOTH ends and returned, not merged: a three-year report
+        // must not leave three years of readings sitting in memory afterwards.
+        const PAGE = 1000
+        const out: SensorReading[] = []
+        for (let from = 0; ; from += PAGE) {
+          const res = await supabase
+            .from('sensor_readings')
+            .select('*')
+            .eq('incubator_id', incubatorId)
+            .gte('at', fromIso)
+            .lte('at', toIso)
+            .order('at', { ascending: true })
+            .range(from, from + PAGE - 1)
+          if (res.error) throw new Error(res.error.message)
+          const rows = (res.data as SensorReadingRow[]) ?? []
+          out.push(...rows.map(toSensorReading))
+          if (rows.length < PAGE) break
+        }
+        return out
+      },
       saveField: (id: string, patch: Partial<Field>) => {
         if (!supabase) return
         const row: Record<string, unknown> = {}

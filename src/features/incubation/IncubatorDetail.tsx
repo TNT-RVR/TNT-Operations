@@ -21,6 +21,7 @@ import {
   type TempMode,
 } from '@/domain/incubation'
 import { ReadingsChart } from './ReadingsChart'
+import { IncubatorExport } from './IncubatorExport'
 import { TrayScanButton } from './TrayScanButton'
 import { findTrays } from './trayLookup'
 
@@ -348,6 +349,8 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           {pollError && <p className="mb-2 text-sm text-danger">{pollError}</p>}
           <ReadingsChart readings={myReadings} incubatorId={incubator.id} targetC={targetC} tolerance={tolC} />
         </section>
+
+        <IncubatorExport incubator={incubator} />
 
         {/* Add inspection */}
         {canEdit && !logging && (

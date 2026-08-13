@@ -111,6 +111,17 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * request it. Idempotent: already-loaded windows resolve without refetching.
    */
   loadReadings: (incubatorId: string, sinceIso: string) => Promise<void>
+  /**
+   * Readings for one incubator between two instants, RETURNED rather than
+   * merged into state.
+   *
+   * `loadReadings` is wrong for a report on two counts. It only takes a lower
+   * bound, so asking for 2024 would drag every reading since into memory on top
+   * of the ~16k already hydrated; and because it resolves into React state, the
+   * caller that awaited it still holds the pre-load array in its closure and
+   * would build the report from stale rows.
+   */
+  fetchReadings: (incubatorId: string, fromIso: string, toIso: string) => Promise<SensorReading[]>
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
   /**

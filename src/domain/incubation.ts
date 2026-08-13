@@ -545,7 +545,7 @@ export interface MilestoneEvent {
 }
 
 /** Add whole days to a YYYY-MM-DD date, staying in UTC to avoid TZ drift. */
-function addDays(ymd: string, days: number): string {
+export function addDays(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return d.toISOString().slice(0, 10)

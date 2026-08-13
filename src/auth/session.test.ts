@@ -19,7 +19,6 @@ describe('grants (role permission matrix)', () => {
   it('operator runs the operation but cannot administer users', () => {
     expect(grants('operator', 'maps', 'edit')).toBe(true)
     expect(grants('operator', 'incubation', 'edit')).toBe(true)
-    expect(grants('operator', 'sensors', 'edit')).toBe(true)
     expect(grants('operator', 'dashboard', 'view')).toBe(true)
     expect(grants('operator', 'dashboard', 'edit')).toBe(false) // view-only
     expect(grants('operator', 'users', 'view')).toBe(false) // no users access at all
@@ -38,7 +37,7 @@ describe('grants (role permission matrix)', () => {
   })
 
   it('viewer can view operational sections but never edit, and has no users access', () => {
-    for (const m of ['dashboard', 'maps', 'incubation', 'sensors', 'analysis'] as Module[]) {
+    for (const m of ['dashboard', 'maps', 'incubation', 'analysis'] as Module[]) {
       expect(grants('viewer', m, 'view')).toBe(true)
       expect(grants('viewer', m, 'edit')).toBe(false)
     }

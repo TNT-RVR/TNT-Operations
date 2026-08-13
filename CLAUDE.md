@@ -183,7 +183,30 @@ _Last reviewed 2026-08-03._
         office map listens to. Installable PWA (`manifest.webmanifest` + `sw.js`)
         with tiles/shell cached offline.
       - **Incubation** (`/incubation`) — subsections: Incubators / Samples /
-        Trays / Lineage.
+        Trays / Lineage. (The separate **Sensors** view was REMOVED 2026-08-13
+        — a flat table of every reading, superseded by the per-incubator chart
+        and the export below. `sensors` is gone from `MODULES` too.)
+        - **Per-incubator export** (`domain/incubatorReport.ts` +
+          `features/incubation/incubatorPdf.ts`) — any window (a week, a
+          season, 2024), as a PDF summary or a readings CSV. The domain module
+          builds ONE structure and the PDF and CSV are two renderings of it, so
+          a number in both came from one computation. The PDF carries the logo
+          (`bee-light.png`, downscaled through a canvas — the source is
+          3000 px), vector charts drawn with jsPDF primitives, highs/lows with
+          timestamps, settings, trays in, key dates and inspections.
+        - **The settings timeline is DERIVED from measured temperature**, not
+          from a log — `incubators.temp_mode` stores only the CURRENT setting,
+          with no history, so this is the only thing that works retroactively.
+          `classifyDay` maps a day's mean into a `TEMP_MODES` band; a
+          between-bands day is `transition`, never rounded to the nearest. A
+          gap in the readings ENDS a period rather than bridging it.
+        - `fetchReadings(id, from, to)` is a seam method distinct from
+          `loadReadings`: bounded at BOTH ends and RETURNED, so a three-year
+          report neither leaves years of readings in global state nor reads a
+          stale closure after awaiting.
+        - Trays with a null `in_date` (legal in the live data) are counted as
+          currently held and surfaced as `totals.undated`, so the total can be
+          explained rather than silently undercounting.
         - Incubators: `IncubatorDetail` modal (progress + `getIncubationDay`,
           latest reading vs target, threshold alerts, SVG `ReadingsChart`),
           plus the REAL inspection checklist (period, thermometer-vs-Govee temp

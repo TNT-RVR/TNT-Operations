@@ -147,6 +147,10 @@ function MockProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => b.at.localeCompare(a.at))[0],
       // Mock holds every seeded reading already — nothing to fetch.
       loadReadings: async () => {},
+      fetchReadings: async (incubatorId, fromIso, toIso) =>
+        readings
+          .filter((r) => r.incubatorId === incubatorId && r.at >= fromIso && r.at <= toIso)
+          .sort((a, b) => a.at.localeCompare(b.at)),
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
       saveIncubator: (id, patch) =>

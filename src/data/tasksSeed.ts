@@ -54,7 +54,7 @@ export const SEED_CHECKLISTS: Checklist[] = [
     steps: [
       ['Clean and disinfect the chamber', ''],
       ['Check heat pumps and fans', 'Both must cycle.'],
-      ['Verify the Govee sensor is reporting', 'Check the live reading in Sensors.'],
+      ['Verify the Govee sensor is reporting', 'Check the live reading on the incubator.'],
       ['Calibrate against the reference thermometer', 'Log the difference on the inspection.'],
       ['Set the target temperature and band', ''],
       ['Load trays and record positions', ''],

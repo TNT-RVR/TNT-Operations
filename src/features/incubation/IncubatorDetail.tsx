@@ -27,6 +27,15 @@ import { TrayScanButton } from './TrayScanButton'
 import { findTrays } from './trayLookup'
 
 const TZ = 'America/Edmonton'
+/**
+ * A thermometer difference, to one decimal.
+ *
+ * Rows imported from the desktop app store the raw subtraction, so a 0.2°C
+ * difference reads as +0.19999999999999993. Nobody reads a bee incubator to
+ * fourteen decimal places, and the noise makes a comparison table unreadable.
+ */
+const fmtDiff = (c: number) => `${c > 0 ? '+' : ''}${c.toFixed(1)}°C`
+
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -396,8 +405,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   <>
                     {' · Δ '}
                     <span className={tempAlert ? 'font-semibold text-danger' : 'text-secondary'}>
-                      {tempDiffC > 0 ? '+' : ''}
-                      {tempDiffC}°C
+                      {fmtDiff(tempDiffC)}
                     </span>
                   </>
                 )}
@@ -592,8 +600,7 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                           sensor and the thermometer no longer agree. */}
                       {i.tempDiffC != null && (
                         <span className={i.tempAlert ? 'text-xs font-semibold text-danger' : 'text-xs text-muted'}>
-                          Δ {i.tempDiffC > 0 ? '+' : ''}
-                          {i.tempDiffC}°C
+                          Δ {fmtDiff(i.tempDiffC)}
                         </span>
                       )}
                       {inspectionChips(i)}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Layers, Check, Mountain } from 'lucide-react'
+import { Crosshair, Layers, Check, Mountain, Move } from 'lucide-react'
 import { useData } from '@/data/context'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { useSession } from '@/auth/session'
@@ -36,6 +36,13 @@ const GPS_BLUE = '#5AA9E6'
 const EDGE_ZONE = '#FF8A2B' // token-exempt: map overlay over imagery
 const ROW_GUIDE = '#7DD3FC' // token-exempt: map overlay over imagery
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
+const FT_TO_M = 0.3048
+
+/** A field value that may be a string, as the old app wrote them. */
+const toNum = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : 0
+}
 
 interface Pin {
   lat: number
@@ -100,13 +107,86 @@ export default function ShelterPlacement() {
 
   const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
   const [fieldId, setFieldId] = useState<string | null>(null)
+  /**
+   * In-the-moment nudge, in FEET, east/west and north/south.
+   *
+   * The grid is computed from a pivot point and an angle; the planter drove
+   * where it drove. When the male bay is ten feet east of where the computer
+   * says, the fix is not a survey — it is moving the lines ten feet east and
+   * getting on with it.
+   *
+   * Per field and remembered, because the same field is wrong by the same
+   * amount tomorrow.
+   */
+  const [nudgeE, setNudgeE] = useState(0)
+  const [nudgeN, setNudgeN] = useState(0)
   const field: Field | null = useMemo(
     () => mapped.find((f) => f.id === fieldId) ?? mapped[0] ?? null,
     [mapped, fieldId],
   )
 
+  // Load this field's saved nudge when the field changes.
+  useEffect(() => {
+    if (!field) return
+    try {
+      const raw = localStorage.getItem(`field.nudge.${field.id}`)
+      const v = raw ? (JSON.parse(raw) as { e?: number; n?: number }) : null
+      setNudgeE(Number(v?.e) || 0)
+      setNudgeN(Number(v?.n) || 0)
+    } catch {
+      setNudgeE(0)
+      setNudgeN(0)
+    }
+  }, [field?.id])
+
+  /**
+   * Functional updates, not `nudgeE + dE`: two quick taps land in the same
+   * React batch and the second would read the value from before the first,
+   * so five taps east moved the grid five feet. Gloves-on tapping is exactly
+   * when that happens.
+   */
+  const nudge = (dE: number, dN: number) => {
+    let e = nudgeE
+    let n = nudgeN
+    setNudgeE((prev) => {
+      e = Math.round((prev + dE) * 10) / 10
+      return e
+    })
+    setNudgeN((prev) => {
+      n = Math.round((prev + dN) * 10) / 10
+      return n
+    })
+    // Persist after the updaters have run, so it stores what was applied.
+    queueMicrotask(() => {
+      try {
+        if (field) localStorage.setItem(`field.nudge.${field.id}`, JSON.stringify({ e, n }))
+      } catch {
+        /* private mode — the nudge just won't survive a reload */
+      }
+    })
+  }
+
+  /**
+   * The field as the crew is actually seeing it: the recorded geometry with
+   * the nudge folded into the calibration shift the engine already applies.
+   *
+   * Everything downstream — pins, bays, guides, spray zones — reads this, so a
+   * nudge moves the whole picture together rather than the lines drifting away
+   * from the shelters they place.
+   */
+  const nudgedGeometry = useMemo(() => {
+    const g = field?.geometry as Record<string, unknown> | undefined
+    if (!g) return undefined
+    if (!nudgeE && !nudgeN) return g
+    return {
+      ...g,
+      bay_shift_e_m: toNum(g.bay_shift_e_m) + nudgeE * FT_TO_M,
+      bay_shift_n_m: toNum(g.bay_shift_n_m) + nudgeN * FT_TO_M,
+    }
+  }, [field, nudgeE, nudgeN])
+
   const pins: Pin[] = useMemo(() => {
-    const g = field?.geometry
+    const g = nudgedGeometry
     if (!g) return []
     try {
       const raw = getTentPositions(g)
@@ -116,7 +196,7 @@ export default function ShelterPlacement() {
     } catch {
       return []
     }
-  }, [field])
+  }, [nudgedGeometry])
 
   // Placed state for THIS field, keyed by grid index.
   const placedIdx = useMemo(() => {
@@ -134,6 +214,9 @@ export default function ShelterPlacement() {
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null)
   const [ready, setReady] = useState(false)
   const [layersOpen, setLayersOpen] = useState(false)
+  const [nudgeOpen, setNudgeOpen] = useState(false)
+  /** How far one tap moves the grid. */
+  const [STEP_FT, setStepFt] = useState(5)
   /**
    * Layer toggles. `edges` and `rowGuides` are off by default: they answer
    * questions asked at the headland, not while placing, and a map with
@@ -535,6 +618,77 @@ export default function ShelterPlacement() {
         >
           <Layers size={18} />
         </button>
+        {nudgeOpen && (
+          <div
+            className="absolute right-14 top-0 w-56 rounded-md border border-default p-3 text-sm"
+            style={{ background: 'color-mix(in srgb, var(--bg-raised) 96%, transparent)' }}
+          >
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="font-semibold text-primary">Nudge grid</span>
+              <span className="font-mono text-xs text-secondary">
+                {nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : ''}
+                {nudgeE && nudgeN ? ' · ' : ''}
+                {nudgeN ? `${nudgeN > 0 ? 'N' : 'S'} ${Math.abs(nudgeN)}ft` : ''}
+                {!nudgeE && !nudgeN ? 'none' : ''}
+              </span>
+            </div>
+
+            {/* A pad, not a text box: this is used standing in a field. */}
+            <div className="grid grid-cols-3 gap-1">
+              <span />
+              <button className="btn-ghost py-2" onClick={() => nudge(0, STEP_FT)} aria-label="Nudge north">
+                ↑
+              </button>
+              <span />
+              <button className="btn-ghost py-2" onClick={() => nudge(-STEP_FT, 0)} aria-label="Nudge west">
+                ←
+              </button>
+              <button
+                className="btn-ghost py-2 text-xs"
+                onClick={() => {
+                  setNudgeE(0)
+                  setNudgeN(0)
+                  try {
+                    if (field) localStorage.removeItem(`field.nudge.${field.id}`)
+                  } catch {
+                    /* nothing to clear */
+                  }
+                }}
+              >
+                reset
+              </button>
+              <button className="btn-ghost py-2" onClick={() => nudge(STEP_FT, 0)} aria-label="Nudge east">
+                →
+              </button>
+              <span />
+              <button className="btn-ghost py-2" onClick={() => nudge(0, -STEP_FT)} aria-label="Nudge south">
+                ↓
+              </button>
+              <span />
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-xs text-muted">
+              <span>{STEP_FT} ft a tap</span>
+              <span className="flex gap-1">
+                {[1, 5, 10].map((ft) => (
+                  <button
+                    key={ft}
+                    className="rounded-sm border border-default px-1.5"
+                    style={{ color: STEP_FT === ft ? 'var(--brand)' : undefined }}
+                    onClick={() => setStepFt(ft)}
+                  >
+                    {ft}
+                  </button>
+                ))}
+              </span>
+            </div>
+
+            <p className="mt-2 text-xs text-faint">
+              Moves the shelters, bays and guides together. Saved for this field on this device.
+            </p>
+          </div>
+        )}
+
         {layersOpen && (
           <div
             className="space-y-2 rounded-md border border-subtle p-3 text-sm"
@@ -566,6 +720,21 @@ export default function ShelterPlacement() {
           aria-label="Follow me"
         >
           <Crosshair size={18} />
+        </button>
+        {/* Nudge the grid. The planter drove where it drove; when the bay is
+            ten feet east of where the computer says, move the lines ten feet
+            east. Feet because that is what the crew says out loud. */}
+        <button
+          className="grid h-11 w-11 place-items-center rounded-md border border-default"
+          style={{
+            background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)',
+            color: nudgeE || nudgeN ? 'var(--brand)' : 'var(--text-secondary)',
+          }}
+          onClick={() => setNudgeOpen((v) => !v)}
+          aria-label="Nudge the grid"
+          title="Nudge the grid to match the ground"
+        >
+          <Move size={18} />
         </button>
         <button
           className="grid h-11 w-11 place-items-center rounded-md border border-default"

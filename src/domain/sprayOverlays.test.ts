@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Feature, LineString, Position } from 'geojson'
+import { booleanPointInPolygon } from '@turf/turf'
 import { latlonListToEnu } from './geo'
 import { enuToLonLat, fieldFrame, pointInEnuRing } from './fieldFrame'
 import {
@@ -48,6 +49,37 @@ const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0
 
 const finite = (coords: Position[]) =>
   coords.every((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]))
+
+/**
+ * A band's width, measured across the spray direction.
+ *
+ * The old measure was `dist(ring[0], ring[1])` — the first edge of a 4-corner
+ * rectangle. Interior bands are now clipped to the perimeter pass, so they are
+ * no longer rectangles and the corner order means nothing. Projecting every
+ * vertex onto the lateral axis and taking the extent measures the same quantity
+ * without caring what shape the clip left behind.
+ */
+function lateralWidth(ring: Position[], sprayAngleDeg = 0): number {
+  // The lateral axis is perpendicular to the spray heading. `fieldFrame` builds
+  // its rotation as ((0 - angle + 180) mod 360) - 180; the unit lateral vector
+  // follows from that same angle.
+  const rot = (((0 - sprayAngleDeg + 180) % 360) - 180) * (Math.PI / 180)
+  const ux = Math.cos(rot)
+  const uy = -Math.sin(rot)
+  const proj = ring.map((p) => {
+    const [e, n] = toEnu(p)
+    return e * ux + n * uy
+  })
+  return Math.max(...proj) - Math.min(...proj)
+}
+
+/** Interior (numbered-pass) bands only — the perimeter ones are ring-shaped. */
+const interior = <T extends { properties: Record<string, unknown> | null }>(fs: T[]) =>
+  fs.filter((f) => !f.properties?.perimeter)
+
+/** The perimeter pass's own bands. */
+const perimeter = <T extends { properties: Record<string, unknown> | null }>(fs: T[]) =>
+  fs.filter((f) => f.properties?.perimeter)
 
 /** Perpendicular distance (m) from line B's start to the infinite line through A. */
 function perpGap(lineA: Position[], lineB: Position[]): number {
@@ -387,22 +419,36 @@ describe('outerSprayerLimit', () => {
 describe('tireAndEdgeZones', () => {
   it('bands the tire zone down the pass centre and the edge zone at the pass edge', () => {
     const { tire, edge } = tireAndEdgeZones(FIELD)
-    expect(tire.features.length).toBeGreaterThan(0)
-    // One edge band per pass seam ⇒ one more than the passes.
-    expect(edge.features.length).toBe(tire.features.length + 1)
+    const tireIn = interior(tire.features)
+    const edgeIn = interior(edge.features)
+    expect(tireIn.length).toBeGreaterThan(0)
+    expect(edgeIn.length).toBeGreaterThan(0)
+    // Unclipped there is one edge band per seam, so one more than the passes.
+    // Clipping to the perimeter pass can only REMOVE bands, and it takes the
+    // outermost edges first: an edge sits at k·W and a tire at (k+0.5)·W, so the
+    // outer seams are the first geometry to fall inside the perimeter pass,
+    // where that pass's own bands take over.
+    expect(edgeIn.length).toBeLessThanOrEqual(tireIn.length + 1)
 
-    for (const f of tire.features) {
+    for (const f of tireIn) {
       const ring = f.geometry.coordinates[0]
       expect(finite(ring)).toBe(true)
-      expect(ring).toHaveLength(5) // 4 corners + close
       expect(f.properties?.kind).toBe('tire')
-      expect(dist(toEnu(ring[0]), toEnu(ring[1]))).toBeCloseTo(14 * FT_TO_M, 2)
+      // Clipping to the perimeter pass can shorten a band but must never make
+      // it wider than the wheels it represents.
+      expect(lateralWidth(ring)).toBeLessThanOrEqual(14 * FT_TO_M + 0.01)
     }
-    for (const f of edge.features) {
-      const ring = f.geometry.coordinates[0]
-      expect(finite(ring)).toBe(true)
+    // The bands that cross the middle of the field are untouched by the clip,
+    // so at least one still measures exactly a tire's width.
+    expect(Math.max(...tireIn.map((f) => lateralWidth(f.geometry.coordinates[0])))).toBeCloseTo(
+      14 * FT_TO_M,
+      2,
+    )
+
+    for (const f of edgeIn) {
+      expect(finite(f.geometry.coordinates[0])).toBe(true)
       expect(f.properties?.kind).toBe('edge')
-      expect(dist(toEnu(ring[0]), toEnu(ring[1]))).toBeCloseTo(25 * FT_TO_M, 2)
+      expect(lateralWidth(f.geometry.coordinates[0])).toBeLessThanOrEqual(25 * FT_TO_M + 0.01)
     }
   })
 
@@ -412,23 +458,31 @@ describe('tireAndEdgeZones', () => {
       tire_width_ft: '20',
       pass_edge_buffer_ft: '0',
     })
+    // Zero width turns the band off everywhere, perimeter included.
     expect(edge.features).toHaveLength(0)
-    const ring = tire.features[0].geometry.coordinates[0]
-    expect(dist(toEnu(ring[0]), toEnu(ring[1]))).toBeCloseTo(20 * FT_TO_M, 2)
+    const widths = interior(tire.features).map((f) => lateralWidth(f.geometry.coordinates[0]))
+    expect(Math.max(...widths)).toBeCloseTo(20 * FT_TO_M, 2)
   })
 
   it('runs the bands along the spray direction', () => {
-    const { tire } = tireAndEdgeZones({ ...FIELD, Spray_angle: '90' })
-    const ring = tire.features[0].geometry.coordinates[0]
-    // The long side of a band is the along-pass edge; it must be perpendicular
-    // to the 0°-spray case's long side.
-    const long90 = bearing([ring[1], ring[2]])
-    const ring0 = tireAndEdgeZones({ ...FIELD, Spray_angle: '0' }).tire.features[0].geometry
-      .coordinates[0]
-    const long0 = bearing([ring0[1], ring0[2]])
-    let diff = Math.abs(long0 - long90)
-    if (diff > 90) diff = 180 - diff
-    expect(diff).toBeCloseTo(90, 1)
+    // Measured by width rather than by corner bearings, which the clip reorders:
+    // a band is only its nominal width when measured across the spray heading it
+    // was actually drawn at, and is far wider measured across any other.
+    const at = (deg: string) =>
+      interior(tireAndEdgeZones({ ...FIELD, Spray_angle: deg }).tire.features).map(
+        (f) => f.geometry.coordinates[0],
+      )
+
+    const rings90 = at('90')
+    expect(rings90.length).toBeGreaterThan(0)
+    // Across 90° (the heading it was drawn at): a tire's width.
+    expect(Math.max(...rings90.map((r) => lateralWidth(r, 90)))).toBeCloseTo(14 * FT_TO_M, 2)
+    // Across 0°: the bands now run the other way, so they measure the field.
+    expect(Math.max(...rings90.map((r) => lateralWidth(r, 0)))).toBeGreaterThan(100)
+
+    const rings0 = at('0')
+    expect(Math.max(...rings0.map((r) => lateralWidth(r, 0)))).toBeCloseTo(14 * FT_TO_M, 2)
+    expect(Math.max(...rings0.map((r) => lateralWidth(r, 90)))).toBeGreaterThan(100)
   })
 
   it('is empty for degenerate geometry', () => {
@@ -500,5 +554,144 @@ describe('shelterBufferSquares', () => {
     expect(shelterBufferSquares([], FIELD).features).toHaveLength(0)
     expect(shelterBufferSquares(shelters, {}).features).toHaveLength(0)
     expect(shelterBufferSquares(shelters, { ...FIELD, shelter_buffer_m: '0' }).features).toHaveLength(0)
+  })
+})
+
+describe('the perimeter pass gets zones too', () => {
+  it('emits a tire band and both edge seams for the outside lap', () => {
+    const { tire, edge } = tireAndEdgeZones(FIELD)
+    const pTire = perimeter(tire.features)
+    const pEdge = perimeter(edge.features)
+    expect(pTire).toHaveLength(1)
+    // One seam on the boundary, one on the outer sprayer limit.
+    expect(pEdge.map((f) => f.properties?.seam).sort()).toEqual(['boundary', 'limit'])
+    for (const f of [...pTire, ...pEdge]) {
+      expect(f.properties?.index).toBeNull()
+      expect(finite(f.geometry.coordinates[0])).toBe(true)
+    }
+  })
+
+  it('draws them as rings, not rectangles', () => {
+    // A lap around the field is an annulus: an outer ring with the middle of the
+    // field punched out. A single-ring polygon would fill the whole field in.
+    const { tire } = tireAndEdgeZones(FIELD)
+    const band = perimeter(tire.features)[0]
+    expect(band.geometry.coordinates.length).toBe(2)
+  })
+
+  it('puts the tire band a half sprayer width in, between the two seams', () => {
+    // The lap runs from the boundary to one sprayer width in, so its wheels are
+    // at the middle of that: inset W/2.
+    const { tire } = tireAndEdgeZones(FIELD)
+    const band = perimeter(tire.features)[0]
+    const radii = band.geometry.coordinates[0].map((p) => {
+      const [e, n] = toEnu(p)
+      return Math.hypot(e, n)
+    })
+    // Outer edge of the tire band = radius − (W/2 − tireW/2).
+    const expected = 400 - (SPRAYER_W_M / 2 - (14 * FT_TO_M) / 2)
+    expect(Math.max(...radii)).toBeCloseTo(expected, 0)
+  })
+
+  it('works on a boundary field as well as a pivot', () => {
+    const { tire, edge } = tireAndEdgeZones(SQUARE_FIELD)
+    expect(perimeter(tire.features)).toHaveLength(1)
+    expect(perimeter(edge.features)).toHaveLength(2)
+  })
+
+  it('turns off with the widths, like every other band', () => {
+    const off = tireAndEdgeZones({ ...FIELD, tire_width_ft: '0', pass_edge_buffer_ft: '0' })
+    expect(off.tire.features).toHaveLength(0)
+    expect(off.edge.features).toHaveLength(0)
+  })
+})
+
+describe('interior zones stop at the perimeter pass', () => {
+  /** Distance from the pivot, for the circular test field. */
+  const radiusOf = (p: Position) => {
+    const [e, n] = toEnu(p)
+    return Math.hypot(e, n)
+  }
+
+  it('keeps every interior band inside the outer sprayer limit', () => {
+    const { tire, edge } = tireAndEdgeZones(FIELD)
+    const limit = 400 - SPRAYER_W_M // the outerSprayerLimit radius
+    for (const f of [...interior(tire.features), ...interior(edge.features)]) {
+      for (const ring of f.geometry.coordinates) {
+        for (const p of ring) {
+          // A little slack for the 96-sided polygon approximating the circle.
+          expect(radiusOf(p)).toBeLessThanOrEqual(limit + 1)
+        }
+      }
+    }
+  })
+
+  it('used to run past it — the bands are genuinely being cut', () => {
+    // Guards against the clip silently becoming a no-op: the unclipped bands
+    // span the whole frame extent, well beyond the limit ring.
+    const { tire } = tireAndEdgeZones(FIELD)
+    const widest = Math.max(
+      ...interior(tire.features).flatMap((f) =>
+        f.geometry.coordinates[0].map((p) => Math.abs(toEnu(p)[1])),
+      ),
+    )
+    expect(widest).toBeLessThan(400)
+  })
+
+  it('leaves the bands alone when the field is too small to have an interior', () => {
+    // A 30 m radius with a 40 m boom: the perimeter pass IS the field, so there
+    // is no limit ring to stay inside and nothing to clip against.
+    const tiny = { ...FIELD, Radius: '30' }
+    expect(outerSprayerLimit(tiny).features).toHaveLength(0)
+    const { tire } = tireAndEdgeZones(tiny)
+    expect(tire.features.length).toBeGreaterThan(0)
+  })
+})
+
+describe('tire beats edge where they overlap', () => {
+  // A shelter may legally sit in an edge zone, so an edge zone that overlapped a
+  // wheel track would invite the sprayer to drive over one.
+  const OVERLAP: FieldDict = { ...FIELD, tire_width_ft: '60', pass_edge_buffer_ft: '60' }
+
+  it('leaves no edge zone standing on top of a tire zone', () => {
+    const { tire, edge } = tireAndEdgeZones(OVERLAP)
+    expect(tire.features.length).toBeGreaterThan(0)
+    expect(edge.features.length).toBeGreaterThan(0)
+
+    // Sample the centre line of every tire band; none of those points may fall
+    // inside an edge band.
+    for (const t of tire.features) {
+      for (const p of t.geometry.coordinates[0]) {
+        for (const e of edge.features) {
+          const inside = booleanPointInPolygon(p as [number, number], {
+            type: 'Feature',
+            properties: {},
+            geometry: e.geometry,
+          })
+          // A shared border counts as outside; only real overlap matters.
+          if (inside) {
+            const onEdge = e.geometry.coordinates.some((ring) =>
+              ring.some((q) => Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-9),
+            )
+            expect(onEdge).toBe(true)
+          }
+        }
+      }
+    }
+  })
+
+  it('still emits both kinds — the cut must not delete the edge zones', () => {
+    const { tire, edge } = tireAndEdgeZones(OVERLAP)
+    expect(tire.features.length).toBeGreaterThan(0)
+    expect(edge.features.length).toBeGreaterThan(0)
+  })
+
+  it('leaves edge zones whole when nothing overlaps', () => {
+    // With the defaults (14 ft tire, 25 ft edge) inside a 133 ft pass the bands
+    // are nowhere near each other, so the subtraction is a no-op.
+    const { edge } = tireAndEdgeZones(FIELD)
+    for (const f of interior(edge.features)) {
+      expect(f.geometry.coordinates).toHaveLength(1) // no hole punched
+    }
   })
 })

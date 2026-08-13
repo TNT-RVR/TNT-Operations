@@ -6,7 +6,14 @@ import type {
   Polygon,
   Position,
 } from 'geojson'
-import { booleanPointInPolygon, lineSplit as turfLineSplit } from '@turf/turf'
+import {
+  booleanPointInPolygon,
+  difference as turfDifference,
+  featureCollection as turfFeatureCollection,
+  intersect as turfIntersect,
+  lineSplit as turfLineSplit,
+  union as turfUnion,
+} from '@turf/turf'
 import { fieldBool, innerExclusionUnion } from './bayOverlays'
 import { latlonListToEnu } from './geo'
 import {
@@ -525,6 +532,112 @@ export function outerSprayerLimit(field: FieldDict): FeatureCollection<Polygon> 
 // 3. Tire & edge zones
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The field outline inset by `d` metres, in ENU.
+ *
+ * One helper for both field shapes, so everything built on the perimeter agrees
+ * about where it is: a boundary polygon is inset by {@link insetRingEnu}, and a
+ * radius-only pivot field falls back to a circle of `radius − d` — the same
+ * substitution {@link outerSprayerLimit} already makes. `d = 0` is the outline
+ * itself. Returns null when the inset collapses the shape.
+ */
+function outlineAtInset(f: FieldFrame, d: number): Array<[number, number]> | null {
+  if (!Number.isFinite(d) || d < 0) return null
+  if (f.boundaryEnu && f.boundaryEnu.length >= 3) {
+    if (d === 0) {
+      const ring = cleanRing(f.boundaryEnu)
+      return ring.length >= 3 ? ring : null
+    }
+    return insetRingEnu(f.boundaryEnu, d)
+  }
+  const r = f.radius - d
+  if (!(r > 0)) return null
+  const steps = 96
+  const out: Array<[number, number]> = []
+  for (let i = 0; i < steps; i++) {
+    const a = (2 * Math.PI * i) / steps
+    out.push([r * Math.cos(a), r * Math.sin(a)])
+  }
+  return out
+}
+
+/** An ENU ring → a closed [lon,lat] ring, or null if anything is unusable. */
+function ringToLonLat(f: FieldFrame, ring: Array<[number, number]>): Position[] | null {
+  const coords: Position[] = ring.map(([e, n]) => enuToLonLat(f, e, n))
+  if (coords.length < 3 || !allFinite(coords)) return null
+  coords.push(coords[0])
+  return coords
+}
+
+/**
+ * The ring-shaped band between two insets — a polygon with a hole.
+ *
+ * `dOuter` is the shallower inset (nearer the boundary). If the inner inset
+ * collapses, the band simply runs to the middle of the field, which is the
+ * truthful answer for a band wider than the field is across.
+ */
+function insetBand(
+  f: FieldFrame,
+  dOuter: number,
+  dInner: number,
+  properties: Record<string, unknown>,
+): Feature<Polygon> | null {
+  const outer = outlineAtInset(f, Math.max(0, dOuter))
+  if (!outer) return null
+  const outerRing = ringToLonLat(f, outer)
+  if (!outerRing) return null
+  const inner = dInner > dOuter ? outlineAtInset(f, dInner) : null
+  const innerRing = inner ? ringToLonLat(f, inner) : null
+  return {
+    type: 'Feature',
+    properties,
+    geometry: { type: 'Polygon', coordinates: innerRing ? [outerRing, innerRing] : [outerRing] },
+  }
+}
+
+/** Split a boolean-op result back into plain Polygon features. */
+function explode(
+  hit: Feature<Polygon | MultiPolygon> | null,
+  properties: Record<string, unknown>,
+): Feature<Polygon>[] {
+  if (!hit?.geometry) return []
+  const piece = (coordinates: Position[][]): Feature<Polygon> => ({
+    type: 'Feature',
+    properties: { ...properties },
+    geometry: { type: 'Polygon', coordinates },
+  })
+  if (hit.geometry.type === 'Polygon') return [piece(hit.geometry.coordinates)]
+  if (hit.geometry.type === 'MultiPolygon') return hit.geometry.coordinates.map(piece)
+  return []
+}
+
+/** Keep only the part of `feat` inside `region`. Passes it through on failure. */
+function clipToRegion(feat: Feature<Polygon>, region: Feature<Polygon>): Feature<Polygon>[] {
+  try {
+    return explode(
+      turfIntersect(turfFeatureCollection<Polygon>([feat, region])),
+      feat.properties ?? {},
+    )
+  } catch {
+    return [feat]
+  }
+}
+
+/** Remove `cut` from `feat`. Passes it through on failure. */
+function subtract(
+  feat: Feature<Polygon>,
+  cut: Feature<Polygon | MultiPolygon>,
+): Feature<Polygon>[] {
+  try {
+    return explode(
+      turfDifference(turfFeatureCollection<Polygon | MultiPolygon>([feat, cut])),
+      feat.properties ?? {},
+    )
+  } catch {
+    return [feat]
+  }
+}
+
 /** A lateral band `[latA, latB]` × the along extent, as a closed [lon,lat] ring. */
 function bandRing(
   f: FieldFrame,
@@ -562,6 +675,28 @@ function bandRing(
  *
  * Both run along the SPRAY direction and span the field extent. One band per pass
  * (tire) / per edge (edge), indexed by the same signed pass number.
+ *
+ * ── The perimeter pass ───────────────────────────────────────────────────────
+ *
+ * The sprayer's lap around the outside of the field is a pass too, so it gets
+ * the same zones: a tire band on its centre (inset `W/2`) and an edge band on
+ * each of its seams — the boundary, and the limit ring at inset `W` that
+ * {@link outerSprayerLimit} draws. These carry `perimeter: true` and a null
+ * `index`, since they belong to no numbered pass.
+ *
+ * ── Two rules about overlap ──────────────────────────────────────────────────
+ *
+ *  1. **Interior zones stop at the perimeter pass.** An interior band spans the
+ *     whole frame extent, so it is clipped to the limit ring. Without that it
+ *     runs out through the perimeter pass, where a different set of wheels goes.
+ *
+ *  2. **Tire beats edge.** Where the two would overlap, the tire band is cut out
+ *     of the edge band. A shelter may legally sit in an edge zone, so an edge
+ *     zone overlapping a wheel track invites the sprayer to drive over one.
+ *
+ * Both rules are applied HERE rather than in the map layer, because Field Mode
+ * (`features/field/ShelterPlacement.tsx`) draws the same zones from the same
+ * function and the crew must not see a different field from the office.
  */
 export function tireAndEdgeZones(field: FieldDict): {
   tire: FeatureCollection<Polygon>
@@ -612,10 +747,94 @@ export function tireAndEdgeZones(field: FieldDict): {
         }
       }
     }
-    // Spans the bounding box by design; the map trims with `clipToField`.
+
+    // ── The perimeter pass ────────────────────────────────────────────────
+    //
+    // The sprayer's lap around the outside of the field occupies the ring
+    // between the boundary and the boundary inset by one sprayer width — the
+    // same ring `outerSprayerLimit` draws the inner edge of. It has wheels and
+    // seams like any other pass, so it gets the same two zones:
+    //
+    //   tire  — centred on the pass centre, at inset W/2
+    //   edge  — on each of its seams: the boundary itself, and the limit ring
+    //
+    // The band on the boundary seam is drawn INWARD only. Its outward half is
+    // off the field, and would be trimmed by the display clip anyway.
+    const limitRing = w > 0 ? outlineAtInset(f, w) : null
+    const limitCoords = limitRing ? ringToLonLat(f, limitRing) : null
+    const limitPoly: Feature<Polygon> | null = limitCoords
+      ? { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [limitCoords] } }
+      : null
+
+    if (w > 0) {
+      if (tireW > 0) {
+        const b = insetBand(f, w / 2 - tireW / 2, w / 2 + tireW / 2, {
+          kind: 'tire',
+          index: null,
+          perimeter: true,
+        })
+        if (b) tire.push(b)
+      }
+      if (edgeW > 0) {
+        const boundarySeam = insetBand(f, 0, edgeW / 2, {
+          kind: 'edge',
+          index: null,
+          perimeter: true,
+          seam: 'boundary',
+        })
+        if (boundarySeam) edge.push(boundarySeam)
+        const limitSeam = insetBand(f, w - edgeW / 2, w + edgeW / 2, {
+          kind: 'edge',
+          index: null,
+          perimeter: true,
+          seam: 'limit',
+        })
+        if (limitSeam) edge.push(limitSeam)
+      }
+    }
+
+    // ── Keep the interior zones inside the perimeter pass ─────────────────
+    //
+    // An interior band is generated across the whole frame extent, so without
+    // this it runs out through the perimeter pass and off the field. Clipping
+    // to the limit ring makes the interior zones stop where the outside pass
+    // begins, which is what they mean on the ground.
+    //
+    // With no limit ring — a field narrower than one sprayer width, so the
+    // perimeter pass IS the whole field — there is nothing to stay inside, and
+    // the bands are left for the display clip to trim.
+    const insideLimit = (fs: Feature<Polygon>[]): Feature<Polygon>[] =>
+      limitPoly
+        ? fs.flatMap((x) => (x.properties?.perimeter ? [x] : clipToRegion(x, limitPoly)))
+        : fs
+
+    const tireOut = insideLimit(tire)
+    let edgeOut = insideLimit(edge)
+
+    // ── Tire wins where the two overlap ───────────────────────────────────
+    //
+    // A shelter may legally sit in an edge zone, so an edge zone that overlaps
+    // a tire zone would invite the sprayer to drive over one. Cutting the tire
+    // band out of the edge band leaves the edge zone meaning what it should:
+    // "you may put a shelter here", with the wheel tracks removed.
+    if (tireOut.length > 0 && edgeOut.length > 0) {
+      try {
+        const merged =
+          tireOut.length === 1
+            ? (tireOut[0] as Feature<Polygon | MultiPolygon>)
+            : turfUnion(turfFeatureCollection<Polygon>(tireOut))
+        if (merged) edgeOut = edgeOut.flatMap((e) => subtract(e, merged))
+      } catch {
+        // Leave the edge bands whole rather than lose them — an overlapping
+        // band is a worse drawing, but a missing one is a worse map.
+      }
+    }
+
+    // Interior bands span the frame extent by design; the map still trims the
+    // result with `clipToField` so nothing spills past the boundary.
     return {
-      tire: { type: 'FeatureCollection', features: tire },
-      edge: { type: 'FeatureCollection', features: edge },
+      tire: { type: 'FeatureCollection', features: tireOut },
+      edge: { type: 'FeatureCollection', features: edgeOut },
     }
   } catch {
     return empty

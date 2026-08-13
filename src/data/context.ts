@@ -40,6 +40,7 @@ import type {
 } from './types'
 import type { SettingsSlice } from './useSettings'
 import type { CostPrefs } from '@/domain/cost'
+import type { Crew, CrewMember } from '@/domain/crews'
 
 /** A tray examined during an inspection, before it has a parent or an id. */
 export type TrayObservation = Pick<
@@ -188,6 +189,22 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
     sampleId: string
     incubatorId: string
   }) => Promise<{ ok: boolean; created: boolean; error?: string }>
+
+  // ── Crews (migration 0023) ────────────────────────────────────────────────
+  /** Crews for the current season, and who is on them right now. */
+  crews: Crew[]
+  crewMembers: CrewMember[]
+  /** Fetch crews and memberships. Idempotent. */
+  loadCrews: () => Promise<void>
+  /**
+   * Put the signed-in user on a crew, leaving whatever crew they were on.
+   * `asLead` claims the position-broadcasting role (normally the crew's iPad).
+   */
+  joinCrew: (crewId: string, asLead: boolean) => Promise<{ ok: boolean; error?: string }>
+  /** Step off the crew. Recorded with a timestamp, never deleted. */
+  leaveCrew: () => Promise<{ ok: boolean; error?: string }>
+  /** Start a crew for this season. */
+  createCrew: (name: string) => Promise<{ ok: boolean; crewId?: string; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

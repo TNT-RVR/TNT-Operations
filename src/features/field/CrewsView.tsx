@@ -6,7 +6,8 @@ import { useData } from '@/data/context'
 import { supabase } from '@/data/supabaseClient'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { ProgressBar } from '@/components/ui'
-import { crewStatus, sortCrews, type LiveCrew } from '@/domain/crews'
+import { useSession } from '@/auth/session'
+import { crewStatus, sortCrews, crewOf, membersOf, leadOf, type LiveCrew } from '@/domain/crews'
 
 /**
  * Crews — where everyone is and how far along they are.
@@ -29,14 +30,33 @@ const CREW_TRAY = '#4ADE80'
 const CREW_STALE = '#8A8A8A'
 
 export default function CrewsView() {
-  const { fields } = useData()
+  const { fields, crews, crewMembers, loadCrews, joinCrew, leaveCrew, createCrew } = useData()
+  const session = useSession()
+  const me = session.user.id
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [newCrew, setNewCrew] = useState('')
+  const [naming, setNaming] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markersRef = useRef<maplibregl.Marker[]>([])
   const [ready, setReady] = useState(false)
-  const [crews, setCrews] = useState<Record<string, LiveCrew>>({})
+  const [positions, setPositions] = useState<Record<string, LiveCrew>>({})
   /** Ticks so ages re-render without waiting on a broadcast. */
   const [, setTick] = useState(0)
+
+  useEffect(() => {
+    void loadCrews()
+  }, [loadCrews])
+
+  const myCrewId = useMemo(() => crewOf(crewMembers, me), [crewMembers, me])
+  const myCrew = crews.find((c) => c.id === myCrewId) ?? null
+  const myMates = useMemo(
+    () => (myCrewId ? membersOf(crewMembers, myCrewId) : []),
+    [crewMembers, myCrewId],
+  )
+  const myLead = myCrewId ? leadOf(crewMembers, myCrewId) : null
+  const iAmLead = myLead?.userId === me
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -64,7 +84,7 @@ export default function CrewsView() {
       .on('broadcast', { event: 'crew' }, ({ payload }) => {
         const c = payload as LiveCrew
         if (!c?.name || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return
-        setCrews((prev) => ({ ...prev, [c.name]: c }))
+        setPositions((prev) => ({ ...prev, [c.name]: c }))
       })
       .subscribe()
     const t = setInterval(() => setTick((n) => n + 1), 15_000)
@@ -74,7 +94,7 @@ export default function CrewsView() {
     }
   }, [])
 
-  const rows = useMemo(() => sortCrews(Object.values(crews)), [crews])
+  const rows = useMemo(() => sortCrews(Object.values(positions)), [positions])
 
   // Draw a pin per crew, coloured by job and faded once stale.
   useEffect(() => {
@@ -114,7 +134,124 @@ export default function CrewsView() {
     <div className="flex h-full flex-col">
       <div ref={containerRef} className="min-h-[45%] flex-1" />
 
-      <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-default bg-raised p-3">
+      <div className="max-h-[55%] shrink-0 overflow-y-auto border-t border-default bg-raised p-3">
+        {/* Who I am with. First thing on the screen because it is the thing a
+            person changes — the map answers "where is everyone", this answers
+            "am I counted with the right people". */}
+        <div className="mb-3 rounded-md border border-default p-2">
+          {myCrew ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-primary">{myCrew.name}</span>
+                {iAmLead && (
+                  <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-xs text-brand">
+                    This device reports the crew&apos;s position
+                  </span>
+                )}
+                <button
+                  className="ml-auto text-xs text-muted underline"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    const r = await leaveCrew()
+                    setBusy(false)
+                    if (!r.ok) setErr(r.error ?? 'Could not leave.')
+                  }}
+                >
+                  Leave
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {myMates.length} on this crew
+                {!myLead && ' · nobody is reporting position — whoever has the iPad should take the lead'}
+              </p>
+              {!iAmLead && (
+                <button
+                  className="mt-1 text-xs text-brand underline"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    const r = await joinCrew(myCrew.id, true)
+                    setBusy(false)
+                    if (!r.ok) setErr(r.error ?? 'Could not take the lead.')
+                  }}
+                >
+                  Use THIS device for the crew&apos;s position
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold text-primary">You are not on a crew</div>
+              <p className="mb-2 mt-1 text-xs text-muted">
+                Join one so your work counts with the right people. The crew&apos;s iPad should join as
+                the position reporter.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {crews.map((c) => (
+                  <span key={c.id} className="flex overflow-hidden rounded-sm border border-default">
+                    <button
+                      className="px-2 py-1 text-xs"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true)
+                        const r = await joinCrew(c.id, false)
+                        setBusy(false)
+                        if (!r.ok) setErr(r.error ?? 'Could not join.')
+                      }}
+                    >
+                      Join {c.name}
+                    </button>
+                    <button
+                      className="border-l border-default px-2 py-1 text-xs text-brand"
+                      title="Join and report this crew's position from this device"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true)
+                        const r = await joinCrew(c.id, true)
+                        setBusy(false)
+                        if (!r.ok) setErr(r.error ?? 'Could not join.')
+                      }}
+                    >
+                      as iPad
+                    </button>
+                  </span>
+                ))}
+                {naming ? (
+                  <span className="flex gap-1">
+                    <input
+                      className="input h-7 w-28 text-xs"
+                      value={newCrew}
+                      autoFocus
+                      placeholder="Crew name"
+                      onChange={(e) => setNewCrew(e.target.value)}
+                    />
+                    <button
+                      className="text-xs text-brand underline"
+                      disabled={busy || !newCrew.trim()}
+                      onClick={async () => {
+                        setBusy(true)
+                        const r = await createCrew(newCrew.trim())
+                        setBusy(false)
+                        setNaming(false)
+                        setNewCrew('')
+                        if (!r.ok) setErr(r.error ?? 'Could not create the crew.')
+                      }}
+                    >
+                      Add
+                    </button>
+                  </span>
+                ) : (
+                  <button className="text-xs text-muted underline" onClick={() => setNaming(true)}>
+                    New crew
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {err && <p className="mt-1 text-xs text-danger">{err}</p>}
+        </div>
+
         {rows.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-muted">
             <Users size={16} />

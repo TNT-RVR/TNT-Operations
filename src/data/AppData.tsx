@@ -21,6 +21,7 @@ import type {
   FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+import { planJoin, planTakeLead, type Crew, type CrewMember } from '@/domain/crews'
 import { useSalesMock } from './useSalesMock'
 import { useTasksMock } from './useTasksMock'
 import { useSettings } from './useSettings'
@@ -97,6 +98,15 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [blocks, setBlocks] = useState<Block[]>(seedBlocks)
   const [blockPlacements, setBlockPlacements] = useState<BlockPlacement[]>(seedBlockPlacements)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
+  // Two crews with an iPad on one of them, so the Crews view has something to
+  // show without anyone setting it up first.
+  const [crews, setCrews] = useState<Crew[]>([
+    { id: 'crew1', name: 'Crew 1', season: new Date().getFullYear(), active: true },
+    { id: 'crew2', name: 'Crew 2', season: new Date().getFullYear(), active: true },
+  ])
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([
+    { id: 'cm1', crewId: 'crew1', userId: 'u_op', role: 'lead', joinedAt: new Date().toISOString(), leftAt: null },
+  ])
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
@@ -145,6 +155,47 @@ function MockProvider({ children }: { children: ReactNode }) {
       // Mock seeds everything already — nothing older to fetch.
       loadEarlierInspections: async () => {},
       earlierInspectionsLoaded: true,
+      crews,
+      crewMembers,
+      loadCrews: async () => {},
+      joinCrew: async (crewId: string, asLead: boolean) => {
+        const me = 'u_admin'
+        const plan = planJoin(crewMembers, me, crewId)
+        const now = new Date().toISOString()
+        const handover = asLead ? planTakeLead(crewMembers, me, crewId) : { demote: [], promote: null }
+        setCrewMembers((prev) => {
+          let next = prev.map((m) => (plan.leave.includes(m.id) ? { ...m, leftAt: now } : m))
+          // Demote the old lead first — one reporter per crew, same as the
+          // database constraint.
+          next = next.map((m) => (handover.demote.includes(m.id) ? { ...m, role: 'member' as const } : m))
+          if (plan.join) {
+            next.push({
+              id: nextId('cm'),
+              crewId,
+              userId: me,
+              role: asLead ? 'lead' : 'member',
+              joinedAt: now,
+              leftAt: null,
+            })
+          } else if (handover.promote) {
+            next = next.map((m) => (m.id === handover.promote ? { ...m, role: 'lead' as const } : m))
+          }
+          return next
+        })
+        return { ok: true }
+      },
+      leaveCrew: async () => {
+        const now = new Date().toISOString()
+        setCrewMembers((prev) =>
+          prev.map((m) => (m.userId === 'u_admin' && m.leftAt == null ? { ...m, leftAt: now } : m)),
+        )
+        return { ok: true }
+      },
+      createCrew: async (name: string) => {
+        const id = nextId('crew')
+        setCrews((prev) => [...prev, { id, name, season: new Date().getFullYear(), active: true }])
+        return { ok: true, crewId: id }
+      },
       latestReading: (incubatorId) =>
         readings
           .filter((r) => r.incubatorId === incubatorId)
@@ -586,6 +637,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       nestingBlocks,
       blocks,
       blockPlacements,
+      crews,
+      crewMembers,
       grants,
       grantTasks,
       fieldAnalysis,

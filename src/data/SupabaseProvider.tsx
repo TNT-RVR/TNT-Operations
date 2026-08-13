@@ -23,6 +23,7 @@ import type {
   FieldWeather,
 } from './types'
 import type { CostPrefs } from '@/domain/cost'
+import { planJoin, planTakeLead, type Crew, type CrewMember } from '@/domain/crews'
 import { parseAnalysisCsvRow } from '@/domain/analysisImport'
 import { summariseWeather, weatherKey, type OpenMeteoDaily } from '@/domain/weather'
 import { useSalesSupabase } from './useSalesSupabase'
@@ -157,6 +158,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [blockSeasons, setBlockSeasons] = useState<BlockSeason[]>([])
   /** Whether the pre-season inspection history has been pulled in. */
   const [earlierInspectionsLoaded, setEarlierInspectionsLoaded] = useState(false)
+  const [crews, setCrews] = useState<Crew[]>([])
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
+  const crewsPromiseRef = useRef<Promise<void> | null>(null)
   const earlierInspPromiseRef = useRef<Promise<void> | null>(null)
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, NotificationPref>>({})
   const [grants, setGrants] = useState<Grant[]>([])
@@ -209,6 +213,41 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
    * the Base44 version did.
    */
   const weatherInFlightRef = useRef<Set<string>>(new Set())
+
+  /** Read crews + live memberships for this season. */
+  const refreshCrews = useCallback(async () => {
+    if (!supabase) return
+    const season = new Date().getFullYear()
+    const [c, m] = await Promise.all([
+      supabase.from('crews').select('*').eq('season', season).order('name'),
+      supabase.from('crew_members').select('*').is('left_at', null),
+    ])
+    if (c.error || m.error) {
+      // Before migration 0023 these tables do not exist. Field Mode still
+      // works; it just cannot group people into crews yet.
+      console.warn('[data] loadCrews:', c.error?.message ?? m.error?.message)
+      crewsPromiseRef.current = null
+      return
+    }
+    setCrews(
+      ((c.data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        season: Number(r.season),
+        active: r.active !== false,
+      })),
+    )
+    setCrewMembers(
+      ((m.data as Array<Record<string, unknown>>) ?? []).map((r) => ({
+        id: String(r.id),
+        crewId: String(r.crew_id),
+        userId: String(r.user_id),
+        role: r.role === 'lead' ? 'lead' : 'member',
+        joinedAt: String(r.joined_at),
+        leftAt: (r.left_at as string | null) ?? null,
+      })),
+    )
+  }, [])
 
   /** Merge a saved placement into local state, replacing any earlier version. */
   const upsertPlacement = useCallback((saved: BlockPlacement) => {
@@ -560,6 +599,76 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         return run
       },
       earlierInspectionsLoaded,
+
+      crews,
+      crewMembers,
+      loadCrews: () => {
+        if (crewsPromiseRef.current) return crewsPromiseRef.current
+        const run = refreshCrews()
+        crewsPromiseRef.current = run
+        return run
+      },
+      joinCrew: async (crewId: string, asLead: boolean) => {
+        if (!supabase || !userId) return { ok: false, error: 'Sign in first.' }
+        const plan = planJoin(crewMembers, userId, crewId)
+        const now = new Date().toISOString()
+        // Leave first: one active membership per person is a database
+        // constraint, so joining before leaving would be rejected.
+        for (const id of plan.leave) {
+          const { error } = await supabase.from('crew_members').update({ left_at: now }).eq('id', id)
+          if (error) return { ok: false, error: error.message }
+        }
+        // Hand the lead over BEFORE claiming it: one lead per crew is a
+        // database constraint, so promoting first is simply rejected.
+        if (asLead) {
+          for (const id of planTakeLead(crewMembers, userId, crewId).demote) {
+            const { error } = await supabase.from('crew_members').update({ role: 'member' }).eq('id', id)
+            if (error) return { ok: false, error: error.message }
+          }
+        }
+        if (plan.join) {
+          const { error } = await supabase
+            .from('crew_members')
+            .insert({ crew_id: crewId, user_id: userId, role: asLead ? 'lead' : 'member' })
+          if (error) return { ok: false, error: error.message }
+        } else if (asLead) {
+          const promote = planTakeLead(crewMembers, userId, crewId).promote
+          if (promote) {
+            const { error } = await supabase.from('crew_members').update({ role: 'lead' }).eq('id', promote)
+            if (error) return { ok: false, error: error.message }
+          }
+        }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
+      leaveCrew: async () => {
+        if (!supabase || !userId) return { ok: false, error: 'Sign in first.' }
+        const mine = crewMembers.find((x) => x.userId === userId && x.leftAt == null)
+        if (!mine) return { ok: true }
+        const { error } = await supabase
+          .from('crew_members')
+          .update({ left_at: new Date().toISOString() })
+          .eq('id', mine.id)
+        if (error) return { ok: false, error: error.message }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true }
+      },
+      createCrew: async (name: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const clean = name.trim()
+        if (!clean) return { ok: false, error: 'Give the crew a name.' }
+        const { data, error } = await supabase
+          .from('crews')
+          .insert({ name: clean, season: new Date().getFullYear(), created_by: userId })
+          .select()
+          .single()
+        if (error) return { ok: false, error: error.message }
+        crewsPromiseRef.current = null
+        await refreshCrews()
+        return { ok: true, crewId: String((data as { id: string }).id) }
+      },
 
       latestReading: (incubatorId: string) =>
         readings
@@ -1532,6 +1641,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       nestingBlocks,
       blocks,
       blockPlacements,
+      crews,
+      crewMembers,
       blocksLoading,
       upsertPlacement,
       grants,

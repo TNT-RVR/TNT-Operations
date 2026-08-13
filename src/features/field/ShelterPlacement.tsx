@@ -4,6 +4,7 @@ import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Layers, Check, Mountain } from 'lucide-react'
 import { useData } from '@/data/context'
+import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
@@ -46,7 +47,7 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 }
 
 export default function ShelterPlacement() {
-  const { fields, placedShelters, addPlacedShelter } = useData()
+  const { fields, placedShelters, addPlacedShelter, crews, crewMembers, loadCrews } = useData()
   const s = useSession()
   const canEdit = s.can('maps', 'edit')
 
@@ -277,7 +278,29 @@ export default function ShelterPlacement() {
   placedRef.current = placedCount
 
   useEffect(() => {
-    if (!supabase || !field) return
+    void loadCrews()
+  }, [loadCrews])
+
+  /**
+   * Only the crew's lead device reports position — normally the iPad that
+   * stays with the vehicle. Three phones in one truck broadcasting slightly
+   * different fixes would draw the crew as a smear of pins that disagree, and
+   * a phone that goes up a ladder is not where the crew is.
+   *
+   * Nobody on a crew yet? Fall back to broadcasting as yourself, so a single
+   * person working alone still shows up rather than vanishing from the map
+   * because the crew list has not been set up.
+   */
+  const myCrewId = crewOf(crewMembers, s.user.id)
+  const isLead = shouldBroadcastPosition(crewMembers, s.user.id)
+  const broadcastAs = myCrewId
+    ? isLead
+      ? (crews.find((c) => c.id === myCrewId)?.name ?? s.user.name)
+      : null
+    : s.user.name
+
+  useEffect(() => {
+    if (!supabase || !field || !broadcastAs) return
     const channel = supabase.channel('crew_live')
     let sub = false
     channel.subscribe((status) => {
@@ -289,7 +312,7 @@ export default function ShelterPlacement() {
         type: 'broadcast',
         event: 'crew',
         payload: {
-          name: s.user.name,
+          name: broadcastAs,
           // Which job — the Crews view separates shelter work from tray work,
           // and two crews can be in the same field doing different things.
           task: 'shelter',
@@ -308,7 +331,7 @@ export default function ShelterPlacement() {
       supabase?.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [field?.id, pins.length])
+  }, [field?.id, pins.length, broadcastAs])
 
   // ── Mark placed ────────────────────────────────────────────────────────────
   // Target = nearest UNPLACED pin to the crew's GPS (or the map centre).

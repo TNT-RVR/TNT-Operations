@@ -66,3 +66,105 @@ export function sortCrews(crews: LiveCrew[], now: number = Date.now()): LiveCrew
     return a.name.localeCompare(b.name)
   })
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Crew membership (migration 0023)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface Crew {
+  id: string
+  name: string
+  season: number
+  active: boolean
+}
+
+export interface CrewMember {
+  id: string
+  crewId: string
+  userId: string
+  role: 'lead' | 'member'
+  joinedAt: string
+  /** Null while still on the crew. Leaving is recorded, not deleted. */
+  leftAt: string | null
+}
+
+/** Still on a crew right now. */
+export const isActive = (m: CrewMember): boolean => m.leftAt == null
+
+/** The crew a person is on, or null. */
+export function crewOf(members: CrewMember[], userId: string): string | null {
+  return members.find((m) => isActive(m) && m.userId === userId)?.crewId ?? null
+}
+
+/** Everyone currently on a crew. */
+export function membersOf(members: CrewMember[], crewId: string): CrewMember[] {
+  return members.filter((m) => isActive(m) && m.crewId === crewId)
+}
+
+/** The lead — whose GPS speaks for the crew — or null when nobody holds it. */
+export function leadOf(members: CrewMember[], crewId: string): CrewMember | null {
+  return membersOf(members, crewId).find((m) => m.role === 'lead') ?? null
+}
+
+/**
+ * Should THIS device broadcast the crew's position?
+ *
+ * Only the lead, and only when it knows which crew it is on. Several phones in
+ * one truck reporting slightly different fixes would draw a crew as a smear of
+ * pins that disagree — and the iPad is the device that stays with the vehicle
+ * rather than going up a ladder in someone's pocket.
+ *
+ * A crew with NO lead broadcasts nothing rather than electing one silently:
+ * the map would then show a position that moves when a particular person walks
+ * off, which is worse than an honest gap.
+ */
+export function shouldBroadcastPosition(members: CrewMember[], userId: string | null): boolean {
+  if (!userId) return false
+  const mine = members.find((m) => isActive(m) && m.userId === userId)
+  return mine?.role === 'lead'
+}
+
+export interface CrewChange {
+  /** Memberships to close, by id. */
+  leave: string[]
+  /** Whether a new membership row is needed. */
+  join: boolean
+}
+
+/**
+ * What joining `crewId` means for someone.
+ *
+ * Joining a crew while on another leaves the first — people get moved around
+ * mid-morning and nobody is going to remember to press "leave" first. Joining
+ * the crew you are already on is a no-op rather than a duplicate row.
+ */
+export function planJoin(members: CrewMember[], userId: string, crewId: string): CrewChange {
+  const active = members.filter((m) => isActive(m) && m.userId === userId)
+  if (active.some((m) => m.crewId === crewId)) return { leave: [], join: false }
+  return { leave: active.map((m) => m.id), join: true }
+}
+
+export interface LeadHandover {
+  /** Memberships that must stop being lead first. */
+  demote: string[]
+  /** The membership to promote, or null when the person isn't on the crew. */
+  promote: string | null
+}
+
+/**
+ * Moving the lead to this device.
+ *
+ * The old lead must be demoted in the same breath: a crew has exactly one
+ * position reporter (the database enforces it with a partial unique index), so
+ * promoting without demoting is rejected outright — and in mock mode it
+ * silently produced two leads, where whichever was found first won and the
+ * button appeared to do nothing.
+ */
+export function planTakeLead(members: CrewMember[], userId: string, crewId: string): LeadHandover {
+  const active = membersOf(members, crewId)
+  const mine = active.find((m) => m.userId === userId) ?? null
+  return {
+    demote: active.filter((m) => m.role === 'lead' && m.userId !== userId).map((m) => m.id),
+    promote: mine && mine.role !== 'lead' ? mine.id : null,
+  }
+}

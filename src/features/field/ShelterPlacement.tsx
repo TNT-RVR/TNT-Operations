@@ -10,7 +10,7 @@ import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
 import { getTentPositions } from '@/domain/tentGrid'
 import { tireAndEdgeZones } from '@/domain/sprayOverlays'
-import { planterPassLines, planterPassLabels } from '@/domain/bayOverlays'
+import { bayGuides } from '@/domain/bayGuides'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { SATELLITE_STYLE } from '../maps/basemap'
 import { trackRings, ringPolygons } from '../maps/overlays'
@@ -54,31 +54,37 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 }
 
 /**
- * Pass guide lines — which row to turn down, readable from the headland.
+ * Guide lines down the male bays that have shelters beside them.
  *
- * The same `planterPassLines()` the office draws for planter numbers, and
- * deliberately NOT clipped to the field: clipping is right on a planning map,
- * and wrong here. The moment you need to identify a row is while you are
- * outside the field looking into it, so the line has to cross the boundary and
- * reach the vehicle.
+ * Not every pass — most bays have no shelters, and drawing them all buries the
+ * few that matter. Not the crew route either: that is a driving path with
+ * headland links, which answers "where next" rather than "which one is this".
  *
- * Not the crew route: that is a driving path with headland links, which
- * answers "where do we go next" rather than "which one is this".
+ * Extended past the field so the line is visible from the headland, which is
+ * where the row gets chosen.
  */
-function passGuideFC(g: Record<string, unknown>): {
-  lines: GeoJSON.FeatureCollection
-  labels: GeoJSON.FeatureCollection
-} {
-  const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
-  try {
-    return {
-      lines: planterPassLines(g) as GeoJSON.FeatureCollection,
-      labels: planterPassLabels(g) as GeoJSON.FeatureCollection,
-    }
-  } catch {
-    // A field whose frame cannot be built simply gets no guides — never a
-    // crash on a screen someone is driving with.
-    return { lines: empty, labels: empty }
+function bayGuideFC(
+  g: Record<string, unknown>,
+  shelters: Array<{ lat: number; lng: number }>,
+): { lines: GeoJSON.FeatureCollection; labels: GeoJSON.FeatureCollection } {
+  const guides = bayGuides(g, shelters)
+  return {
+    lines: {
+      type: 'FeatureCollection',
+      features: guides.map((gd) => ({
+        type: 'Feature',
+        properties: { pass: gd.pass },
+        geometry: { type: 'LineString', coordinates: gd.coordinates },
+      })),
+    },
+    labels: {
+      type: 'FeatureCollection',
+      features: guides.map((gd) => ({
+        type: 'Feature',
+        properties: { number: gd.pass },
+        geometry: { type: 'Point', coordinates: gd.label },
+      })),
+    },
   }
 }
 
@@ -263,7 +269,7 @@ export default function ShelterPlacement() {
     ;(map.getSource('edges') as GeoJSONSource | undefined)?.setData(
       show.edges ? tireAndEdgeZones(g).edge : EMPTY,
     )
-    const guides = show.rowGuides ? passGuideFC(g) : null
+    const guides = show.rowGuides ? bayGuideFC(g, pins) : null
     ;(map.getSource('row-guides') as GeoJSONSource | undefined)?.setData(guides?.lines ?? EMPTY)
     ;(map.getSource('row-guide-labels') as GeoJSONSource | undefined)?.setData(guides?.labels ?? EMPTY)
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
@@ -535,7 +541,7 @@ export default function ShelterPlacement() {
                 ['tracks', 'Pivot tracks'],
                 ['wet', 'Wet zones'],
                 ['edges', 'Sprayer edge zones'],
-                ['rowGuides', 'Row guides'],
+                ['rowGuides', 'Bay guides'],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">

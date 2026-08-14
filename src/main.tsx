@@ -1,7 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import App from './App'
+import { Eula, Privacy } from './features/legal/LegalPages'
 import { SessionProvider } from './auth/session'
 import { DataProvider } from './data/context'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -22,11 +23,28 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <ErrorBoundary label="app">
         <BrowserRouter>
-          <SessionProvider>
-            <DataProvider>
-              <App />
-            </DataProvider>
-          </SessionProvider>
+          {/*
+            The legal pages are matched BEFORE SessionProvider, which renders a
+            login screen whenever there is no session. Intuit requires the
+            licence and privacy URLs to be readable by anyone, and their
+            reviewer opens them signed out — inside the provider they would
+            serve a login form and fail the check. These two routes therefore
+            mount with no session and no data provider at all.
+          */}
+          <Routes>
+            <Route path="/legal/eula" element={<Eula />} />
+            <Route path="/legal/privacy" element={<Privacy />} />
+            <Route
+              path="*"
+              element={
+                <SessionProvider>
+                  <DataProvider>
+                    <App />
+                  </DataProvider>
+                </SessionProvider>
+              }
+            />
+          </Routes>
         </BrowserRouter>
       </ErrorBoundary>
     </ThemeProvider>

@@ -15,6 +15,20 @@ export interface ScanFeedback {
 
 /** How long each kind of toast stays up. Failures linger; successes get out of the way. */
 const TOAST_MS: Record<ScanFeedback['kind'], number> = { ok: 1400, warn: 2200, error: 3500 }
+
+/**
+ * A one-line description of where this is running.
+ *
+ * Camera failures are nearly always environmental — the wrong protocol, a
+ * home-screen app with its own permission store, an in-app browser — and none
+ * of that is visible from a screenshot of "it didn't work".
+ */
+function diagnostics(): string {
+  const standalone =
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    (navigator as { standalone?: boolean }).standalone === true
+  return `[${location.protocol}${standalone ? ' home-screen app' : ' browser'}]`
+}
 /** Nothing decoded for this long → say so, rather than leaving a dead camera. */
 const IDLE_HINT_MS = 8000
 
@@ -90,6 +104,41 @@ export function ScannerOverlay({
         setError('The camera needs a secure (https) connection. Type the number instead.')
         return
       }
+
+      /**
+       * Ask for the camera FIRST, before loading the scanner library.
+       *
+       * iOS wants the permission request close to the tap that caused it, and
+       * `await import('html5-qrcode')` is a network round trip in between. On
+       * an iPad running the home-screen app that gap is enough for the request
+       * to be refused without a prompt ever appearing — the camera simply
+       * never starts, which is exactly what it looks like from the outside.
+       *
+       * The stream is stopped immediately; this is about the permission, not
+       * the picture. It also gives a REAL DOMException name to report, where
+       * the library's own errors are strings that have to be pattern-matched.
+       */
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        })
+        probe.getTracks().forEach((t) => t.stop())
+      } catch (e) {
+        if (cancelled) return
+        const name = e instanceof DOMException ? e.name : ''
+        console.error('[scanner] camera permission probe failed:', name, e)
+        setError(
+          name === 'NotAllowedError'
+            ? 'Camera access is blocked for this app. On an iPad: Settings → Apps → Safari → Camera → Allow, then reopen. Or type the number.'
+            : name === 'NotFoundError'
+              ? 'No camera was found on this device. Type the number instead.'
+              : name === 'NotReadableError'
+                ? 'The camera is already in use by another app. Close it and try again.'
+                : `Could not open the camera (${name || 'unknown'}). ${diagnostics()} Type the number instead.`,
+        )
+        return
+      }
+
       try {
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
         if (cancelled) return

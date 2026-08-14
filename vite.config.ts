@@ -17,6 +17,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // Netlify functions are plain .mjs and cannot import the TS domain, so the
+    // rules they own live beside them and are tested there.
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'netlify/**/*.{test,spec}.mjs'],
   },
 })

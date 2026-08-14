@@ -69,7 +69,16 @@ export default async (req) => {
   }
 
   const rd = await pollDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
-  if (!rd) {
+  if (rd && rd.online === false) {
+    // Govee knows the device and says it is off the network — a flat battery or
+    // a sensor out of range of its gateway. Worth saying exactly, because it is
+    // the one failure the person standing there can actually fix.
+    return json(
+      { error: `The sensor on ${inc.name} is offline. Check its battery and that it is in range of the gateway.` },
+      502,
+    )
+  }
+  if (!rd || rd.temp == null || rd.hum == null) {
     // Distinguish "the sensor didn't answer" from "we never asked": this is the
     // difference between a flat battery and a broken deploy.
     return json({ error: `The sensor on ${inc.name} did not answer. Check it is powered and online.` }, 502)

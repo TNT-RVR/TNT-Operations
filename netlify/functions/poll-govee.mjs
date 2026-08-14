@@ -96,14 +96,23 @@ const toC = (t) => (t != null && t > 50 ? Math.round(((t - 32) * 5) / 9 * 100) /
 function parseV2(caps = []) {
   let temp = null
   let hum = null
+  // Null, not false: "Govee didn't say" and "Govee said no" are different, and
+  // only the second one is worth waking somebody over.
+  let online = null
   for (const c of caps) {
     const inst = (c.instance || '').toLowerCase()
     const v = c.state?.value
-    if (v == null) continue
+    // The online flag is a boolean, and `false` is exactly the value that
+    // matters — so it is read before the null check that follows.
+    if ((c.type || '').endsWith('online') || inst === 'online') {
+      if (typeof v === 'boolean') online = v
+      continue
+    }
+    if (v == null || v === '') continue
     if (inst.includes('temperature')) temp = rawVal(v)
     else if (inst.includes('humidity')) hum = rawVal(v)
   }
-  return { temp, hum }
+  return { temp, hum, online }
 }
 
 // Exported for poll-now.mjs, the on-demand single-incubator read.
@@ -117,8 +126,12 @@ export async function pollDevice(key, device, sku) {
     })
     const j = await r.json()
     if (j.code === 200) {
-      const { temp, hum } = parseV2(j.payload?.capabilities || [])
-      if (temp != null && hum != null) return { temp: toC(temp), hum }
+      const { temp, hum, online } = parseV2(j.payload?.capabilities || [])
+      if (temp != null && hum != null) return { temp: toC(temp), hum, online }
+      // An offline sensor answers with empty strings for both numbers. There is
+      // no reading to keep, but the fact that it is off the network IS the
+      // news, so it is returned rather than being lost to a null.
+      if (online === false) return { temp: null, hum: null, online: false }
     }
   } catch {
     /* fall through to v1 */
@@ -134,7 +147,7 @@ export async function pollDevice(key, device, sku) {
       if ('temperature' in p) temp = rawVal(p.temperature)
       if ('humidity' in p) hum = rawVal(p.humidity)
     }
-    if (temp != null && hum != null) return { temp: toC(temp), hum }
+    if (temp != null && hum != null) return { temp: toC(temp), hum, online: true }
   } catch {
     /* give up on this device this cycle */
   }
@@ -190,7 +203,24 @@ export default async () => {
   const readings = []
   for (const { inc } of due) {
     const rd = await pollDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
-    if (rd) readings.push({ incubator_id: inc.id, at, temp_c: rd.temp, humidity_pct: rd.hum, source: 'govee' })
+    if (rd && rd.temp != null && rd.hum != null) {
+      readings.push({ incubator_id: inc.id, at, temp_c: rd.temp, humidity_pct: rd.hum, source: 'govee' })
+    }
+
+    // Whether the sensor is on the network, stored every cycle — including the
+    // cycles where it answered perfectly, because `sensor_seen_at` is what the
+    // length of a future outage gets measured from.
+    if (rd && rd.online != null) {
+      const patch = { sensor_online: rd.online, sensor_checked_at: at }
+      if (rd.online) patch.sensor_seen_at = at
+      await fetch(`${SB_URL}/rest/v1/incubators?id=eq.${inc.id}`, {
+        method: 'PATCH',
+        headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      }).catch(() => {
+        /* a link-state update is never worth failing the poll over */
+      })
+    }
   }
 
   if (readings.length) {

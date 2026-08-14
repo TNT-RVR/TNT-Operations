@@ -29,7 +29,7 @@ import { Logo } from '@/components/ui'
  * reviewer may mail it, and a policy whose contact address bounces is a defect
  * in the policy. One edit here changes both documents.
  */
-const CONTACT_EMAIL = 'tyler.torrie@gmail.com'
+const CONTACT_EMAIL = 'tyler.torrie@tntpollination.com'
 
 /** Shown on both pages so a reader can tell whether they have the current text. */
 const LAST_UPDATED = '14 August 2026'

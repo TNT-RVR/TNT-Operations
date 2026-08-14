@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { PageHeader, Badge, Gauge, EmptyState } from '@/components/ui'
+import { sensorLinkChip } from '@/domain/sensorLink'
 import { useData } from '@/data/context'
 import { incubationProgress, getIncubationDay, incubatorDisplay } from '@/domain/incubation'
 import type { Incubator } from '@/data/types'
@@ -35,6 +36,8 @@ export default function IncubationHome() {
           const humOut =
             r != null && d.running && d.humMin != null && d.humMax != null && (r.humidityPct < d.humMin || r.humidityPct > d.humMax)
 
+          const link = sensorLinkChip(i, now.getTime())
+
           const showProgress = i.tempMode === 'incubation' && !!i.incubationStart
           const p = showProgress ? incubationProgress(i.incubationStart!, now.toISOString()) : null
           const day = showProgress ? getIncubationDay({ startDate: i.incubationStart }, now) : null
@@ -50,7 +53,27 @@ export default function IncubationHome() {
                   <h2 className="font-bold">{i.name}</h2>
                   {i.location && <p className="text-xs text-muted">{i.location}</p>}
                 </div>
-                <Badge tone={modeTone(i, d.running)}>{d.modeLabel}</Badge>
+                <div className="flex flex-shrink-0 items-center gap-2">
+                  {/* Shown for every linked sensor, healthy included: the
+                      point is to see all of them at a glance rather than to
+                      find out by being told. A good one is quiet about it. */}
+                  {link.state !== 'none' && (
+                    <span
+                      className="rounded-pill px-2 py-0.5 text-xs font-semibold"
+                      style={
+                        link.tone === 'red'
+                          ? { background: 'var(--danger-bg)', color: 'var(--danger-fg)', border: '1px solid var(--danger-bd)' }
+                          : link.tone === 'green'
+                            ? { background: 'var(--ok-bg)', color: 'var(--ok-fg)', border: '1px solid var(--ok-bd)' }
+                            : { background: 'var(--bg-inset)', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }
+                      }
+                      title={link.detail ?? undefined}
+                    >
+                      {link.label}
+                    </span>
+                  )}
+                  <Badge tone={modeTone(i, d.running)}>{d.modeLabel}</Badge>
+                </div>
               </div>
 
               {p && (

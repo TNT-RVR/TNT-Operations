@@ -53,6 +53,18 @@ export interface Incubator {
    */
   sensiboDeviceId?: string | null
   capacity?: number | null
+  /**
+   * Sensor link state, written by the Govee poller.
+   *
+   * The H5100 reports no battery level, so whether it is reachable is the only
+   * health signal there is — and since these sensors stop answering rather
+   * than fading, it is a decent proxy for one.
+   */
+  goveeLinked?: boolean
+  /** Null means nobody has polled it yet, which is not the same as offline. */
+  sensorOnline?: boolean | null
+  sensorSeenAt?: string | null
+  sensorCheckedAt?: string | null
 }
 
 /** Time-of-day slot for a routine inspection (matches the old app's schema). */

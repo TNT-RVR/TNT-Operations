@@ -61,6 +61,11 @@ export interface IncubatorRow {
   incubation_start?: string | null
   capacity?: number | string | null
   sensibo_device_id?: string | null
+  govee_device_id?: string | null
+  govee_sku?: string | null
+  sensor_online?: boolean | null
+  sensor_seen_at?: string | null
+  sensor_checked_at?: string | null
 }
 
 export interface InspectionRow {
@@ -129,6 +134,11 @@ export function toIncubator(row: IncubatorRow): Incubator {
     incubationStart: row.incubation_start ?? null,
     capacity: numOrNull(row.capacity),
     sensiboDeviceId: row.sensibo_device_id ?? null,
+    // Both halves are needed to poll, so both are what "linked" means.
+    goveeLinked: Boolean(row.govee_device_id && row.govee_sku),
+    sensorOnline: row.sensor_online ?? null,
+    sensorSeenAt: row.sensor_seen_at ?? null,
+    sensorCheckedAt: row.sensor_checked_at ?? null,
   }
 }
 

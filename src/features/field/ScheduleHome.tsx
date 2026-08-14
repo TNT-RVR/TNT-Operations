@@ -234,14 +234,16 @@ export default function ScheduleHome() {
                           <MapPin size={13} className="mr-1 inline text-faint" />
                           {fieldName(j.fieldId)}
                         </span>
+                        {/* A bare pencil is easy to miss on a phone in a
+                            truck; the word is what people look for. */}
                         {isAdmin && (
                           <button
-                            className="text-faint hover:text-primary"
+                            className="flex items-center gap-1 rounded-md border border-default px-2 py-1 text-xs font-semibold text-primary"
                             onClick={() => setEditing(j.eventId)}
                             aria-label={`Edit ${j.title}`}
-                            title="Edit this work order"
                           >
-                            <Pencil size={14} />
+                            <Pencil size={13} />
+                            Edit
                           </button>
                         )}
                       </div>

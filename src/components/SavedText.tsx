@@ -22,6 +22,8 @@ export function SavedText({
   placeholder,
   inputMode,
   className,
+  multiline,
+  minRows = 3,
 }: {
   value: string
   onSave: (next: string) => void
@@ -29,6 +31,10 @@ export function SavedText({
   placeholder?: string
   inputMode?: 'numeric' | 'decimal' | 'text'
   className?: string
+  /** Render a box that shows the whole text and grows as it is written. */
+  multiline?: boolean
+  /** How tall it starts, in lines. */
+  minRows?: number
 }) {
   const [text, setText] = useState(value)
   const dirtyRef = useRef(false)
@@ -55,6 +61,48 @@ export function SavedText({
     if (!dirtyRef.current) return
     dirtyRef.current = false
     onSaveRef.current(textRef.current)
+  }
+
+  /**
+   * Grow the box to fit what is in it.
+   *
+   * A note worth writing is usually three lines about which gate to use, and
+   * reading it through a one-line window means scrolling a sentence sideways.
+   * It stops growing at 60vh and scrolls after that, so a long note cannot
+   * push the buttons off the bottom of a phone.
+   */
+  const fit = (el: HTMLTextAreaElement | null) => {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
+
+  if (multiline) {
+    return (
+      <textarea
+        ref={fit}
+        value={text}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={minRows}
+        className={`input w-full resize-y ${className ?? ''}`}
+        style={{ maxHeight: '60vh' }}
+        onChange={(e) => {
+          dirtyRef.current = true
+          setText(e.target.value)
+          fit(e.currentTarget)
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          // Enter makes a new line here; it is a note, not a field. Escape
+          // still throws the edit away, and blur still saves it.
+          if (e.key === 'Escape') {
+            dirtyRef.current = false
+            setText(value)
+          }
+        }}
+      />
+    )
   }
 
   return (

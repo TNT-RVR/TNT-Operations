@@ -158,6 +158,8 @@ function ChecklistEditor({ checklist, onClose }: { checklist: Checklist; onClose
             <SavedText
               value={checklist.description}
               disabled={!canEdit}
+              multiline
+              minRows={2}
               onSave={(v) => void saveChecklist(checklist.id, { description: v })}
             />
           </label>

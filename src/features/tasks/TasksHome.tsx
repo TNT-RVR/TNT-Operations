@@ -279,7 +279,13 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
           </label>
           <label className="block sm:col-span-2 lg:col-span-4">
             <span className="label">Notes</span>
-            <SavedText value={task.notes} disabled={!canEdit} onSave={(v) => patch({ notes: v })} />
+            <SavedText
+              value={task.notes}
+              disabled={!canEdit}
+              multiline
+              placeholder="Anything the person doing this needs to know"
+              onSave={(v) => patch({ notes: v })}
+            />
           </label>
         </div>
 

@@ -59,3 +59,38 @@ describe('map layer registration order', () => {
     })
   }
 })
+
+/**
+ * A symbol layer with a `text-field` cannot draw anything in this app.
+ *
+ * `SATELLITE_STYLE` (basemap.ts) declares no `glyphs` URL, and MapLibre needs
+ * one to rasterise any text. Without it a symbol layer is added successfully,
+ * reports itself present via `getLayer`, and renders nothing — for ever. That
+ * is how the shelter pin numbers looked like a feature nobody had built.
+ *
+ * Text is therefore drawn as DOM markers instead (see the pin labels in
+ * MapsHome, and the field names in Field Mode). This test does not ban the
+ * pattern outright, because two layers still use it and are correspondingly
+ * invisible; it pins that list so a THIRD cannot be added by accident.
+ */
+describe('text layers need glyphs, which this style has none of', () => {
+  /** Layers with a text-field that are known to render nothing today. */
+  const KNOWN_DEAD = ['lld-lookup-label', 'planterlines-label']
+
+  it('the style still declares no glyphs — the reason for all this', () => {
+    const style = readFileSync(resolve(__dirname, 'basemap.ts'), 'utf8')
+    expect(style).not.toMatch(/\bglyphs\s*:/)
+  })
+
+  it('no NEW text layer has been added', () => {
+    const src = readFileSync(resolve(__dirname, 'MapsHome.tsx'), 'utf8')
+    const withText: string[] = []
+    for (const m of src.matchAll(/addLayer\(\s*\{([\s\S]{0,700}?)\}\s*\)/g)) {
+      const body = m[1]
+      if (!/'text-field'/.test(body)) continue
+      withText.push(/id:\s*'([^']+)'/.exec(body)?.[1] ?? '(unnamed)')
+    }
+    // Adding to this list means shipping something invisible. Draw a marker.
+    expect(withText.sort()).toEqual([...KNOWN_DEAD].sort())
+  })
+})

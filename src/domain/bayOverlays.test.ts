@@ -505,3 +505,58 @@ describe('alignmentLines', () => {
     )
   })
 })
+
+describe('alignmentLines — one line per diagonal strip', () => {
+  const f = fieldFrame(FIELD)!
+
+  /** A staggered grid: `cols` columns × `rows` ranks, odd columns offset. */
+  const staggered = (cols: number, rows: number) => {
+    const pins: Array<{ lat: number; lng: number }> = []
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const [lng, lat] = latAlongToLonLat(f, c * 40, r * 60 + (c % 2 ? 30 : 0))
+        pins.push({ lat, lng })
+      }
+    }
+    return pins
+  }
+
+  const axisOf = (pins: Array<{ lat: number; lng: number }>, want: string) =>
+    alignmentLines(pins, FIELD).features.filter((x) => x.properties?.axis === want)
+
+  it('draws far fewer diagonals than there are shelters', () => {
+    // The fan: every adjacent PAIR used to give its own extended line, so a
+    // staggered grid produced roughly two per pin, all near-parallel and
+    // crossing at every shelter. A strip is a line, not a pair.
+    const pins = staggered(8, 5)
+    const diagonals = axisOf(pins, 'diagonal')
+    expect(diagonals.length).toBeGreaterThan(0)
+    expect(diagonals.length).toBeLessThan(pins.length)
+  })
+
+  it('gives one line per strip, not one per pair along it', () => {
+    // Six columns of a staggered grid share a handful of long diagonals. If the
+    // count scaled with the pins, the strips were not being merged.
+    const small = axisOf(staggered(4, 4), 'diagonal').length
+    const big = axisOf(staggered(8, 4), 'diagonal').length
+    // Doubling the columns must not double the lines through them — the strips
+    // get LONGER, they do not multiply.
+    expect(big).toBeLessThan(small * 2)
+  })
+
+  it('emits no two diagonals that lie on top of each other', () => {
+    const diagonals = axisOf(staggered(8, 5), 'diagonal')
+    const keys = diagonals.map((l) =>
+      l.geometry.coordinates.map((c) => `${c[0].toFixed(6)},${c[1].toFixed(6)}`).join('|'),
+    )
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('still runs each diagonal at a real slope', () => {
+    for (const l of axisOf(staggered(6, 4), 'diagonal')) {
+      const [a, b] = l.geometry.coordinates
+      expect(Math.abs(toLateral(f, b) - toLateral(f, a))).toBeGreaterThan(1)
+      expect(Math.abs(toAlong(f, b) - toAlong(f, a))).toBeGreaterThan(1)
+    }
+  })
+})

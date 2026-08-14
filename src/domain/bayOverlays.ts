@@ -563,6 +563,16 @@ const COLUMN_TOL_M = 0.5
 const ROW_TOL_M = 0.5
 
 /**
+ * How far off a diagonal line a shelter can sit and still count as on it.
+ *
+ * Looser than the row and column tolerances because a diagonal's spacing is the
+ * hypotenuse of the grid — adjacent strips are further apart than adjacent
+ * columns, so a wider bucket still cannot merge two of them, and a tight one
+ * would split a single strip in two over ordinary placement noise.
+ */
+const DIAGONAL_TOL_M = 2.0
+
+/**
  * Along-pass tolerance for "level with". Pins this close along the pass are the
  * same rank, so an UNstaggered grid links straight across once instead of
  * fanning to two near-identical neighbours on projection round-trip noise.
@@ -742,26 +752,81 @@ export function alignmentLines(
     pushLine({ lateral: latMin, along }, { lateral: latMax, along }, 'row')
   }
 
-  // Across to the next column: nearest above + nearest below → triangles.
-  const seen = new Set<string>()
+  // ── Diagonals: ONE line per strip of shelters ─────────────────────────────
+  //
+  // Drawing a line through each adjacent PAIR produced a fan: on a staggered
+  // grid no two pairs are exactly collinear, so extending each to the field
+  // gave two near-parallel lines per pin — dozens of them, crossing at every
+  // shelter, which is unreadable and says nothing.
+  //
+  // A diagonal strip is a run of shelters that genuinely lies on one line, so
+  // the direction is found ONCE from the whole grid and the pins are then
+  // bucketed onto the lines running that way. Fewer lines, and each is a real
+  // claim about where a row of shelters should sit.
+  //
+  // Step 1: gather candidate directions — each pin to its nearest neighbour
+  // above and below in the next column across.
+  const candidates: Array<{ lateral: number; along: number }> = []
   for (let c = 0; c + 1 < columns.length; c++) {
     const next = columns[c + 1]
     if (next.length === 0) continue
-    for (const p of columns[c]) {
-      let above: Pin | null = null // smallest `along` ≥ p.along
-      let below: Pin | null = null // largest `along` ≤ p.along
+    for (const q0 of columns[c]) {
+      let above: Pin | null = null // smallest `along` ≥ q0.along
+      let below: Pin | null = null // largest `along` ≤ q0.along
       for (const q of next) {
-        const d = q.along - p.along
+        const d = q.along - q0.along
         if (d >= -LEVEL_TOL_M && (above === null || q.along < above.along)) above = q
         if (d <= LEVEL_TOL_M && (below === null || q.along > below.along)) below = q
       }
       for (const q of [below, above]) {
         if (!q) continue
-        const key = `${c}:${p.lateral},${p.along}->${q.lateral},${q.along}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        pushLine(p, q, 'diagonal')
+        const dLat = q.lateral - q0.lateral
+        const dAlong = q.along - q0.along
+        const len = Math.hypot(dLat, dAlong)
+        if (!(len > 0)) continue
+        // Canonical sense: lateral always positive, so a direction and its
+        // opposite are the same family rather than two.
+        const sign = dLat >= 0 ? 1 : -1
+        candidates.push({ lateral: (dLat * sign) / len, along: (dAlong * sign) / len })
       }
+    }
+  }
+
+  // Step 2: two families — leaning one way and the other. A level neighbour is
+  // neither; that is the row line, already drawn.
+  const median = (xs: number[]): number => {
+    const v = xs.slice().sort((a, b) => a - b)
+    const n = v.length
+    return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2
+  }
+  const families: Array<{ lateral: number; along: number }> = []
+  for (const want of [1, -1]) {
+    const side = candidates.filter((d) => Math.sign(d.along) === want && Math.abs(d.along) > 1e-9)
+    if (side.length === 0) continue
+    // The median direction, not the mean: one stray pin dragged out of place
+    // would tilt a mean and skew every line in the family.
+    const dir = { lateral: median(side.map((d) => d.lateral)), along: median(side.map((d) => d.along)) }
+    const len = Math.hypot(dir.lateral, dir.along)
+    if (!(len > 0)) continue
+    families.push({ lateral: dir.lateral / len, along: dir.along / len })
+  }
+
+  // Step 3: bucket every pin by its perpendicular distance from the origin
+  // along each family direction. Pins sharing an offset share a line.
+  for (const dir of families) {
+    const offsetOf = (q: Pin) => q.along * dir.lateral - q.lateral * dir.along
+    const strips = groupBy(offsetOf, (q) => q.lateral * dir.lateral + q.along * dir.along, DIAGONAL_TOL_M)
+    for (const strip of strips) {
+      if (strip.length < 2) continue
+      // Through the strip's centre of mass, so the line splits the difference
+      // between its pins rather than pivoting on whichever came first.
+      const midLat = meanOf(strip, (q) => q.lateral)
+      const midAlong = meanOf(strip, (q) => q.along)
+      pushLine(
+        { lateral: midLat, along: midAlong },
+        { lateral: midLat + dir.lateral, along: midAlong + dir.along },
+        'diagonal',
+      )
     }
   }
 

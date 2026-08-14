@@ -157,19 +157,15 @@ function pivotFeature(geom?: FieldGeometry): Feature<Point> | null {
  * Shelter pins as GeoJSON. `label` drives the optional on-map number (§6.5):
  * the shelter's index, its tray count, or nothing.
  */
-function sheltersCollection(
-  pins: { lng: number; lat: number }[],
-  mode: 'off' | 'shelter' | 'trays' = 'off',
-  trayCounts: number[] = [],
-): FeatureCollection<Point> {
+function sheltersCollection(pins: { lng: number; lat: number }[]): FeatureCollection<Point> {
+  // No `label` property: the numbers are drawn as DOM markers, because this
+  // style has no glyph server and a symbol layer therefore cannot render text.
+  // A label here would look like it was driving the feature and drive nothing.
   return {
     type: 'FeatureCollection',
     features: pins.map((p, i) => ({
       type: 'Feature',
-      properties: {
-        n: i + 1,
-        label: mode === 'shelter' ? String(i + 1) : mode === 'trays' ? String(trayCounts[i] ?? '') : '',
-      },
+      properties: { n: i + 1 },
       geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
     })),
   }
@@ -224,6 +220,8 @@ export default function MapsHome() {
   const [draft, setDraft] = useState<FieldGeometry | null>(null)
   const [draftName, setDraftName] = useState('')
   const containerRef = useRef<HTMLDivElement | null>(null)
+  /** Number / tray-count labels drawn beside each planned pin. */
+  const labelMarkersRef = useRef<maplibregl.Marker[]>([])
   const mapRef = useRef<maplibregl.Map | null>(null)
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const shelterMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1079,18 +1077,6 @@ export default function MapsHome() {
           'circle-stroke-width': 1,
         },
       })
-      // Pin labels — shelter number or tray count (§6.5). MUST come after the
-      // source it reads: MapLibre does not throw on a layer whose source is
-      // missing, it fires an error event and silently skips the layer. This one
-      // sat four lines too early and so was never created — the Numbers toggle
-      // ran, set the property, and nothing ever drew it.
-      map.addLayer({
-        id: 'shelters-label',
-        type: 'symbol',
-        source: 'shelters',
-        layout: { 'text-field': ['get', 'label'], 'text-size': 11, 'text-offset': [0, -1.1] },
-        paint: { 'text-color': '#FFFFFF', 'text-halo-color': '#000000', 'text-halo-width': 1.2 },
-      })
       map.addSource('pivot', { type: 'geojson', data: EMPTY })
       map.addLayer({
         id: 'pivot',
@@ -1118,6 +1104,8 @@ export default function MapsHome() {
       pinMarkersRef.current = []
       shelterMarkersRef.current.forEach((m) => m.remove())
       shelterMarkersRef.current = []
+      labelMarkersRef.current.forEach((m) => m.remove())
+      labelMarkersRef.current = []
       crewMarkersRef.current.forEach((m) => m.remove())
       crewMarkersRef.current = []
       vertexMarkersRef.current.forEach((m) => m.remove())
@@ -1145,7 +1133,7 @@ export default function MapsHome() {
     ;(map.getSource('shelters') as GeoJSONSource | undefined)?.setData(
       editing || !visibility.shelters || shelterView === 'actual'
         ? EMPTY
-        : sheltersCollection(shelters, pinNumbers, trayCounts),
+        : sheltersCollection(shelters),
     )
 
     // Overlays: tracks, exclusion zones, corner arms — each gated by its layer
@@ -1319,6 +1307,42 @@ export default function MapsHome() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, editing, manualEditing, shelters, pinNumbers, trayCounts])
+
+  /**
+   * Pin labels — shelter number or tray count (§6.5), as DOM markers.
+   *
+   * NOT a MapLibre symbol layer. `SATELLITE_STYLE` ships no `glyphs` URL, and
+   * without one MapLibre cannot rasterise text at all: a symbol layer with a
+   * `text-field` is added happily and then draws nothing, for ever. That is why
+   * this feature looked missing rather than broken. Markers are plain DOM, need
+   * no glyph server, and are what the draggable editing pins already use.
+   *
+   * Only while NOT editing — the editing path swaps these pins for draggable
+   * markers, which carry their own label.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    labelMarkersRef.current.forEach((m) => m.remove())
+    labelMarkersRef.current = []
+    if (!map || !ready || editing) return
+    if (pinNumbers === 'off' || !visibility.shelters || shelterView === 'actual') return
+
+    labelMarkersRef.current = shelters.flatMap((pin, i) => {
+      const text =
+        pinNumbers === 'shelter' ? String(i + 1) : String(trayCounts[i] ?? '')
+      if (!text) return []
+      const el = document.createElement('div')
+      el.textContent = text
+      el.style.cssText =
+        'font-size:11px;line-height:1;white-space:nowrap;color:#FFFFFF;font-weight:600;' +
+        'text-shadow:0 1px 2px #000,0 0 3px #000;pointer-events:none;transform:translateY(-14px)'
+      return [new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)]
+    })
+    return () => {
+      labelMarkersRef.current.forEach((m) => m.remove())
+      labelMarkersRef.current = []
+    }
+  }, [ready, editing, shelters, pinNumbers, trayCounts, visibility.shelters, shelterView])
 
   // Placing TEST shelters — blue, counted separately from the working grid (§6.5).
   useEffect(() => {

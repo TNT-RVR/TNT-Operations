@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fieldSupplies, supplyLines, jobsForCrew } from './supplies'
+import { fieldSupplies, supplyLines, jobsForCrew, jobsInWindow } from './supplies'
 
 /** A real-shaped field: 111 acres at 3 gal/acre, 2 gal a tray. */
 const FIELD = { acres: '111.42', gals_per_acre: '3', gals_per_tray: '2' }
@@ -113,5 +113,65 @@ describe('jobsForCrew', () => {
     expect(jobsForCrew([ev({ task: null })], 'c1', '2026-08-13')).toHaveLength(0)
     expect(jobsForCrew([ev({ fieldId: null })], 'c1', '2026-08-13')).toHaveLength(0)
     expect(jobsForCrew([ev({ crewId: null })], 'c1', '2026-08-13')).toHaveLength(0)
+  })
+})
+
+describe('jobsInWindow', () => {
+  const ev = (over: Partial<Parameters<typeof jobsForCrew>[0][number]> = {}) => ({
+    id: 'e1',
+    title: 'Shelters \u2014 Bow Island',
+    startDate: '2026-08-20',
+    endDate: null,
+    crewId: 'c1',
+    task: 'shelter' as const,
+    fieldId: 'f1',
+    ...over,
+  })
+
+  const WIN = ['2026-08-14', '2026-09-03'] as const
+
+  it('lists a multi-day job ONCE, not once per day', () => {
+    // The whole point: a three-day booking is one work order.
+    const out = jobsInWindow([ev({ endDate: '2026-08-22' })], ['c1'], ...WIN)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ startDate: '2026-08-20', lastDate: '2026-08-22' })
+  })
+
+  it('files a job under the day it starts', () => {
+    expect(jobsInWindow([ev()], ['c1'], ...WIN)[0].showOn).toBe('2026-08-20')
+  })
+
+  it('files a job already under way under the first day of the window', () => {
+    // Started last week, still running: it belongs at the top, not in the past.
+    const out = jobsInWindow([ev({ startDate: '2026-08-10', endDate: '2026-08-16' })], ['c1'], ...WIN)
+    expect(out[0].showOn).toBe('2026-08-14')
+    expect(out[0].startDate).toBe('2026-08-10')
+  })
+
+  it('takes every crew asked for and no others', () => {
+    const events = [ev(), ev({ id: 'e2', crewId: 'c2' }), ev({ id: 'e3', crewId: 'c3' })]
+    expect(jobsInWindow(events, ['c1', 'c2'], ...WIN).map((j) => j.crewId)).toEqual(['c1', 'c2'])
+  })
+
+  it('drops jobs wholly outside the window on either side', () => {
+    const before = ev({ startDate: '2026-07-01', endDate: '2026-07-04' })
+    const after = ev({ id: 'e2', startDate: '2026-10-01' })
+    expect(jobsInWindow([before, after], ['c1'], ...WIN)).toHaveLength(0)
+  })
+
+  it('keeps a job that straddles the whole window', () => {
+    const long = ev({ startDate: '2026-07-01', endDate: '2026-10-01' })
+    expect(jobsInWindow([long], ['c1'], ...WIN)).toHaveLength(1)
+  })
+
+  it('still ignores ordinary calendar entries', () => {
+    const delivery = { id: 'd', title: 'Delivery', startDate: '2026-08-20', endDate: null, crewId: 'c1' }
+    expect(jobsInWindow([delivery], ['c1'], ...WIN)).toHaveLength(0)
+  })
+
+  it('orders by the day it shows on', () => {
+    const later = ev({ id: 'e2', startDate: '2026-08-25' })
+    const sooner = ev({ id: 'e3', startDate: '2026-08-15' })
+    expect(jobsInWindow([later, sooner], ['c1'], ...WIN).map((j) => j.eventId)).toEqual(['e3', 'e2'])
   })
 })

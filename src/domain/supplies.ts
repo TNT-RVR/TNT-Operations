@@ -169,3 +169,51 @@ export function jobsForCrew(events: EventLike[], crewId: string, ymd: string): S
   }
   return out.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.title.localeCompare(b.title))
 }
+
+/**
+ * Every job touching a window of days, listed once each.
+ *
+ * `jobsForCrew` answers "what is this crew doing today", which is the right
+ * question on the map and the wrong one on a list of upcoming work: asking it
+ * for twenty-one days running turns one three-day booking into three
+ * identical cards. A work order is one thing that happens to last a while, so
+ * it appears once and states its own range.
+ *
+ * `showOn` is the day to file it under: its start, or the first day of the
+ * window for a job already under way. A job that began on Monday is still
+ * what a crew is doing on Wednesday, and burying it above "Today" would hide
+ * exactly the work in progress.
+ */
+export function jobsInWindow(
+  events: EventLike[],
+  crewIds: string[],
+  from: string,
+  to: string,
+): Array<ScheduledJob & { showOn: string; lastDate: string }> {
+  const wanted = new Set(crewIds)
+  const out: Array<ScheduledJob & { showOn: string; lastDate: string }> = []
+  for (const e of events) {
+    if (!e.crewId || !wanted.has(e.crewId)) continue
+    if (!e.task || !e.fieldId) continue
+    const lastDate = e.endDate && e.endDate > e.startDate ? e.endDate : e.startDate
+    // Any overlap at all with the window, including a job that straddles it.
+    if (e.startDate > to || lastDate < from) continue
+    out.push({
+      eventId: e.id,
+      title: e.title,
+      crewId: e.crewId,
+      task: e.task,
+      fieldId: e.fieldId,
+      startDate: e.startDate,
+      endDate: e.endDate ?? null,
+      lastDate,
+      showOn: e.startDate < from ? from : e.startDate,
+    })
+  }
+  return out.sort(
+    (a, b) =>
+      a.showOn.localeCompare(b.showOn) ||
+      a.startDate.localeCompare(b.startDate) ||
+      a.title.localeCompare(b.title),
+  )
+}

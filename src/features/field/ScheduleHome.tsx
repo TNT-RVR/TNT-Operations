@@ -5,7 +5,7 @@ import { PageHeader, EmptyState, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
-import { fieldSupplies, supplyLines, jobsForCrew } from '@/domain/supplies'
+import { fieldSupplies, supplyLines, jobsInWindow } from '@/domain/supplies'
 import { getTentPositions } from '@/domain/tentGrid'
 import { NewWorkOrder } from './NewWorkOrder'
 
@@ -15,6 +15,23 @@ const HORIZON_DAYS = 21
 
 const ymdIn = (days: number) =>
   new Date(Date.now() + days * 864e5).toLocaleDateString('en-CA', { timeZone: TZ })
+
+const shortDay = (ymd: string) =>
+  new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+
+const daysBetween = (a: string, b: string) =>
+  Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5) + 1
+
+/**
+ * How long a job runs, for the card.
+ *
+ * A one-day job says nothing — the day heading above it already did. Only a
+ * job that spans days has something to add, and what a crew wants from it is
+ * how many days they are committed to, not two dates to subtract in their
+ * head at six in the morning.
+ */
+const rangeLabel = (start: string, last: string) =>
+  last > start ? `${shortDay(start)} – ${shortDay(last)} · ${daysBetween(start, last)} days` : null
 
 const prettyDay = (ymd: string, today: string) => {
   if (ymd === today) return 'Today'
@@ -61,17 +78,22 @@ export default function ScheduleHome() {
   const isAdmin = session.can('users', 'edit')
   const [mineOnly, setMineOnly] = useState(false)
 
-  /** Every booked job from today to the horizon, in day order. */
+  /**
+   * Every booked job from today to the horizon, each listed once and grouped
+   * under the day it starts (or today, if it is already under way).
+   */
   const days = useMemo(() => {
-    const out: Array<{ ymd: string; jobs: ReturnType<typeof jobsForCrew> }> = []
-    for (let i = 0; i < HORIZON_DAYS; i++) {
-      const ymd = ymdIn(i)
-      const jobs = crews
-        .filter((c) => !mineOnly || c.id === myCrewId)
-        .flatMap((c) => jobsForCrew(calendarEvents, c.id, ymd))
-      if (jobs.length) out.push({ ymd, jobs })
+    const ids = crews.filter((c) => !mineOnly || c.id === myCrewId).map((c) => c.id)
+    const jobs = jobsInWindow(calendarEvents, ids, ymdIn(0), ymdIn(HORIZON_DAYS - 1))
+    const byDay = new Map<string, typeof jobs>()
+    for (const j of jobs) {
+      const list = byDay.get(j.showOn)
+      if (list) list.push(j)
+      else byDay.set(j.showOn, [j])
     }
-    return out
+    return [...byDay.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([ymd, list]) => ({ ymd, jobs: list }))
   }, [calendarEvents, crews, mineOnly, myCrewId])
 
   /** Supplies per field, worked out once rather than per row. */
@@ -162,6 +184,18 @@ export default function ScheduleHome() {
                         </Badge>
                         <span className="text-sm text-secondary">{crewName(j.crewId)}</span>
                         {isMine && <span className="text-xs text-brand">yours</span>}
+                        {/* One card for the whole booking; the span is stated
+                            here rather than repeated on every day it covers. */}
+                        {rangeLabel(j.startDate, j.lastDate) && (
+                          <span className="rounded-pill border border-default px-2 py-0.5 text-xs text-secondary">
+                            {rangeLabel(j.startDate, j.lastDate)}
+                          </span>
+                        )}
+                        {j.startDate < j.showOn && (
+                          <span className="text-xs text-faint">
+                            started {shortDay(j.startDate)}
+                          </span>
+                        )}
                         <span className="ml-auto text-sm text-secondary">
                           <MapPin size={13} className="mr-1 inline text-faint" />
                           {fieldName(j.fieldId)}

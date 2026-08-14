@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
   Block,
@@ -239,7 +240,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         season: Number(r.season),
         active: r.active !== false,
         currentFieldId: (r.current_field_id as string | null) ?? null,
-        currentTask: (r.current_task as 'shelter' | 'tray' | null) ?? null,
+        currentTask: (r.current_task as CrewTask | null) ?? null,
         assignedAt: (r.assigned_at as string | null) ?? null,
       })),
     )
@@ -753,7 +754,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       },
       assignCrew: async (
         id: string,
-        assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+        assignment: { fieldId: string | null; task: CrewTask | null },
       ) => {
         if (!supabase) return { ok: false, error: 'No backend connection.' }
         const { error } = await supabase
@@ -815,7 +816,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
               fieldId: (r.field_id as string | null) ?? null,
               incubatorId: (r.incubator_id as string | null) ?? null,
               crewId: (r.crew_id as string | null) ?? null,
-              task: (r.task as 'shelter' | 'tray' | null) ?? null,
+              task: (r.task as CrewTask | null) ?? null,
             })),
           )
         })()
@@ -866,7 +867,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           fieldId: (r.field_id as string | null) ?? null,
           incubatorId: (r.incubator_id as string | null) ?? null,
           crewId: (r.crew_id as string | null) ?? null,
-          task: (r.task as 'shelter' | 'tray' | null) ?? null,
+          task: (r.task as CrewTask | null) ?? null,
         }
         setCalendarEvents((prev) => {
           const i = prev.findIndex((x) => x.id === saved.id)

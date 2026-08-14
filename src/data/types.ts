@@ -1,3 +1,4 @@
+import type { CrewTask } from '@/domain/supplies'
 /** Shared domain types for TNT Operations. Backend-agnostic. */
 import type { GrantStatus } from '@/domain/grants'
 
@@ -947,5 +948,5 @@ export interface CalendarEvent {
    * delivery is not somebody's job for the day.
    */
   crewId: string | null
-  task: 'shelter' | 'tray' | null
+  task: CrewTask | null
 }

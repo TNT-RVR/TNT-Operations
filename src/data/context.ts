@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { CrewTask } from '@/domain/supplies'
 import type {
   Block,
   BlockPlacement,
@@ -241,7 +242,7 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   removeCrewMember: (membershipId: string) => Promise<{ ok: boolean; error?: string }>
   assignCrew: (
     id: string,
-    assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+    assignment: { fieldId: string | null; task: CrewTask | null },
   ) => Promise<{ ok: boolean; error?: string }>
 
   // ── Calendar (migration 0029) ─────────────────────────────────────────────

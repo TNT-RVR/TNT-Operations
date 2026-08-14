@@ -175,3 +175,24 @@ describe('jobsInWindow', () => {
     expect(jobsInWindow([later, sooner], ['c1'], ...WIN).map((j) => j.eventId)).toEqual(['e3', 'e2'])
   })
 })
+
+describe('supplyLines for shelter removal', () => {
+  it('counts what is standing in the field, not what the plan called for', () => {
+    // 130 planned, 118 actually went out: the trailer comes back with 118.
+    const s = fieldSupplies(FIELD, 130, 118)
+    const lines = supplyLines('removal', s)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ item: 'Shelters to collect', qty: '118' })
+    expect(lines[0].note).toContain('12 never went out')
+  })
+
+  it('says nothing extra when the whole plan went out', () => {
+    const lines = supplyLines('removal', fieldSupplies(FIELD, 130, 130))
+    expect(lines[0]).toMatchObject({ qty: '130', note: undefined })
+  })
+
+  it('does not ask a removal crew to load trays', () => {
+    const lines = supplyLines('removal', fieldSupplies(FIELD, 130, 130))
+    expect(lines.map((l) => l.item)).not.toContain('Trays')
+  })
+})

@@ -125,6 +125,7 @@ export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
           >
             <option value="shelter">Shelter placement</option>
             <option value="tray">Tray placement</option>
+            <option value="removal">Shelter removal</option>
           </select>
         </label>
 
@@ -174,11 +175,7 @@ export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
           <input
             className="input w-full"
             value={draft.title}
-            placeholder={
-              draft.task === 'tray' || draft.task === 'shelter'
-                ? workOrderTitle(draft.task, fieldName)
-                : ''
-            }
+            placeholder={draft.task ? workOrderTitle(draft.task, fieldName) : ''}
             onChange={(e) => set('title', e.target.value)}
           />
         </label>

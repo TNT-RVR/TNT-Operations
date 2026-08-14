@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
   Block,
@@ -294,7 +295,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       },
       assignCrew: async (
         id: string,
-        assignment: { fieldId: string | null; task: 'shelter' | 'tray' | null },
+        assignment: { fieldId: string | null; task: CrewTask | null },
       ) => {
         setCrews((prev) =>
           prev.map((c) =>

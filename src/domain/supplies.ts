@@ -8,11 +8,22 @@
  * the cost of that is a crew arriving at a quarter one trailer short.
  */
 
+/**
+ * The kinds of work a crew is booked on.
+ *
+ * Placing shelters and taking them back out are separate jobs done weeks
+ * apart, and they load the trailer in opposite directions — hence three, not
+ * a boolean on 'shelter'.
+ */
+export type CrewTask = 'shelter' | 'tray' | 'removal'
+
 export interface FieldSupplies {
   /** Shelters the grid calls for. */
   shelters: number
   /** Still to place this season — what actually goes on the trailer. */
   sheltersRemaining: number
+  /** Already out in the field — what a removal crew is going to collect. */
+  sheltersOut: number
   /** Bee volume the field is planned at. */
   gallons: number | null
   /** Trays that volume works out to, rounded UP: a part tray still travels. */
@@ -59,6 +70,7 @@ export function fieldSupplies(
   return {
     shelters: shelterCount,
     sheltersRemaining: Math.max(0, shelterCount - placed),
+    sheltersOut: Math.max(0, placed),
     gallons: gallons == null ? null : Math.round(gallons * 10) / 10,
     trays,
     traysPerShelter:
@@ -80,7 +92,24 @@ export interface SupplyLine {
  * Shelter work and tray work load different trailers, so the list is per task
  * rather than everything the field will ever need.
  */
-export function supplyLines(task: 'shelter' | 'tray', s: FieldSupplies): SupplyLine[] {
+export function supplyLines(task: CrewTask, s: FieldSupplies): SupplyLine[] {
+  // Removal leaves with an empty trailer, so the number that matters is what
+  // is standing in the field — not what the grid once called for. A crew that
+  // packs for the plan and finds eight fewer out there has learned nothing;
+  // one that packs for eight fewer and finds the plan is short of room.
+  if (task === 'removal') {
+    return [
+      {
+        item: 'Shelters to collect',
+        qty: String(s.sheltersOut),
+        note:
+          s.sheltersOut === s.shelters
+            ? undefined
+            : `${s.shelters} in the field plan, ${s.sheltersRemaining} never went out`,
+      },
+    ]
+  }
+
   if (task === 'shelter') {
     const lines: SupplyLine[] = [
       {
@@ -123,7 +152,7 @@ export interface ScheduledJob {
   eventId: string
   title: string
   crewId: string
-  task: 'shelter' | 'tray'
+  task: CrewTask
   fieldId: string
   startDate: string
   endDate: string | null
@@ -136,7 +165,7 @@ interface EventLike {
   startDate: string
   endDate: string | null
   crewId?: string | null
-  task?: 'shelter' | 'tray' | null
+  task?: CrewTask | null
   fieldId?: string | null
 }
 

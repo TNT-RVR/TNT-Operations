@@ -1,3 +1,5 @@
+import type { CrewTask } from './supplies'
+
 /**
  * Work orders — booking a crew onto a field for a day.
  *
@@ -13,7 +15,7 @@
 
 export interface WorkOrderDraft {
   crewId: string
-  task: 'shelter' | 'tray' | ''
+  task: CrewTask | ''
   fieldId: string
   startDate: string
   /** Last day of a multi-day job; blank for a single day. */
@@ -28,7 +30,7 @@ export interface WorkOrderInput {
   startDate: string
   endDate: string | null
   crewId: string
-  task: 'shelter' | 'tray'
+  task: CrewTask
   fieldId: string
   notes: string
   category: string
@@ -37,6 +39,13 @@ export interface WorkOrderInput {
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
+/** What each job is called, everywhere it is shown. */
+export const TASK_LABEL: Record<CrewTask, string> = {
+  shelter: 'Shelters',
+  tray: 'Trays',
+  removal: 'Shelter removal',
+}
+
 /**
  * The default name for a booking.
  *
@@ -44,8 +53,8 @@ const YMD = /^\d{4}-\d{2}-\d{2}$/
  * cell is two centimetres wide. The crew is deliberately left out: the card
  * already says whose it is, and repeating it costs the field name.
  */
-export function workOrderTitle(task: 'shelter' | 'tray', fieldName: string): string {
-  return `${task === 'tray' ? 'Trays' : 'Shelters'} — ${fieldName || 'field'}`
+export function workOrderTitle(task: CrewTask, fieldName: string): string {
+  return `${TASK_LABEL[task]} — ${fieldName || 'field'}`
 }
 
 /**
@@ -66,7 +75,7 @@ export function buildWorkOrder(
   const errors: string[] = []
 
   if (!draft.crewId) errors.push('Pick a crew.')
-  if (draft.task !== 'shelter' && draft.task !== 'tray') errors.push('Pick shelters or trays.')
+  if (!draft.task || !(draft.task in TASK_LABEL)) errors.push('Pick a job.')
   if (!draft.fieldId) errors.push('Pick a field.')
 
   if (!YMD.test(draft.startDate)) {
@@ -80,7 +89,7 @@ export function buildWorkOrder(
 
   if (errors.length) return { ok: false, errors }
 
-  const task = draft.task as 'shelter' | 'tray'
+  const task = draft.task as CrewTask
   return {
     ok: true,
     input: {

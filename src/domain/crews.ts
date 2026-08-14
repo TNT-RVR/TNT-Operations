@@ -1,3 +1,4 @@
+import type { CrewTask } from './supplies'
 /**
  * Live crew positions — how fresh they are, and how to order them.
  *
@@ -11,7 +12,7 @@
 export interface LiveCrew {
   name: string
   /** Which job they are on. Older clients don't send it; treat as shelters. */
-  task?: 'shelter' | 'tray'
+  task?: CrewTask
   fieldId: string
   fieldName: string
   lat: number
@@ -78,7 +79,7 @@ export interface Crew {
   active: boolean
   /** The field this crew is working, and which job. Null = unassigned. */
   currentFieldId: string | null
-  currentTask: 'shelter' | 'tray' | null
+  currentTask: CrewTask | null
   assignedAt: string | null
 }
 
@@ -91,7 +92,12 @@ export interface Crew {
  */
 export function describeAssignment(crew: Crew, fieldName?: string | null): string {
   if (!crew.currentTask || !crew.currentFieldId) return 'No job set'
-  const job = crew.currentTask === 'tray' ? 'Trays' : 'Shelters'
+  const job =
+    crew.currentTask === 'tray'
+      ? 'Trays'
+      : crew.currentTask === 'removal'
+        ? 'Shelter removal'
+        : 'Shelters'
   return `${job} · ${fieldName ?? 'unknown field'}`
 }
 

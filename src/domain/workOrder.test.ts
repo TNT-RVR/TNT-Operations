@@ -13,6 +13,7 @@ describe('workOrderTitle', () => {
   it('names the job and the field', () => {
     expect(workOrderTitle('shelter', 'Bow Island NW')).toBe('Shelters — Bow Island NW')
     expect(workOrderTitle('tray', 'Bow Island NW')).toBe('Trays — Bow Island NW')
+    expect(workOrderTitle('removal', 'Bow Island NW')).toBe('Shelter removal — Bow Island NW')
   })
 
   it('does not produce a dangling dash when the field has no name', () => {
@@ -54,7 +55,7 @@ describe('buildWorkOrder', () => {
   // The three things that make it a work order rather than a diary entry.
   it.each([
     ['crew', { crewId: '' }, 'Pick a crew.'],
-    ['task', { task: '' as const }, 'Pick shelters or trays.'],
+    ['task', { task: '' as const }, 'Pick a job.'],
     ['field', { fieldId: '' }, 'Pick a field.'],
   ])('refuses a draft with no %s', (_what, over, message) => {
     const r = buildWorkOrder(draft(over), 'F')
@@ -113,5 +114,21 @@ describe('clashesFor', () => {
   it('holds its tongue until there is a crew and a date to check', () => {
     expect(clashesFor(events, '', '2026-08-20', null)).toEqual([])
     expect(clashesFor(events, 'c1', '', null)).toEqual([])
+  })
+})
+
+describe('shelter removal as a work order', () => {
+  it('books like any other job', () => {
+    const r = buildWorkOrder(draft({ task: 'removal' }), 'Bow Island NW')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.input).toMatchObject({ task: 'removal', title: 'Shelter removal — Bow Island NW' })
+  })
+
+  it('clashes with a placement booked on the same crew and day', () => {
+    const events = [
+      { id: 'e1', crewId: 'c1', startDate: '2026-08-20', endDate: null, title: 'Shelters — A' },
+    ]
+    expect(clashesFor(events, 'c1', '2026-08-20', null)).toHaveLength(1)
   })
 })

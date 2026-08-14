@@ -7,6 +7,7 @@ import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
 import { fieldSupplies, supplyLines, jobsInWindow } from '@/domain/supplies'
 import { getTentPositions } from '@/domain/tentGrid'
+import { TASK_LABEL } from '@/domain/workOrder'
 import { NewWorkOrder } from './NewWorkOrder'
 
 const TZ = 'America/Edmonton'
@@ -179,8 +180,10 @@ export default function ScheduleHome() {
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-primary">{j.title}</span>
-                        <Badge tone={j.task === 'tray' ? 'green' : 'amber'}>
-                          {j.task === 'tray' ? 'Trays' : 'Shelters'}
+                        <Badge
+                          tone={j.task === 'tray' ? 'green' : j.task === 'removal' ? 'blue' : 'amber'}
+                        >
+                          {TASK_LABEL[j.task]}
                         </Badge>
                         <span className="text-sm text-secondary">{crewName(j.crewId)}</span>
                         {isMine && <span className="text-xs text-brand">yours</span>}
@@ -215,7 +218,9 @@ export default function ScheduleHome() {
                         ))}
                       </div>
 
-                      {s.unknowns.length > 0 && (
+                      {/* Acres and gallons only ever fed the tray count, so
+                          only a tray crew is missing anything without them. */}
+                      {j.task === 'tray' && s.unknowns.length > 0 && (
                         <p className="mt-1 text-xs text-amber-600">
                           Missing from the field: {s.unknowns.join(', ')}.
                         </p>
@@ -228,10 +233,15 @@ export default function ScheduleHome() {
                       <Link
                         className="mt-3 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
                         style={{ background: 'var(--brand)' }}
+                        // Removal works the shelter map: it is the view that
+                        // knows where every shelter was put, which is exactly
+                        // what a crew collecting them needs.
                         to={`${j.task === 'tray' ? '/field/trays' : '/field/shelters'}?field=${j.fieldId}`}
                       >
                         <Play size={15} />
-                        Start {j.task === 'tray' ? 'tray' : 'shelter'} placement
+                        {j.task === 'removal'
+                          ? 'Start shelter removal'
+                          : `Start ${j.task === 'tray' ? 'tray' : 'shelter'} placement`}
                       </Link>
                     </div>
                   )

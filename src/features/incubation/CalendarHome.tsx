@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { CrewTask } from '@/domain/supplies'
 import { useSession } from '@/auth/session'
 import type { CalendarEvent } from '@/data/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
@@ -435,7 +436,7 @@ function EventDialog({
   const [notes, setNotes] = useState(draft.notes ?? '')
   const [fieldId, setFieldId] = useState(draft.fieldId ?? '')
   const [crewId, setCrewId] = useState(draft.crewId ?? '')
-  const [task, setTask] = useState<'' | 'shelter' | 'tray'>(draft.task ?? '')
+  const [task, setTask] = useState<'' | CrewTask>(draft.task ?? '')
   const [incubatorId, setIncubatorId] = useState(draft.incubatorId ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -535,10 +536,11 @@ function EventDialog({
           </label>
           <label className="block">
             <span className="label">Job</span>
-            <Select value={task} onChange={(e) => setTask(e.target.value as '' | 'shelter' | 'tray')}>
+            <Select value={task} onChange={(e) => setTask(e.target.value as '' | CrewTask)}>
               <option value="">—</option>
               <option value="shelter">Shelter placement</option>
               <option value="tray">Tray placement</option>
+              <option value="removal">Shelter removal</option>
             </Select>
           </label>
         </div>

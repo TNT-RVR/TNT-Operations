@@ -222,6 +222,8 @@ export default function MapsHome() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   /** Number / tray-count labels drawn beside each planned pin. */
   const labelMarkersRef = useRef<maplibregl.Marker[]>([])
+  /** Planter pass numbers at each headland. */
+  const passLabelMarkersRef = useRef<maplibregl.Marker[]>([])
   const mapRef = useRef<maplibregl.Map | null>(null)
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const shelterMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1016,21 +1018,6 @@ export default function MapsHome() {
       map.addLayer({ id: 'edgezone-fill', type: 'fill', source: 'edgezone', paint: { 'fill-color': EDGE, 'fill-opacity': 0.2 } })
       map.addSource('planterlines', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'planterlines-line', type: 'line', source: 'planterlines', paint: { 'line-color': PLANTER_NUM, 'line-width': 1, 'line-opacity': 0.7 } })
-      // Numbers sit at BOTH ENDS of each pass (their own point source), where the
-      // operator actually reads them — a single mid-line label is lost mid-field.
-      map.addSource('planterlabels', { type: 'geojson', data: EMPTY })
-      map.addLayer({
-        id: 'planterlines-label',
-        type: 'symbol',
-        source: 'planterlabels',
-        layout: {
-          'text-field': ['to-string', ['get', 'number']],
-          'text-size': 12,
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
-        paint: { 'text-color': PLANTER_NUM, 'text-halo-color': '#000000', 'text-halo-width': 1.4 },
-      })
       map.addSource('alignment', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'alignment-line', type: 'line', source: 'alignment', paint: { 'line-color': ALIGN, 'line-width': 0.8, 'line-opacity': 0.75 } })
       map.addSource('buffers', { type: 'geojson', data: EMPTY })
@@ -1106,6 +1093,8 @@ export default function MapsHome() {
       shelterMarkersRef.current = []
       labelMarkersRef.current.forEach((m) => m.remove())
       labelMarkersRef.current = []
+      passLabelMarkersRef.current.forEach((m) => m.remove())
+      passLabelMarkersRef.current = []
       crewMarkersRef.current.forEach((m) => m.remove())
       crewMarkersRef.current = []
       vertexMarkersRef.current.forEach((m) => m.remove())
@@ -1162,9 +1151,6 @@ export default function MapsHome() {
     )
     ;(map.getSource('planterlines') as GeoJSONSource | undefined)?.setData(
       visibility.planterNumbers ? (clipToField(planterPassLines(geom), geom) as FeatureCollection) : EMPTY,
-    )
-    ;(map.getSource('planterlabels') as GeoJSONSource | undefined)?.setData(
-      visibility.planterNumbers ? (planterPassLabels(geom) as FeatureCollection) : EMPTY,
     )
     ;(map.getSource('sprayerpasses') as GeoJSONSource | undefined)?.setData(
       visibility.sprayerPasses ? (clipToField(sprayerPassLines(geom), geom) as FeatureCollection) : EMPTY,
@@ -1288,8 +1274,9 @@ export default function MapsHome() {
         tag.textContent = text
         tag.style.cssText =
           'position:absolute;bottom:130%;left:50%;transform:translateX(-50%);' +
-          'font-size:11px;line-height:1;white-space:nowrap;color:#FFFFFF;' +
-          'text-shadow:0 1px 2px #000,0 0 2px #000;pointer-events:none'
+          'font-size:11px;line-height:1;white-space:nowrap;color:#000000;font-weight:700;' +
+          'text-shadow:0 0 3px #FFF,0 0 2px #FFF,0 1px 2px rgba(255,255,255,.9);' +
+          'pointer-events:none'
         el.appendChild(tag)
       }
       el.addEventListener('dblclick', (ev) => {
@@ -1333,9 +1320,14 @@ export default function MapsHome() {
       if (!text) return []
       const el = document.createElement('div')
       el.textContent = text
+      // Black, with a white glow rather than a black one: the label sits over
+      // the honey pin as often as over the imagery, and white-on-yellow is
+      // unreadable. Black text carries on both once the halo lifts it off a
+      // dark background.
       el.style.cssText =
-        'font-size:11px;line-height:1;white-space:nowrap;color:#FFFFFF;font-weight:600;' +
-        'text-shadow:0 1px 2px #000,0 0 3px #000;pointer-events:none;transform:translateY(-14px)'
+        'font-size:11px;line-height:1;white-space:nowrap;color:#000000;font-weight:700;' +
+        'text-shadow:0 0 3px #FFF,0 0 2px #FFF,0 1px 2px rgba(255,255,255,.9);' +
+        'pointer-events:none;transform:translateY(-14px)'
       return [new maplibregl.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map)]
     })
     return () => {
@@ -1343,6 +1335,39 @@ export default function MapsHome() {
       labelMarkersRef.current = []
     }
   }, [ready, editing, shelters, pinNumbers, trayCounts, visibility.shelters, shelterView])
+
+  /**
+   * Planter pass numbers, at both ends of each pass — as DOM markers.
+   *
+   * Same reason as the pin labels: no `glyphs` in the style means a symbol
+   * layer's text never rasterises. This one had been invisible since it was
+   * written. The operator reads these at the headland, where they drive in,
+   * which is why `planterPassLabels` puts a point at each END of a pass rather
+   * than one in the middle.
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    passLabelMarkersRef.current.forEach((m) => m.remove())
+    passLabelMarkersRef.current = []
+    if (!map || !ready || !visibility.planterNumbers) return
+
+    const fc = planterPassLabels(previewGeom ?? {})
+    passLabelMarkersRef.current = fc.features.flatMap((feat) => {
+      const text = String(feat.properties?.number ?? '')
+      const [lng, lat] = feat.geometry.coordinates
+      if (!text || !Number.isFinite(lng) || !Number.isFinite(lat)) return []
+      const el = document.createElement('div')
+      el.textContent = text
+      el.style.cssText =
+        `font-size:12px;line-height:1;font-weight:700;color:${PLANTER_NUM};` +
+        'text-shadow:0 1px 2px #000,0 0 3px #000;pointer-events:none;white-space:nowrap'
+      return [new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map)]
+    })
+    return () => {
+      passLabelMarkersRef.current.forEach((m) => m.remove())
+      passLabelMarkersRef.current = []
+    }
+  }, [ready, visibility.planterNumbers, previewGeom])
 
   // Placing TEST shelters — blue, counted separately from the working grid (§6.5).
   useEffect(() => {

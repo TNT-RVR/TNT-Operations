@@ -573,6 +573,24 @@ const ROW_TOL_M = 0.5
 const DIAGONAL_TOL_M = 2.0
 
 /**
+ * Two guides closer than this, running the same way, are the same guide.
+ *
+ * Bucketing pins by perpendicular offset splits a long strip in two whenever
+ * the family direction is a fraction of a degree off its true heading: the
+ * offset drifts along the strip, crosses the bucket edge, and the tail becomes
+ * its own line a metre from the head. The result on the map is a double line.
+ *
+ * Rather than widen the bucket — which would start merging strips that really
+ * are separate — the fitted lines are compared at the end and any near-duplicate
+ * pair is replaced by the line BETWEEN them. Adjacent strips on a real grid are
+ * tens of metres apart, so nothing legitimate is within a few metres of its
+ * neighbour.
+ */
+const MERGE_TOL_M = 3.0
+/** …and only when they point the same way, to within this angle. */
+const MERGE_COS = Math.cos((3 * Math.PI) / 180)
+
+/**
  * Along-pass tolerance for "level with". Pins this close along the pass are the
  * same rank, so an UNstaggered grid links straight across once instead of
  * fanning to two near-identical neighbours on projection round-trip noise.
@@ -679,6 +697,121 @@ export function alignmentLines(
   /** Lines already drawn, keyed by their extent-clipped endpoints. */
   const drawn = new Set<string>()
 
+  type Guide = {
+    axis: 'column' | 'row' | 'diagonal'
+    /** A point on the line. */
+    lateral: number
+    along: number
+    /** Unit direction. */
+    dLat: number
+    dAlong: number
+    /** How many pins the line was fitted to — the weight when merging. */
+    weight: number
+  }
+  const guides: Guide[] = []
+
+  /**
+   * The best-fit line through a set of pins: their centroid, and the direction
+   * of greatest spread (the principal axis of the 2×2 covariance, in closed
+   * form).
+   *
+   * Fitting beats taking the family direction verbatim: a strip that is a
+   * hair off the grid's average heading gets its OWN heading, which is what
+   * the crew will actually sight along.
+   */
+  const fitLine = (group: Pin[], axis: Guide['axis']): Guide | null => {
+    const n = group.length
+    if (n < 2) return null
+    const cx = meanOf(group, (q) => q.lateral)
+    const cy = meanOf(group, (q) => q.along)
+    let sxx = 0
+    let syy = 0
+    let sxy = 0
+    for (const q of group) {
+      const dx = q.lateral - cx
+      const dy = q.along - cy
+      sxx += dx * dx
+      syy += dy * dy
+      sxy += dx * dy
+    }
+    // Largest eigenvalue of [[sxx,sxy],[sxy,syy]], then its eigenvector.
+    const tr = sxx + syy
+    const det = sxx * syy - sxy * sxy
+    const disc = Math.max(0, (tr * tr) / 4 - det)
+    const lambda = tr / 2 + Math.sqrt(disc)
+    let dLat = sxy
+    let dAlong = lambda - sxx
+    if (Math.hypot(dLat, dAlong) < 1e-12) {
+      // Degenerate covariance (all pins identical, or a perfectly axis-aligned
+      // set where sxy is 0): fall back to the dominant axis.
+      dLat = sxx >= syy ? 1 : 0
+      dAlong = sxx >= syy ? 0 : 1
+    }
+    const len = Math.hypot(dLat, dAlong)
+    if (!(len > 0)) return null
+    // Canonical sense so a line and its reverse compare equal when merging.
+    const sign = dLat > 0 || (dLat === 0 && dAlong > 0) ? 1 : -1
+    return {
+      axis,
+      lateral: cx,
+      along: cy,
+      dLat: (dLat * sign) / len,
+      dAlong: (dAlong * sign) / len,
+      weight: n,
+    }
+  }
+
+  /**
+   * Collapse near-duplicate guides into one, positioned between them.
+   *
+   * Weighted by how many pins each was fitted to, so a line through six
+   * shelters is not pulled off course by a stray pair. Repeated until nothing
+   * more merges, since collapsing two can bring a third within range.
+   */
+  const mergeGuides = (input: Guide[]): Guide[] => {
+    let out = input.slice()
+    for (let pass = 0; pass < 8; pass++) {
+      let merged = false
+      const next: Guide[] = []
+      const used = new Set<number>()
+      for (let i = 0; i < out.length; i++) {
+        if (used.has(i)) continue
+        let a = out[i]
+        for (let j = i + 1; j < out.length; j++) {
+          if (used.has(j)) continue
+          const b = out[j]
+          // Deliberately NOT restricted to the same axis. A diagonal that lands
+          // along a row is one line on the ground however it was derived, and
+          // drawing it twice is exactly the doubling this is here to stop. The
+          // heavier guide keeps its label.
+          const dot = Math.abs(a.dLat * b.dLat + a.dAlong * b.dAlong)
+          if (dot < MERGE_COS) continue
+          // Perpendicular distance from b's point to a's line.
+          const gap = Math.abs((b.lateral - a.lateral) * a.dAlong - (b.along - a.along) * a.dLat)
+          if (gap > MERGE_TOL_M) continue
+          const w = a.weight + b.weight
+          const bSign = a.dLat * b.dLat + a.dAlong * b.dAlong >= 0 ? 1 : -1
+          a = {
+            axis: a.weight >= b.weight ? a.axis : b.axis,
+            lateral: (a.lateral * a.weight + b.lateral * b.weight) / w,
+            along: (a.along * a.weight + b.along * b.weight) / w,
+            dLat: (a.dLat * a.weight + b.dLat * bSign * b.weight) / w,
+            dAlong: (a.dAlong * a.weight + b.dAlong * bSign * b.weight) / w,
+            weight: w,
+          }
+          const len = Math.hypot(a.dLat, a.dAlong) || 1
+          a = { ...a, dLat: a.dLat / len, dAlong: a.dAlong / len }
+          used.add(j)
+          merged = true
+        }
+        next.push(a)
+      }
+      out = next
+      if (!merged) break
+    }
+    return out
+  }
+
   /**
    * Extend the line through two frame points to the edges of the field extent,
    * and emit it once.
@@ -740,16 +873,31 @@ export function alignmentLines(
   const meanOf = (g: Pin[], key: (p: Pin) => number) =>
     g.reduce((sum, p) => sum + key(p), 0) / g.length
 
-  // A line down each column and across each row, spanning the field.
+  // A line down each column and across each row. Columns and rows are axis
+  // aligned by construction, so their direction is fixed rather than fitted —
+  // fitting a column of three pins that happen to wobble would tilt a guide
+  // that the crew expects to run straight down the field.
   for (const col of columns) {
     if (col.length < 2) continue
-    const lateral = meanOf(col, (p) => p.lateral)
-    pushLine({ lateral, along: alongMin }, { lateral, along: alongMax }, 'column')
+    guides.push({
+      axis: 'column',
+      lateral: meanOf(col, (q) => q.lateral),
+      along: meanOf(col, (q) => q.along),
+      dLat: 0,
+      dAlong: 1,
+      weight: col.length,
+    })
   }
   for (const row of rows) {
     if (row.length < 2) continue
-    const along = meanOf(row, (p) => p.along)
-    pushLine({ lateral: latMin, along }, { lateral: latMax, along }, 'row')
+    guides.push({
+      axis: 'row',
+      lateral: meanOf(row, (q) => q.lateral),
+      along: meanOf(row, (q) => q.along),
+      dLat: 1,
+      dAlong: 0,
+      weight: row.length,
+    })
   }
 
   // ── Diagonals: ONE line per strip of shelters ─────────────────────────────
@@ -817,17 +965,18 @@ export function alignmentLines(
     const offsetOf = (q: Pin) => q.along * dir.lateral - q.lateral * dir.along
     const strips = groupBy(offsetOf, (q) => q.lateral * dir.lateral + q.along * dir.along, DIAGONAL_TOL_M)
     for (const strip of strips) {
-      if (strip.length < 2) continue
-      // Through the strip's centre of mass, so the line splits the difference
-      // between its pins rather than pivoting on whichever came first.
-      const midLat = meanOf(strip, (q) => q.lateral)
-      const midAlong = meanOf(strip, (q) => q.along)
-      pushLine(
-        { lateral: midLat, along: midAlong },
-        { lateral: midLat + dir.lateral, along: midAlong + dir.along },
-        'diagonal',
-      )
+      const fitted = fitLine(strip, 'diagonal')
+      if (fitted) guides.push(fitted)
     }
+  }
+
+  // Merge anything that came out twice, then draw what is left.
+  for (const g of mergeGuides(guides)) {
+    pushLine(
+      { lateral: g.lateral, along: g.along },
+      { lateral: g.lateral + g.dLat, along: g.along + g.dAlong },
+      g.axis,
+    )
   }
 
   return { type: 'FeatureCollection', features: feats }

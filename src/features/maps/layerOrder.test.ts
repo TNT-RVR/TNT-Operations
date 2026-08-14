@@ -70,12 +70,13 @@ describe('map layer registration order', () => {
  *
  * Text is therefore drawn as DOM markers instead (see the pin labels in
  * MapsHome, and the field names in Field Mode). This test does not ban the
- * pattern outright, because two layers still use it and are correspondingly
- * invisible; it pins that list so a THIRD cannot be added by accident.
+ * pattern outright, because one layer still uses it and is correspondingly
+ * invisible — the parcel name on an LLD search. It pins that list so another
+ * cannot be added by accident.
  */
 describe('text layers need glyphs, which this style has none of', () => {
   /** Layers with a text-field that are known to render nothing today. */
-  const KNOWN_DEAD = ['lld-lookup-label', 'planterlines-label']
+  const KNOWN_DEAD = ['lld-lookup-label']
 
   it('the style still declares no glyphs — the reason for all this', () => {
     const style = readFileSync(resolve(__dirname, 'basemap.ts'), 'utf8')

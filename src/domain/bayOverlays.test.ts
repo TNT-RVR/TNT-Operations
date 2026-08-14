@@ -560,3 +560,82 @@ describe('alignmentLines — one line per diagonal strip', () => {
     }
   })
 })
+
+describe('alignmentLines — never two lines where one belongs', () => {
+  const f = fieldFrame(FIELD)!
+
+  /** A staggered grid, optionally jittered to mimic a real placement. */
+  const grid2 = (cols: number, rows: number, dx: number, dy: number, jitter = 0) => {
+    // Deterministic pseudo-jitter: a real field's pins are not on a perfect
+    // lattice (bay gaps, snake passes, boundary clipping), and it is that
+    // irregularity that used to split one strip into two lines.
+    let seed = 1
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return (seed / 2147483648 - 0.5) * 2
+    }
+    const pins: Array<{ lat: number; lng: number }> = []
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        const lateral = (c - cols / 2) * dx + rnd() * jitter
+        const along = (r - rows / 2) * dy + (c % 2 ? dy / 2 : 0) + rnd() * jitter
+        const [lng, lat] = latAlongToLonLat(f, lateral, along)
+        pins.push({ lat, lng })
+      }
+    }
+    return pins
+  }
+
+  /** The closest pair of near-parallel guides, in metres. Infinity if none. */
+  const closestParallelGap = (pins: Array<{ lat: number; lng: number }>) => {
+    const lines = alignmentLines(pins, FIELD).features.map((x) => {
+      const [a, b] = x.geometry.coordinates
+      const ax = toLateral(f, a)
+      const ay = toAlong(f, a)
+      const ux = toLateral(f, b) - ax
+      const uy = toAlong(f, b) - ay
+      const len = Math.hypot(ux, uy) || 1
+      return { ax, ay, dx: ux / len, dy: uy / len }
+    })
+    let worst = Infinity
+    for (let i = 0; i < lines.length; i++) {
+      for (let j = i + 1; j < lines.length; j++) {
+        const A = lines[i]
+        const B = lines[j]
+        // Only pairs that LOOK parallel can look doubled.
+        if (Math.abs(A.dx * B.dx + A.dy * B.dy) < Math.cos((3 * Math.PI) / 180)) continue
+        const gap = Math.abs((B.ax - A.ax) * A.dy - (B.ay - A.ay) * A.dx)
+        if (gap < worst) worst = gap
+      }
+    }
+    return worst
+  }
+
+  it.each([
+    ['regular 20×8', 20, 8, 40, 60, 0],
+    ['regular 30×10', 30, 10, 25, 40, 0],
+    ['jittered 20×8', 20, 8, 40, 60, 1.5],
+    ['jittered 30×10', 30, 10, 25, 40, 2.5],
+  ])('%s: no two guides sit on top of each other', (_name, cols, rows, dx, dy, jitter) => {
+    const pins = grid2(cols as number, rows as number, dx as number, dy as number, jitter as number)
+    expect(alignmentLines(pins, FIELD).features.length).toBeGreaterThan(0)
+    // 3 m is the merge threshold. Anything closer than that is the double line
+    // the crew was complaining about.
+    expect(closestParallelGap(pins)).toBeGreaterThan(3)
+  })
+
+  it('merges a strip that irregular spacing split in two', () => {
+    // Pins on ONE diagonal, but drifting slightly off it — the exact shape that
+    // pushed a long strip across a bucket edge and produced two lines a metre
+    // apart. One line, positioned between them, is the wanted answer.
+    const pins: Array<{ lat: number; lng: number }> = []
+    for (let i = 0; i < 12; i++) {
+      const [lng, lat] = latAlongToLonLat(f, i * 30 - 180, i * 45 - 270 + (i > 5 ? 1.2 : -1.2))
+      pins.push({ lat, lng })
+    }
+    const diagonals = alignmentLines(pins, FIELD).features.filter(
+      (x) => x.properties?.axis === 'diagonal',
+    )
+    expect(diagonals.length).toBeLessThanOrEqual(1)
+  })
+})

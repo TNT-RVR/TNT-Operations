@@ -68,9 +68,33 @@ function sb() {
 
 export const db = sb
 
-/** The single stored connection, or null. */
+/** Which books this deploy is pointed at. The deploy config is the authority. */
+export const activeEnvironment = () =>
+  process.env.QBO_ENVIRONMENT === 'production' ? 'production' : 'sandbox'
+
+/**
+ * The stored connection for THIS deploy's environment, or null.
+ *
+ * ── Why this filters on environment ──────────────────────────────────────────
+ *
+ * `qbo_connection` is keyed by realm_id, and a sandbox company and the real one
+ * are different realms — so going live ADDS a row rather than replacing the
+ * sandbox one, and both sit there indefinitely.
+ *
+ * Picking the most recent row alone is not safe. Reconnect the sandbox once,
+ * for ten minutes, to try something out, and it becomes the newest row: every
+ * live invoice then posts to the sandbox, reports success, and never reaches
+ * the real books. That failure is silent and it is the expensive one.
+ *
+ * So the row must match QBO_ENVIRONMENT. A deploy configured for production
+ * cannot reach a sandbox company however the rows are ordered, and a
+ * mismatch surfaces as "not connected" — which is true, and which the connect
+ * button fixes — rather than as a push to the wrong company.
+ */
 export async function getConnection() {
-  const rows = await sb().get('qbo_connection?select=*&order=connected_at.desc&limit=1')
+  const rows = await sb().get(
+    `qbo_connection?environment=eq.${activeEnvironment()}&select=*&order=connected_at.desc&limit=1`,
+  )
   return rows[0] ?? null
 }
 

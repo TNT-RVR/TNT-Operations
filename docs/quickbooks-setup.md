@@ -122,12 +122,45 @@ questionnaire about data handling and security. It is routine for a company
 connecting to its own books, but it is not instant, so start it before you need
 it.
 
-When approved:
+**Disconnect the sandbox FIRST, before you touch the keys.** Sales → QuickBooks
+→ Disconnect. Revoking a token at Intuit is authenticated with the client
+credentials that issued it, so once the production keys are in place the
+sandbox token can no longer be revoked — the call fails quietly and that
+authorisation stays live at Intuit until it ages out. Thirty seconds now, in
+the right order, avoids leaving a working credential to your test books lying
+around.
+
+Then:
 
 1. Swap `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` for the production pair.
 2. Set `QBO_ENVIRONMENT=production`.
-3. Redeploy, then **Disconnect and reconnect** in the app — the stored token
-   belongs to the sandbox company and will not work against the real one.
+3. Redeploy.
+4. **Connect**, and choose the real company this time.
+5. **Set all four mappings again.** They are QuickBooks entity ids, and an id
+   from the sandbox means nothing in the real file. The new connection starts
+   with them null, so pushes stay blocked until you do — which is the intended
+   behaviour, not a fault.
+6. Push **one** small real invoice and open it in QuickBooks before pushing
+   anything else.
+
+### The sandbox row stays behind
+
+`qbo_connection` is keyed by realm id, and the sandbox company is a different
+realm — so connecting production INSERTS a row, leaving two. The app handles
+this: `getConnection()` filters on `QBO_ENVIRONMENT`, so a production deploy
+cannot reach a sandbox company no matter what is stored, and the settings
+screen reads the rows newest-first and tells you when older ones exist.
+
+Once you're live and happy, clear the old row:
+
+```sql
+delete from public.qbo_connection where environment = 'sandbox';
+delete from public.qbo_links where realm_id not in (select realm_id from public.qbo_connection);
+```
+
+The second line matters more than it looks: `qbo_links` maps your local records
+to QuickBooks ids **per realm**, so the sandbox links are inert but they are
+also a permanent invitation to confusion during a future debugging session.
 
 ---
 

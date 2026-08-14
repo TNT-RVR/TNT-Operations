@@ -27,6 +27,7 @@ interface QboStatus {
   income_account_id: string | null
   connected: boolean
   expiring_soon: boolean
+  connected_at: string
   refresh_token_expires_at: string
   last_error: string
 }
@@ -67,6 +68,7 @@ export default function QuickBooksHome() {
   const isAdmin = s.user.role === 'admin'
   const [params, setParams] = useSearchParams()
   const [status, setStatus] = useState<QboStatus | null>(null)
+  const [stale, setStale] = useState<QboStatus[]>([])
   const [log, setLog] = useState<SyncLogRow[]>([])
   const [options, setOptions] = useState<Options | null>(null)
   const [loading, setLoading] = useState(true)
@@ -76,14 +78,22 @@ export default function QuickBooksHome() {
   const load = useCallback(async () => {
     if (!supabase) return
     setLoading(true)
+    // ORDERED, and not limited to one row. Going from the sandbox to the real
+    // company leaves TWO rows — different realms, so the second is an insert,
+    // not an update. An unordered `.limit(1)` then returns whichever row
+    // Postgres reaches first, which is the older sandbox one, and this screen
+    // would report the sandbox company's environment, mappings and expiry while
+    // the functions pushed to the real books. Newest first matches the server.
     const [st, lg] = await Promise.all([
-      supabase.from('qbo_status').select('*').limit(1).maybeSingle(),
+      supabase.from('qbo_status').select('*').order('connected_at', { ascending: false }),
       supabase.from('qbo_sync_log').select('*').order('at', { ascending: false }).limit(20),
     ])
     if (st.error) {
       console.error('[qbo] status:', st.error.message, '— has migration 0017 been applied?')
     }
-    setStatus((st.data as QboStatus) ?? null)
+    const rows = (st.data as QboStatus[]) ?? []
+    setStatus(rows[0] ?? null)
+    setStale(rows.slice(1))
     setLog((lg.data as SyncLogRow[]) ?? [])
     setLoading(false)
   }, [])
@@ -254,6 +264,16 @@ export default function QuickBooksHome() {
                 <AlertTriangle size={13} />
                 The QuickBooks authorisation expires {new Date(status.refresh_token_expires_at).toLocaleDateString()}.
                 Any sync renews it; if it lapses you'll need to reconnect.
+              </p>
+            )}
+            {stale.length > 0 && (
+              <p className="mt-2 flex items-start gap-1.5 text-xs text-muted">
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                <span>
+                  {stale.length === 1 ? 'An older connection is' : `${stale.length} older connections are`} still
+                  stored ({stale.map((s) => `${s.environment} · ${s.company_name || s.realm_id}`).join(', ')}). Pushes
+                  use the company above. Clearing the old rows is safe once you're live.
+                </span>
               </p>
             )}
             {status?.connected && !status.multicurrency_enabled && (

@@ -25,6 +25,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import {
   INTUIT_AUTH_URL,
   QBO_SCOPE,
+  activeEnvironment,
   apiBase,
   db,
   env,
@@ -157,7 +158,7 @@ export default async (req) => {
         refresh_token_expires_at: new Date(
           now + Number(tokens.x_refresh_token_expires_in ?? 8726400) * 1000,
         ).toISOString(),
-        environment: process.env.QBO_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+        environment: activeEnvironment(),
         connected_at: new Date().toISOString(),
         connected_by: userId,
         disconnected_at: null,

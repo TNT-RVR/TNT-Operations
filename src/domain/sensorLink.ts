@@ -51,7 +51,19 @@ const ago = (from: string, now: number): string => {
  * - `online`  — reachable at the last poll.
  * - `offline` — Govee says it is not reachable. Check the battery.
  */
-export function sensorLinkChip(inc: SensorLinkFields, now = Date.now()): LinkChip {
+export function sensorLinkChip(
+  inc: SensorLinkFields,
+  now = Date.now(),
+  /**
+   * When the incubator last produced a reading.
+   *
+   * `sensorSeenAt` only started being written when this feature shipped, so a
+   * sensor that dropped off before then has no record of ever being seen — and
+   * "never seen on the network" is a lie about a sensor that worked for
+   * months. A reading is proof it was there.
+   */
+  lastReadingAt?: string | null,
+): LinkChip {
   if (!inc.goveeLinked) {
     return { state: 'none', label: 'No sensor', detail: null, tone: 'neutral' }
   }
@@ -74,12 +86,21 @@ export function sensorLinkChip(inc: SensorLinkFields, now = Date.now()): LinkChi
     }
   }
 
+  // The later of the two: whichever evidence is more recent is the one that
+  // dates the outage.
+  const seen =
+    inc.sensorSeenAt && lastReadingAt
+      ? inc.sensorSeenAt > lastReadingAt
+        ? inc.sensorSeenAt
+        : lastReadingAt
+      : (inc.sensorSeenAt ?? lastReadingAt ?? null)
+
   return {
     state: 'offline',
     label: 'Sensor offline',
     // Where an outage started is the useful number: five minutes is a blip,
     // three days is a battery.
-    detail: inc.sensorSeenAt ? `Last seen ${ago(inc.sensorSeenAt, now)}` : 'Never seen on the network',
+    detail: seen ? `Last seen ${ago(seen, now)}` : 'Never seen on the network',
     tone: 'red',
   }
 }

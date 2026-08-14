@@ -120,8 +120,16 @@ export default async () => {
     // stale feed but named properly and caught sooner: the H5100 has no
     // battery level to read (checked 2026-08-14), and dropping off the network
     // is how a flat one presents.
-    const offlineFor = offlineMinutes(inc)
-    if (isOffline(inc, { running, runningMin: OFFLINE_RUNNING_MIN, idleMin: OFFLINE_IDLE_MIN })) {
+    const last = await fetch(
+      `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at&order=at.desc&limit=1`,
+      { headers: sb },
+    ).then((r) => (r.ok ? r.json() : []))
+    const lastReadingAt = Array.isArray(last) && last[0]?.at ? last[0].at : null
+
+    const offlineFor = offlineMinutes(inc, Date.now(), lastReadingAt)
+    if (
+      isOffline(inc, { running, runningMin: OFFLINE_RUNNING_MIN, idleMin: OFFLINE_IDLE_MIN }, Date.now(), lastReadingAt)
+    ) {
       const offKey = `${ALERT_TYPE}_link:${inc.id}`
       const offMsg =
         offlineFor === Infinity
@@ -216,11 +224,7 @@ export default async () => {
       }
     }
 
-    const last = await fetch(
-      `${SB_URL}/rest/v1/sensor_readings?incubator_id=eq.${inc.id}&select=at&order=at.desc&limit=1`,
-      { headers: sb },
-    ).then((r) => (r.ok ? r.json() : []))
-    const lastAt = Array.isArray(last) && last[0]?.at ? new Date(last[0].at).getTime() : null
+    const lastAt = lastReadingAt ? new Date(lastReadingAt).getTime() : null
 
     const ageMin = lastAt == null ? Infinity : (Date.now() - lastAt) / 60_000
     const isStale = ageMin > limitMin

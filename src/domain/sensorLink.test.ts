@@ -65,3 +65,21 @@ describe('sensorLinkChip', () => {
     expect(chip.detail).toBe('Checked just now')
   })
 })
+
+describe('sensorLinkChip with a last reading to fall back on', () => {
+  it('dates the outage from a reading when nothing was ever seen', () => {
+    const chip = sensorLinkChip({ goveeLinked: true, sensorOnline: false }, NOW, agoMin(27 * 60))
+    expect(chip.detail).toBe('Last seen 27 h ago')
+  })
+
+  it('prefers whichever evidence is more recent', () => {
+    const inc = { goveeLinked: true, sensorOnline: false, sensorSeenAt: agoMin(300) }
+    expect(sensorLinkChip(inc, NOW, agoMin(60)).detail).toBe('Last seen 60 min ago')
+    expect(sensorLinkChip(inc, NOW, agoMin(900)).detail).toBe('Last seen 5 h ago')
+  })
+
+  it('still admits when there is no evidence at all', () => {
+    const chip = sensorLinkChip({ goveeLinked: true, sensorOnline: false }, NOW, null)
+    expect(chip.detail).toBe('Never seen on the network')
+  })
+})

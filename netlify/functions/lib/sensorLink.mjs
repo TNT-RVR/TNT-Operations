@@ -21,12 +21,18 @@
  * - `Infinity` when it is offline and has never once been seen — a sensor that
  *   has never worked, which is a real state after a bad pairing.
  */
-export function offlineMinutes(inc, now = Date.now()) {
+export function offlineMinutes(inc, now = Date.now(), lastReadingAt = null) {
   if (inc?.sensor_online !== false) return 0
-  if (!inc.sensor_seen_at) return Infinity
-  const seen = new Date(inc.sensor_seen_at).getTime()
-  if (!Number.isFinite(seen)) return Infinity
-  return Math.max(0, (now - seen) / 60_000)
+
+  // `sensor_seen_at` only exists from the day this shipped, so a sensor that
+  // dropped off before then has none — and reporting that as "never paired"
+  // sends somebody to check a sensor that worked fine for months. A reading is
+  // proof it was on the network; the later of the two dates the outage.
+  const stamps = [inc.sensor_seen_at, lastReadingAt]
+    .map((v) => (v ? new Date(v).getTime() : NaN))
+    .filter((n) => Number.isFinite(n))
+  if (!stamps.length) return Infinity
+  return Math.max(0, (now - Math.max(...stamps)) / 60_000)
 }
 
 /**
@@ -38,6 +44,6 @@ export function offlineMinutes(inc, now = Date.now()) {
  * over winter drops off for ordinary reasons, and an alert nobody acts on is
  * how people learn to swipe this one away.
  */
-export function isOffline(inc, { running, runningMin, idleMin }, now = Date.now()) {
-  return offlineMinutes(inc, now) > (running ? runningMin : idleMin)
+export function isOffline(inc, { running, runningMin, idleMin }, now = Date.now(), lastReadingAt = null) {
+  return offlineMinutes(inc, now, lastReadingAt) > (running ? runningMin : idleMin)
 }

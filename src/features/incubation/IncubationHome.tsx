@@ -36,7 +36,7 @@ export default function IncubationHome() {
           const humOut =
             r != null && d.running && d.humMin != null && d.humMax != null && (r.humidityPct < d.humMin || r.humidityPct > d.humMax)
 
-          const link = sensorLinkChip(i, now.getTime())
+          const link = sensorLinkChip(i, now.getTime(), r?.at)
 
           const showProgress = i.tempMode === 'incubation' && !!i.incubationStart
           const p = showProgress ? incubationProgress(i.incubationStart!, now.toISOString()) : null

@@ -69,3 +69,30 @@ describe('isOffline', () => {
     expect(isOffline(never, { running: false, ...LIMITS }, NOW)).toBe(true)
   })
 })
+
+describe('falling back to the last reading', () => {
+  const off = { sensor_online: false, sensor_seen_at: null }
+
+  it('dates an outage from the last reading when nothing was ever "seen"', () => {
+    // Every sensor that dropped off BEFORE this feature shipped looks like
+    // this. Calling it "never seen" sends somebody to check the pairing on a
+    // sensor that worked for months.
+    expect(offlineMinutes(off, NOW, agoMin(27 * 60))).toBe(27 * 60)
+  })
+
+  it('still says never seen when there is no evidence at all', () => {
+    expect(offlineMinutes(off, NOW, null)).toBe(Infinity)
+  })
+
+  it('takes whichever evidence is more recent', () => {
+    const inc = { sensor_online: false, sensor_seen_at: agoMin(300) }
+    expect(offlineMinutes(inc, NOW, agoMin(60))).toBe(60)
+    expect(offlineMinutes(inc, NOW, agoMin(900))).toBe(300)
+  })
+
+  it('lets a reading keep an idle incubator below the alert threshold', () => {
+    const fresh = agoMin(30)
+    expect(isOffline(off, { running: false, ...LIMITS }, NOW, fresh)).toBe(false)
+    expect(isOffline(off, { running: false, ...LIMITS }, NOW, agoMin(13 * 60))).toBe(true)
+  })
+})

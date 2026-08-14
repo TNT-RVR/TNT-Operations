@@ -69,7 +69,31 @@ export default async (req) => {
   }
 
   const rd = await pollDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
+  /**
+   * Record what the pull learned about the link, exactly as the scheduled
+   * poller does.
+   *
+   * Without this, "Read now" is the one way to ask a sensor a question and
+   * NOT have the answer reach the screen — press it on a dead sensor and the
+   * card carries on saying "not checked", which is the state it was in before
+   * anybody looked.
+   */
+  const noteLink = async (online) => {
+    if (online == null) return
+    const now = new Date().toISOString()
+    const patch = { sensor_online: online, sensor_checked_at: now }
+    if (online) patch.sensor_seen_at = now
+    await fetch(`${SB_URL}/rest/v1/incubators?id=eq.${inc.id}`, {
+      method: 'PATCH',
+      headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify(patch),
+    }).catch(() => {
+      /* a link note is never worth failing the reading over */
+    })
+  }
+
   if (rd && rd.online === false) {
+    await noteLink(false)
     // Govee knows the device and says it is off the network — a flat battery or
     // a sensor out of range of its gateway. Worth saying exactly, because it is
     // the one failure the person standing there can actually fix.
@@ -83,6 +107,8 @@ export default async (req) => {
     // difference between a flat battery and a broken deploy.
     return json({ error: `The sensor on ${inc.name} did not answer. Check it is powered and online.` }, 502)
   }
+
+  await noteLink(rd.online)
 
   const at = new Date().toISOString()
   const reading = { incubator_id: inc.id, at, temp_c: rd.temp, humidity_pct: rd.hum, source: 'govee' }

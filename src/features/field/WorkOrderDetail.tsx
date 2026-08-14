@@ -7,6 +7,7 @@ import {
   MapPin,
   Pencil,
   Play,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { PageHeader, EmptyState, Badge } from '@/components/ui'
@@ -48,9 +49,13 @@ export default function WorkOrderDetail() {
     placedShelters,
     loadCalendarEvents,
     loadCrews,
+    deleteCalendarEvent,
   } = useData()
   const session = useSession()
   const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     void loadCalendarEvents()
@@ -101,6 +106,25 @@ export default function WorkOrderDetail() {
         </div>
       </div>
     )
+  }
+
+  /**
+   * Delete the booking, then leave.
+   *
+   * Navigating away only on success: staying put with an error beats landing
+   * on the list wondering whether it worked.
+   */
+  const remove = async () => {
+    setDeleting(true)
+    setDeleteError(null)
+    const res = await deleteCalendarEvent(event.id)
+    setDeleting(false)
+    if (!res.ok) {
+      setDeleteError(res.error ?? 'Could not cancel that work order.')
+      return
+    }
+    void loadCalendarEvents()
+    navigate('/field')
   }
 
   const task = event.task
@@ -244,6 +268,62 @@ export default function WorkOrderDetail() {
                 ? 'Start shelter removal'
                 : `Start ${task === 'tray' ? 'tray' : 'shelter'} placement`}
             </Link>
+
+            {/*
+              Cancelling a booking.
+
+              Admin only, confirmed, and it names what it is deleting — a work
+              order is what a crew's morning is built on, and a mis-tap that
+              silently removed one would show up as three people standing in a
+              yard with nothing to do.
+
+              A real delete, not a "cancelled" flag: the booking never
+              happened, and a list of ghosts is worse than a short list.
+            */}
+            {isAdmin && (
+              <div className="border-t border-default pt-3">
+                {confirmDelete ? (
+                  <div className="rounded-md border border-danger p-3">
+                    <p className="text-sm" style={{ color: 'var(--danger-fg)' }}>
+                      Cancel “{event.title}” for {crew?.name ?? 'this crew'}? It disappears from the
+                      calendar and from the crew's work orders.
+                    </p>
+                    {deleteError && (
+                      <p className="mt-1 text-xs" style={{ color: 'var(--danger-fg)' }}>
+                        {deleteError}
+                      </p>
+                    )}
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        className="rounded-md px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        style={{ background: 'var(--danger-fg)' }}
+                        disabled={deleting}
+                        onClick={() => void remove()}
+                      >
+                        {deleting ? 'Cancelling…' : 'Yes, cancel it'}
+                      </button>
+                      <button
+                        className="rounded-md border border-default px-3 py-2 text-sm text-secondary"
+                        onClick={() => {
+                          setConfirmDelete(false)
+                          setDeleteError(null)
+                        }}
+                      >
+                        Keep it
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="flex items-center gap-1 text-xs text-faint hover:text-primary"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 size={13} />
+                    Cancel this work order
+                  </button>
+                )}
+              </div>
+            )}
 
             <button
               className="w-full text-center text-xs text-faint"

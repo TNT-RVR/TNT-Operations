@@ -17,6 +17,64 @@ import {
 } from '@/domain/sensibo'
 import { heatPumpSetting, TEMP_MODES, type TempMode } from '@/domain/incubation'
 
+/**
+ * A two-position switch.
+ *
+ * It reads like a toggle and behaves like two buttons: pressing a side sends
+ * THAT command, rather than sending the opposite of whatever the app believes
+ * is current. That distinction is the whole reason "off" was unreachable for
+ * as long as it was — these pumps report nothing back, so a switch that flips
+ * relative to a guess can end up refusing to send half its commands.
+ *
+ * When the state is unknown neither side is lit, which is the honest picture
+ * for a pump nobody has touched through the app yet.
+ */
+function Switch<T extends string>({
+  options,
+  value,
+  onPick,
+  disabled,
+}: {
+  options: Array<{ value: T; label: string; icon?: ReactNode; tone?: 'brand' | 'warm' | 'cold' }>
+  value: T | null
+  onPick: (v: T) => void
+  disabled?: boolean
+}) {
+  return (
+    <div
+      className="inline-flex rounded-pill p-0.5"
+      style={{ background: 'var(--bg-inset)', border: '1px solid var(--border-default)' }}
+      role="group"
+    >
+      {options.map((o) => {
+        const active = value === o.value
+        const bg =
+          o.tone === 'warm' ? 'var(--warn-bg)' : o.tone === 'cold' ? 'var(--info-bg)' : 'var(--brand)'
+        const fg =
+          o.tone === 'warm' ? 'var(--warn-fg)' : o.tone === 'cold' ? 'var(--info-fg)' : 'var(--on-brand)'
+        return (
+          <button
+            key={o.value}
+            type="button"
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={() => onPick(o.value)}
+            className="flex items-center gap-1 rounded-pill px-3 py-1.5 text-sm font-semibold transition disabled:opacity-50"
+            style={
+              active
+                ? { background: bg, color: fg }
+                : { background: 'transparent', color: 'var(--text-muted)' }
+            }
+          >
+            {o.icon}
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** One labelled line of the control panel. */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -322,56 +380,30 @@ export function AcControl({
             */
             <div className="space-y-2">
               <Row label="Power">
-                {/*
-                  Two buttons, not one toggle.
-
-                  A toggle has to know the current state to offer the opposite
-                  one, and with these pumps that is a guess: they report
-                  nothing back, so the app falls back to a memory of the last
-                  command anyone sent. When that memory reads "off" — how it
-                  starts, and where it stays if a write is missed — the only
-                  thing on offer is "Turn on", and OFF becomes unreachable.
-                  Both are always available; the believed state is shown by
-                  highlighting, not by hiding half the control.
-                */}
-                <Button
-                  variant={anyOn ? 'primary' : 'ghost'}
-                  size="sm"
+                <Switch
+                  value={anyOn ? 'on' : first ? 'off' : null}
                   disabled={busy}
-                  onClick={() => void send({ on: true })}
-                  title={anyOn ? 'Believed to be on already — sends the on command again' : undefined}
-                >
-                  <Power size={14} className="mr-1 inline" />
-                  On
-                </Button>
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmOff(true)}>
-                  <Power size={14} className="mr-1 inline" />
-                  Off
-                </Button>
+                  onPick={(v) => (v === 'on' ? void send({ on: true }) : setConfirmOff(true))}
+                  options={[
+                    { value: 'on', label: 'On', icon: <Power size={14} /> },
+                    { value: 'off', label: 'Off', icon: <Power size={14} /> },
+                  ]}
+                />
               </Row>
 
               {/* Heat and cool are both real incubator states — 30°C
                   incubation heats, cool storage cools — and a unit left in
                   the wrong one blows against the target all day. */}
               <Row label="Mode">
-                <Button
-                  variant={first?.mode === 'heat' ? 'primary' : 'ghost'}
-                  size="sm"
+                <Switch
+                  value={first?.mode === 'heat' || first?.mode === 'cool' ? first.mode : null}
                   disabled={busy}
-                  onClick={() => void send({ mode: 'heat' })}
-                >
-                  <Flame size={14} className="mr-1 inline" />
-                  Heat
-                </Button>
-                <Button
-                  variant={first?.mode === 'cool' ? 'primary' : 'ghost'}
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void send({ mode: 'cool' })}
-                >
-                  <Snowflake size={14} className="mr-1 inline" />
-                  Cool
-                </Button>
+                  onPick={(m) => void send({ mode: m })}
+                  options={[
+                    { value: 'heat', label: 'Heat', icon: <Flame size={14} />, tone: 'warm' },
+                    { value: 'cool', label: 'Cool', icon: <Snowflake size={14} />, tone: 'cold' },
+                  ]}
+                />
               </Row>
 
               <Row label="Target">

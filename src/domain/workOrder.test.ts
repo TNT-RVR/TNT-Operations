@@ -132,3 +132,29 @@ describe('shelter removal as a work order', () => {
     expect(clashesFor(events, 'c1', '2026-08-20', null)).toHaveLength(1)
   })
 })
+
+describe('editing an existing work order', () => {
+  it('carries the id through so the save updates rather than duplicates', () => {
+    const r = buildWorkOrder(draft({ id: 'e1', task: 'tray' }), 'Bow Island NW')
+    expect(r.ok && r.input.id).toBe('e1')
+  })
+
+  it('leaves the id off a new booking entirely', () => {
+    const r = buildWorkOrder(draft(), 'F')
+    expect(r.ok && 'id' in r.input).toBe(false)
+  })
+
+  it('validates an edit exactly like a new booking', () => {
+    const r = buildWorkOrder(draft({ id: 'e1', fieldId: '' }), 'F')
+    expect(r.ok).toBe(false)
+  })
+
+  it('does not report a booking as clashing with itself', () => {
+    // Moving Thursday's job to Friday must not warn about Thursday's job.
+    const events = [
+      { id: 'e1', crewId: 'c1', startDate: '2026-08-20', endDate: null, title: 'Shelters — A' },
+    ]
+    expect(clashesFor(events, 'c1', '2026-08-20', null, 'e1')).toEqual([])
+    expect(clashesFor(events, 'c1', '2026-08-20', null, 'e2')).toHaveLength(1)
+  })
+})

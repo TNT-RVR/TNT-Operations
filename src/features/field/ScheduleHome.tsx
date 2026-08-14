@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, ClipboardList, MapPin, Play } from 'lucide-react'
+import { CalendarDays, ClipboardList, MapPin, Pencil, Play } from 'lucide-react'
 import { PageHeader, EmptyState, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
 import { fieldSupplies, supplyLines, jobsInWindow } from '@/domain/supplies'
 import { getTentPositions } from '@/domain/tentGrid'
-import { TASK_LABEL } from '@/domain/workOrder'
-import { NewWorkOrder } from './NewWorkOrder'
+import { TASK_LABEL, workOrderTitle } from '@/domain/workOrder'
+import { NewWorkOrder, WorkOrderForm } from './NewWorkOrder'
 
 const TZ = 'America/Edmonton'
 /** How far ahead to look. A season is planned in weeks, not months. */
@@ -77,6 +77,8 @@ export default function ScheduleHome() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
   const myCrewId = crewOf(crewMembers, session.user.id)
   const isAdmin = session.can('users', 'edit')
+  /** The booking open for changes, if any — one at a time. */
+  const [editing, setEditing] = useState<string | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
 
   /**
@@ -172,6 +174,35 @@ export default function ScheduleHome() {
                   const s = suppliesFor(j.fieldId)
                   const lines = supplyLines(j.task, s)
                   const isMine = j.crewId === myCrewId
+
+                  // In place rather than in a dialog: the thing being changed
+                  // stays where it was in the list, so it is obvious which of
+                  // three bookings on a Thursday is the one being edited.
+                  if (editing === j.eventId) {
+                    const ev = calendarEvents.find((e) => e.id === j.eventId)
+                    return (
+                      <WorkOrderForm
+                        key={j.eventId}
+                        initial={{
+                          id: j.eventId,
+                          crewId: j.crewId,
+                          task: j.task,
+                          fieldId: j.fieldId,
+                          startDate: j.startDate,
+                          endDate: j.endDate ?? '',
+                          // An auto-generated name goes back to being blank so
+                          // it follows a change of job or field. Only a name
+                          // somebody actually typed is worth preserving.
+                          title:
+                            j.title === workOrderTitle(j.task, fieldName(j.fieldId)) ? '' : j.title,
+                          notes: ev?.notes ?? '',
+                        }}
+                        onDone={() => void loadCalendarEvents()}
+                        onCancel={() => setEditing(null)}
+                      />
+                    )
+                  }
+
                   return (
                     <div
                       key={`${j.eventId}-${j.crewId}`}
@@ -203,6 +234,16 @@ export default function ScheduleHome() {
                           <MapPin size={13} className="mr-1 inline text-faint" />
                           {fieldName(j.fieldId)}
                         </span>
+                        {isAdmin && (
+                          <button
+                            className="text-faint hover:text-primary"
+                            onClick={() => setEditing(j.eventId)}
+                            aria-label={`Edit ${j.title}`}
+                            title="Edit this work order"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
                       </div>
 
                       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">

@@ -17,19 +17,26 @@ const empty = (): WorkOrderDraft => ({
 })
 
 /**
- * Booking a crew onto a field — the office end of the work-order screen.
+ * The booking form, for a new work order or an existing one.
  *
- * Behind a button rather than always open: the screen is read many times a day
- * by crews and written to a few times a week by the office, and a form sitting
- * above the day's jobs would push them off a phone screen.
+ * One component for both because they are the same eight questions; a separate
+ * edit form is how the two drift until one of them forgets a field.
  *
- * Admin only. Anyone can still add plain entries on the calendar; what is
- * restricted is telling a crew what their day is.
+ * Admin only, at both call sites. Anyone can still add plain entries on the
+ * calendar; what is restricted is telling a crew what their day is.
  */
-export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
+export function WorkOrderForm({
+  initial,
+  onDone,
+  onCancel,
+}: {
+  /** The booking being changed. Absent means a new one. */
+  initial?: WorkOrderDraft
+  onDone?: () => void
+  onCancel: () => void
+}) {
   const { fields, crews, calendarEvents, saveCalendarEvent } = useData()
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState(empty)
+  const [draft, setDraft] = useState<WorkOrderDraft>(initial ?? empty())
   const [errors, setErrors] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -48,8 +55,8 @@ export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
   // Warned about, never blocked: a crew doing shelters in the morning and
   // trays after lunch is a real day, not a mistake.
   const clashes = useMemo(
-    () => clashesFor(calendarEvents, draft.crewId, draft.startDate, draft.endDate || null),
-    [calendarEvents, draft.crewId, draft.startDate, draft.endDate],
+    () => clashesFor(calendarEvents, draft.crewId, draft.startDate, draft.endDate || null, draft.id),
+    [calendarEvents, draft.crewId, draft.startDate, draft.endDate, draft.id],
   )
 
   const submit = async () => {
@@ -67,34 +74,17 @@ export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
       return
     }
     setDraft(empty())
-    setOpen(false)
-    onCreated?.()
-  }
-
-  if (!open) {
-    return (
-      <button
-        className="flex items-center gap-2 rounded-md border border-default px-3 py-2 text-sm font-semibold text-primary"
-        onClick={() => setOpen(true)}
-      >
-        <Plus size={15} />
-        New work order
-      </button>
-    )
+    onDone?.()
+    onCancel()
   }
 
   return (
     <div className="rounded-md border border-default p-3">
       <div className="mb-3 flex items-center gap-2">
-        <span className="font-semibold text-primary">New work order</span>
-        <button
-          className="ml-auto text-faint hover:text-primary"
-          onClick={() => {
-            setOpen(false)
-            setErrors([])
-          }}
-          aria-label="Close"
-        >
+        <span className="font-semibold text-primary">
+          {draft.id ? 'Edit work order' : 'New work order'}
+        </span>
+        <button className="ml-auto text-faint hover:text-primary" onClick={onCancel} aria-label="Close">
           <X size={16} />
         </button>
       </div>
@@ -215,18 +205,39 @@ export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
           onClick={() => void submit()}
           disabled={saving}
         >
-          {saving ? 'Booking…' : 'Book it'}
+          {saving ? 'Saving…' : draft.id ? 'Save changes' : 'Book it'}
         </button>
         <button
           className="rounded-md border border-default px-3 py-2 text-sm text-secondary"
-          onClick={() => {
-            setOpen(false)
-            setErrors([])
-          }}
+          onClick={onCancel}
         >
           Cancel
         </button>
       </div>
     </div>
   )
+}
+
+/**
+ * The "New work order" button, and the form it opens.
+ *
+ * Behind a button rather than always open: the screen is read many times a day
+ * by crews and written to a few times a week by the office, and a form sitting
+ * above the day's jobs would push them off a phone screen.
+ */
+export function NewWorkOrder({ onCreated }: { onCreated?: () => void }) {
+  const [open, setOpen] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        className="flex items-center gap-2 rounded-md border border-default px-3 py-2 text-sm font-semibold text-primary"
+        onClick={() => setOpen(true)}
+      >
+        <Plus size={15} />
+        New work order
+      </button>
+    )
+  }
+  return <WorkOrderForm onDone={onCreated} onCancel={() => setOpen(false)} />
 }

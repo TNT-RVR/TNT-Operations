@@ -14,6 +14,8 @@ import type { CrewTask } from './supplies'
  */
 
 export interface WorkOrderDraft {
+  /** Set when editing an existing booking; absent when making a new one. */
+  id?: string
   crewId: string
   task: CrewTask | ''
   fieldId: string
@@ -26,6 +28,8 @@ export interface WorkOrderDraft {
 }
 
 export interface WorkOrderInput {
+  /** Passed through so the save updates that row rather than adding another. */
+  id?: string
   title: string
   startDate: string
   endDate: string | null
@@ -93,6 +97,7 @@ export function buildWorkOrder(
   return {
     ok: true,
     input: {
+      ...(draft.id ? { id: draft.id } : {}),
       title: draft.title?.trim() || workOrderTitle(task, fieldName),
       startDate: draft.startDate,
       // A one-day job stores null rather than repeating the start date, so
@@ -121,11 +126,13 @@ export function clashesFor(
   crewId: string,
   startDate: string,
   endDate: string | null,
+  /** The booking being edited — a job cannot clash with itself. */
+  ignoreId?: string,
 ): Array<{ id: string; title: string }> {
   if (!crewId || !YMD.test(startDate)) return []
   const last = endDate && endDate > startDate ? endDate : startDate
   return events
-    .filter((e) => e.crewId === crewId)
+    .filter((e) => e.crewId === crewId && e.id !== ignoreId)
     .filter((e) => {
       const eLast = e.endDate && e.endDate > e.startDate ? e.endDate : e.startDate
       return e.startDate <= last && eLast >= startDate

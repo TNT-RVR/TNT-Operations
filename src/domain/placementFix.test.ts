@@ -54,10 +54,14 @@ describe('checkPlacementFix', () => {
     expect(v.reason).toBe('far-from-pin')
   })
 
-  it('allows the ordinary detour around a slough', () => {
-    // Crews move shelters tens of metres routinely; this is not a rule about
-    // tidiness, it is a rule about fixes that are plainly wrong.
-    expect(checkPlacementFix({ fix: good, insideField: true, driftM: 60 }).ok).toBe(true)
+  it('allows the few metres a shelter moves around a bad spot', () => {
+    // A pin landing in a slough gets stepped around; that is the legitimate
+    // range, and it is small.
+    expect(checkPlacementFix({ fix: good, insideField: true, driftM: 12 }).ok).toBe(true)
+  })
+
+  it('refuses a shelter placed a field-width from its pin', () => {
+    expect(checkPlacementFix({ fix: good, insideField: true, driftM: 80 }).ok).toBe(false)
   })
 
   it('is inclusive at both thresholds', () => {

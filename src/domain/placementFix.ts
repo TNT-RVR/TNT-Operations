@@ -31,11 +31,12 @@ export const MAX_ACCURACY_M = 50
 /**
  * How far from its planned pin a shelter may be placed before it is suspicious.
  *
- * Crews move shelters around slough edges and wheel tracks all the time, so
- * this is generous. It is here to catch the fix that lands 800 m away, not to
- * police a 30 m detour.
+ * A shelter gets nudged a few metres when the pin lands somewhere it cannot
+ * stand — a slough edge, a wheel track — and that is the whole legitimate
+ * range. Anything beyond this is either the wrong pin or a bad fix, and both
+ * are worth stopping to check.
  */
-export const MAX_DRIFT_M = 200
+export const MAX_DRIFT_M = 50
 
 export type FixVerdict =
   | { ok: true; reason: null }
@@ -96,8 +97,8 @@ export function checkPlacementFix({
       ok: false,
       reason: 'far-from-pin',
       message:
-        `That is ${Math.round(driftM)} m from the pin you are placing — further than a shelter ` +
-        `normally moves. Check you are at the right one and mark it again.`,
+        `That is ${Math.round(driftM)} m from the pin you are placing — a shelter should only ` +
+        `move a few metres. Check you are at the right one and mark it again.`,
     }
   }
 

@@ -125,11 +125,16 @@ _Last reviewed 2026-08-03._
         - **Overlay geometry is derived, never re-derived.** `fieldFrame.ts` is
           the ONE shared projection/rotation/bay-tiling frame — the engine's own
           math, so bays line up with the pins it placed. `bayOverlays.ts` (male
-          bays, numbered planter passes, alignment mesh — one polyline down each
-          COLUMN, one across each ROW, plus the DIAGONALS to the nearest pin
-          above/below in the next column; each feature carries
-          `axis: 'column' | 'row' | 'diagonal'` so a caller can style one family
-          without inferring it from the vertex count). Each guide is a straight
+          bays, numbered planter passes, alignment mesh — one line across each ROW
+          plus the DIAGONAL strips; each feature carries
+          `axis: 'row' | 'diagonal'` so a caller can style one family without
+          inferring it from the vertex count. NO column guides: a column runs
+          the way the planter does, and the crop rows already are that guide.
+          One line per diagonal STRIP, fitted to its own pins; near-parallel
+          guides then merge into the line between them, at a threshold derived
+          from the field's own guide spacing rather than a flat distance —
+          a duplicate sits an order of magnitude closer than the next real
+          guide, so a third of the typical spacing separates them). Each guide is a straight
           LINE spanning the field extent, not a polyline visiting the pins — it
           carries through gaps, reaches past the last shelter, and cannot kink;
           the map trims it with `clipToField`. Collinear guides dedupe by

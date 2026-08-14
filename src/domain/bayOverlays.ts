@@ -586,9 +586,23 @@ const DIAGONAL_TOL_M = 2.0
  * tens of metres apart, so nothing legitimate is within a few metres of its
  * neighbour.
  */
-const MERGE_TOL_M = 3.0
+const MERGE_FLOOR_M = 3.0
+
+/**
+ * …and up to this fraction of the field's own guide spacing.
+ *
+ * A flat 3 m left doubles standing wherever the split was wider than that, and
+ * raising it to a bigger flat number would start merging strips that really are
+ * separate on a tightly spaced field. So the threshold is derived from the
+ * drawing instead: measure how far apart the guides typically are, and treat
+ * anything under a third of that as one guide drawn twice.
+ *
+ * It works because doubles are a small minority — the typical spacing is the
+ * REAL spacing, and a duplicate sits an order of magnitude closer than it.
+ */
+const MERGE_SPACING_FRACTION = 1 / 3
 /** …and only when they point the same way, to within this angle. */
-const MERGE_COS = Math.cos((3 * Math.PI) / 180)
+const MERGE_COS = Math.cos((4 * Math.PI) / 180)
 
 /**
  * Along-pass tolerance for "level with". Pins this close along the pass are the
@@ -769,6 +783,28 @@ export function alignmentLines(
    * more merges, since collapsing two can bring a third within range.
    */
   const mergeGuides = (input: Guide[]): Guide[] => {
+    /** Perpendicular gap between two guides, or Infinity if not parallel. */
+    const gapBetween = (a: Guide, b: Guide): number => {
+      if (Math.abs(a.dLat * b.dLat + a.dAlong * b.dAlong) < MERGE_COS) return Infinity
+      return Math.abs((b.lateral - a.lateral) * a.dAlong - (b.along - a.along) * a.dLat)
+    }
+
+    // How far apart are guides on THIS field? Each guide's nearest parallel
+    // neighbour, taken at the median so a handful of duplicates cannot drag the
+    // answer down to their own separation.
+    const nearest: number[] = []
+    for (let i = 0; i < input.length; i++) {
+      let best = Infinity
+      for (let j = 0; j < input.length; j++) {
+        if (i === j) continue
+        const g = gapBetween(input[i], input[j])
+        if (g < best) best = g
+      }
+      if (Number.isFinite(best)) nearest.push(best)
+    }
+    const typical = nearest.length ? median(nearest) : 0
+    const tol = Math.max(MERGE_FLOOR_M, typical * MERGE_SPACING_FRACTION)
+
     let out = input.slice()
     for (let pass = 0; pass < 8; pass++) {
       let merged = false
@@ -784,11 +820,7 @@ export function alignmentLines(
           // along a row is one line on the ground however it was derived, and
           // drawing it twice is exactly the doubling this is here to stop. The
           // heavier guide keeps its label.
-          const dot = Math.abs(a.dLat * b.dLat + a.dAlong * b.dAlong)
-          if (dot < MERGE_COS) continue
-          // Perpendicular distance from b's point to a's line.
-          const gap = Math.abs((b.lateral - a.lateral) * a.dAlong - (b.along - a.along) * a.dLat)
-          if (gap > MERGE_TOL_M) continue
+          if (gapBetween(a, b) > tol) continue
           const w = a.weight + b.weight
           const bSign = a.dLat * b.dLat + a.dAlong * b.dAlong >= 0 ? 1 : -1
           a = {
@@ -873,21 +905,16 @@ export function alignmentLines(
   const meanOf = (g: Pin[], key: (p: Pin) => number) =>
     g.reduce((sum, p) => sum + key(p), 0) / g.length
 
-  // A line down each column and across each row. Columns and rows are axis
-  // aligned by construction, so their direction is fixed rather than fitted —
-  // fitting a column of three pins that happen to wobble would tilt a guide
-  // that the crew expects to run straight down the field.
-  for (const col of columns) {
-    if (col.length < 2) continue
-    guides.push({
-      axis: 'column',
-      lateral: meanOf(col, (q) => q.lateral),
-      along: meanOf(col, (q) => q.along),
-      dLat: 0,
-      dAlong: 1,
-      weight: col.length,
-    })
-  }
+  // NO column guides.
+  //
+  // A column runs at a fixed lateral down the `along` axis — the same line a
+  // planter pass runs (see `planterPassLines`). The crop rows themselves are
+  // that guide, drawn on the ground in a way no overlay can improve on, so a
+  // line on top of them adds nothing and crowds out the two directions that
+  // are NOT already visible from the seat.
+  //
+  // Columns are still grouped above: the diagonals are found by walking from
+  // each pin to its neighbour in the next column across.
   for (const row of rows) {
     if (row.length < 2) continue
     guides.push({

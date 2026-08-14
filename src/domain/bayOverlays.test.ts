@@ -368,7 +368,7 @@ describe('alignmentLines', () => {
   const axis = (fc: ReturnType<typeof alignmentLines>, want: string) =>
     fc.features.filter((x) => x.properties?.axis === want)
 
-  it('draws a column polyline, a row polyline and diagonals for a 3×3 grid', () => {
+  it('draws a row line per rank, and no column lines at all', () => {
     const fc = alignmentLines(grid(), FIELD)
     const feats = fc.features
     expect(feats.length).toBeGreaterThan(0)
@@ -376,9 +376,11 @@ describe('alignmentLines', () => {
       expect(feat.geometry.type).toBe('LineString')
       expect(allFinite(feat.geometry.coordinates)).toBe(true)
       expect(feat.properties?.kind).toBe('alignment')
-      expect(['column', 'row', 'diagonal']).toContain(feat.properties?.axis)
+      expect(['row', 'diagonal']).toContain(feat.properties?.axis)
     }
-    expect(axis(fc, 'column')).toHaveLength(3) // one down each lateral column
+    // A column runs the way the planter does, so the crop rows already are that
+    // guide — drawing one on top of them adds nothing.
+    expect(axis(fc, 'column')).toHaveLength(0)
     expect(axis(fc, 'row')).toHaveLength(3) // one across each rank
     // On an UNSTAGGERED grid the neighbour level with a pin lies on that pin's
     // row, so every diagonal is collinear with a row line and collapses into
@@ -420,11 +422,11 @@ describe('alignmentLines', () => {
   it('reaches past the outermost shelter', () => {
     // So the NEXT shelter placed has a line to go on.
     const fc = alignmentLines(grid(), FIELD)
-    const col = axis(fc, 'column')[0]
-    const alongs = col.geometry.coordinates.map((c) => toAlong(f, c))
-    // The pins only reach ±100 m; the guide runs the full extent.
-    expect(Math.max(...alongs)).toBeGreaterThan(300)
-    expect(Math.min(...alongs)).toBeLessThan(-300)
+    const row = axis(fc, 'row')[0]
+    const laterals = row.geometry.coordinates.map((c) => toLateral(f, c))
+    // The pins only reach ±40.5 m; the guide runs the full extent.
+    expect(Math.max(...laterals)).toBeGreaterThan(300)
+    expect(Math.min(...laterals)).toBeLessThan(-300)
   })
 
   it('runs each row across the columns, not back on itself', () => {
@@ -476,15 +478,16 @@ describe('alignmentLines', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it('emits no row line for a single column of pins', () => {
-    // One pin per rank is not a line. Guards against a degenerate 1-point
-    // LineString reaching the map.
+  it('emits nothing for a single column of pins', () => {
+    // One pin per rank is not a row, and a column is not drawn at all — so a
+    // line of shelters running the planter's way yields no guides. Guards
+    // against a degenerate 1-point LineString reaching the map.
     const single: Array<{ lat: number; lng: number }> = [-100, 0, 100].map((along) => {
       const [lng, lat] = latAlongToLonLat(f, 0, along)
       return { lat, lng }
     })
     const fc = alignmentLines(single, FIELD)
-    expect(axis(fc, 'column')).toHaveLength(1)
+    expect(axis(fc, 'column')).toHaveLength(0)
     expect(axis(fc, 'row')).toHaveLength(0)
   })
 

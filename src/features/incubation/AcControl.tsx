@@ -79,7 +79,7 @@ function Switch<T extends string>({
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="w-14 shrink-0 text-xs uppercase tracking-wide text-faint">{label}</span>
+      <span className="shrink-0 text-xs uppercase tracking-wide text-faint">{label}</span>
       {children}
     </div>
   )
@@ -378,7 +378,8 @@ export function AcControl({
               actually sets a pump: is it running, is it heating or cooling,
               what is it aiming for, how hard is the fan.
             */
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               <Row label="Power">
                 <Switch
                   value={anyOn ? 'on' : first ? 'off' : null}
@@ -406,6 +407,9 @@ export function AcControl({
                 />
               </Row>
 
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               <Row label="Target">
                 <input
                   type="number"
@@ -455,6 +459,7 @@ export function AcControl({
                   ))}
                 </Select>
               </Row>
+              </div>
             </div>
           )}
           {linking ? (

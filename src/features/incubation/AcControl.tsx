@@ -118,6 +118,14 @@ export function AcControl({
             .map((f: { deviceId: string; error: string }) => `${f.deviceId} (${f.error})`)
             .join('; ')}`,
         )
+      } else if ((r.unconfirmed ?? []).length) {
+        // The command was accepted and the pod still reads the other way. It
+        // matters most for OFF: "done" over a heat pump that is still running
+        // is how a batch gets cooked.
+        setError(
+          `The command was sent but ${r.unconfirmed.length === r.results.length ? 'the unit' : `${r.unconfirmed.length} of ${r.results.length} units`} ` +
+            `still reads the other way. Check the heat pump itself — it may be out of range of the Sensibo, or switched at the wall.`,
+        )
       }
       await refresh()
     } catch (e) {

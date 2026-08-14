@@ -74,6 +74,35 @@ async function identify(req) {
   return { userId: me.id, role, canControl: CAN_CONTROL.has(role) }
 }
 
+/**
+ * Set ONE property, explicitly.
+ *
+ * Sensibo transmits infrared only when the state it holds actually changes. A
+ * full-state POST that matches what it already believes is accepted, answered
+ * 200, and sends nothing — which is why turning an incubator ON always worked
+ * (off → on is always a change) while OFF did nothing whenever its records had
+ * drifted from the unit in the room.
+ *
+ * The single-property endpoint states the intent instead of implying it from a
+ * diff, so a power command is a power command.
+ */
+async function setProperty(apiKey, deviceId, property, newValue) {
+  const res = await withTimeout(
+    `${SENSIBO}/pods/${encodeURIComponent(deviceId)}/acStates/${property}` +
+      `?apiKey=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newValue, reason: 'UserRequest' }),
+    },
+  )
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+  }
+  return { ok: true }
+}
+
 /** Most recent acState for one device. */
 async function getState(apiKey, deviceId) {
   const res = await withTimeout(
@@ -238,17 +267,49 @@ export default async (req) => {
         // model-specific; report it rather than pretending it worked.
         return { deviceId, ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
       }
+
+      // ── Power, said out loud ───────────────────────────────────────────────
+      // A power change gets sent again as an explicit single-property command,
+      // and then read back. The POST above may have been a no-op against a
+      // stale record; this is what actually turns the thing off.
+      let verified = null
+      if (on !== undefined) {
+        const after = await getState(apiKey, deviceId)
+        if (after.state && !!after.state.on !== !!next.on) {
+          const forced = await setProperty(apiKey, deviceId, 'on', !!next.on)
+          if (!forced.ok) return { deviceId, ok: false, error: forced.error }
+        }
+        // Read once more so the answer is what Sensibo holds, not what we hoped.
+        const confirm = await getState(apiKey, deviceId)
+        // Null when the pod reports nothing back — several of these units do
+        // not, and claiming failure there would be as wrong as claiming success.
+        verified = confirm.state ? !!confirm.state.on === !!next.on : null
+      }
+
       await writeMemory(deviceId, next)
-      return { deviceId, ok: true, state: next }
+      return { deviceId, ok: true, state: next, verified }
     }),
   )
 
   const failed = results.filter((r) => !r.ok)
+  // Sent but demonstrably not taken: worth its own word, because "it worked"
+  // followed by a still-running heat pump is how somebody cooks a batch.
+  const unconfirmed = results.filter((r) => r.ok && r.verified === false)
   console.info(
     `[sensibo] ${who.userId} set ${JSON.stringify({ on, targetTemperature, mode, fanLevel })} ` +
       `on ${ids.join(',')} — ${results.length - failed.length} ok, ${failed.length} failed`,
   )
   // Partial success is reported as such: with several units on one incubator,
   // "some worked" is the truth and hiding it would leave them disagreeing.
-  return json({ results, ok: failed.length === 0 }, failed.length && !results.some((r) => r.ok) ? 502 : 200)
+  return json(
+    {
+      results,
+      ok: failed.length === 0,
+      // The UI turns this into a warning. Note what it does NOT prove: this is
+      // Sensibo's own record of the pod, not a measurement of the AC. A unit
+      // switched at the wall can still disagree with both.
+      unconfirmed: unconfirmed.map((r) => r.deviceId),
+    },
+    failed.length && !results.some((r) => r.ok) ? 502 : 200,
+  )
 }

@@ -65,6 +65,7 @@ const TIRE = '#FF2A2A' // tire zone down each pass centre
 const EDGE = '#22E048' // edge zone at pass edges
 const PLANTER_NUM = '#FFB000' // planter pass lines + numbers
 const ALIGN = '#86E0FF' // alignment guide mesh
+const MEASURE = '#FF4FD8' // measuring tape — a hue nothing else on the map uses
 const BUFFER = '#1E90FF' // shelter buffer squares (JD section control)
 const PLANTER_PATH = '#1E90FF' // imported JD planter polylines
 const SPRAY_PATH = '#FF8C00' // uploaded sprayer GPS tracks
@@ -224,6 +225,8 @@ export default function MapsHome() {
   const labelMarkersRef = useRef<maplibregl.Marker[]>([])
   /** Planter pass numbers at each headland. */
   const passLabelMarkersRef = useRef<maplibregl.Marker[]>([])
+  /** The distance readout at the midpoint of a measurement. */
+  const measureMarkersRef = useRef<maplibregl.Marker[]>([])
   const mapRef = useRef<maplibregl.Map | null>(null)
   const pinMarkersRef = useRef<maplibregl.Marker[]>([])
   const shelterMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1072,6 +1075,28 @@ export default function MapsHome() {
         paint: { 'circle-radius': 5, 'circle-color': PIVOT_PT, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
       })
 
+      // The measuring tape: the two clicked points and the line between them.
+      map.addSource('measure', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'measure-line',
+        type: 'line',
+        source: 'measure',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: { 'line-color': MEASURE, 'line-width': 2, 'line-dasharray': [2, 1.5] },
+      })
+      map.addLayer({
+        id: 'measure-point',
+        type: 'circle',
+        source: 'measure',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 4,
+          'circle-color': MEASURE,
+          'circle-stroke-color': '#000000',
+          'circle-stroke-width': 1.5,
+        },
+      })
+
       // In-progress boundary draw (on top).
       map.addSource('draw', { type: 'geojson', data: EMPTY })
       map.addLayer({ id: 'draw-fill', type: 'fill', source: 'draw', paint: { 'fill-color': BRAND, 'fill-opacity': 0.12 } })
@@ -1095,6 +1120,8 @@ export default function MapsHome() {
       labelMarkersRef.current = []
       passLabelMarkersRef.current.forEach((m) => m.remove())
       passLabelMarkersRef.current = []
+      measureMarkersRef.current.forEach((m) => m.remove())
+      measureMarkersRef.current = []
       crewMarkersRef.current.forEach((m) => m.remove())
       crewMarkersRef.current = []
       vertexMarkersRef.current.forEach((m) => m.remove())
@@ -1368,6 +1395,58 @@ export default function MapsHome() {
       passLabelMarkersRef.current = []
     }
   }, [ready, visibility.planterNumbers, previewGeom])
+
+  /**
+   * Draw the measurement: a dot at each click, a dashed line between them, and
+   * the distance at the midpoint.
+   *
+   * Without this the tool put a number in the toolbar and nothing on the map,
+   * so you could not tell whether you had actually hit the two things you meant
+   * to measure between — which is most of the value when the gap is a metre.
+   *
+   * The label is a DOM marker: this style has no glyph server, so map text has
+   * to be drawn as HTML (see the pin labels).
+   */
+  useEffect(() => {
+    const map = mapRef.current
+    measureMarkersRef.current.forEach((m) => m.remove())
+    measureMarkersRef.current = []
+    if (!map || !ready) return
+
+    const src = map.getSource('measure') as GeoJSONSource | undefined
+    if (!src) return
+    const pts = measure.map(([lat, lng]) => [lng, lat] as [number, number])
+    const features: FeatureCollection['features'] = pts.map((c) => ({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: c },
+    }))
+    if (pts.length === 2) {
+      features.push({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: pts },
+      })
+    }
+    src.setData({ type: 'FeatureCollection', features })
+
+    if (pts.length === 2 && measureM != null) {
+      const el = document.createElement('div')
+      el.textContent = `${measureM.toFixed(1)} m · ${(measureM * 3.28084).toFixed(0)} ft`
+      el.style.cssText =
+        `font-size:12px;font-weight:700;line-height:1;white-space:nowrap;color:${MEASURE};` +
+        'text-shadow:0 1px 2px #000,0 0 3px #000;pointer-events:none;transform:translateY(-12px)'
+      measureMarkersRef.current = [
+        new maplibregl.Marker({ element: el })
+          .setLngLat([(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2])
+          .addTo(map),
+      ]
+    }
+    return () => {
+      measureMarkersRef.current.forEach((m) => m.remove())
+      measureMarkersRef.current = []
+    }
+  }, [ready, measure, measureM])
 
   // Placing TEST shelters — blue, counted separately from the working grid (§6.5).
   useEffect(() => {
@@ -1777,17 +1856,25 @@ export default function MapsHome() {
         onTool={setTool}
         actions={[
           ...toolActions,
+          // Measure is offered whether or not a field is open for editing:
+          // "how far apart are those two things" is a question you ask while
+          // LOOKING at a map, and requiring Edit first meant risking a change
+          // to the field just to read a distance off it.
+          {
+            id: 'measure',
+            label: measuring
+              ? measureM != null
+                ? `${measureM.toFixed(1)} m (${(measureM * 3.28084).toFixed(0)} ft)`
+                : 'Click two points…'
+              : 'Measure',
+            active: measuring,
+            onClick: () => {
+              setMeasure([])
+              setMeasuring((v) => !v)
+            },
+          },
           ...(editing
             ? ([
-                {
-                  id: 'measure',
-                  label: measuring ? (measureM != null ? `${measureM.toFixed(1)} m (${(measureM * 3.28084).toFixed(0)} ft)` : 'Click two points…') : 'Measure',
-                  active: measuring,
-                  onClick: () => {
-                    setMeasure([])
-                    setMeasuring((v) => !v)
-                  },
-                },
                 // historyTick forces this list to rebuild after each push/pop so
                 // the buttons enable and disable with the stacks.
                 { id: `undo-${historyTick}`, label: 'Undo', disabled: undoRef.current.length === 0, onClick: undo },

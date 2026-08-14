@@ -75,13 +75,20 @@ function Switch<T extends string>({
   )
 }
 
-/** One labelled line of the control panel. */
+/**
+ * One labelled control, as two cells of the panel's grid.
+ *
+ * A fragment rather than a box: laying the label and the control out as
+ * separate cells is what keeps every control starting at the same left edge.
+ * Wrapped in their own flex boxes they each sized to their own label, and on a
+ * phone the result was four controls at four different indents.
+ */
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="shrink-0 text-xs uppercase tracking-wide text-faint">{label}</span>
-      {children}
-    </div>
+    <>
+      <span className="text-xs uppercase tracking-wide text-faint">{label}</span>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </>
   )
 }
 
@@ -394,8 +401,12 @@ export function AcControl({
               actually sets a pump: is it running, is it heating or cooling,
               what is it aiming for, how hard is the fan.
             */
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            /*
+              Two columns on a phone — labels, then controls, all aligned —
+              and four on anything wider, which pairs power with mode and
+              target with fan without a second layout to maintain.
+            */
+            <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 sm:grid-cols-[auto_auto_auto_1fr] sm:gap-x-4">
               <Row label="Power">
                 <Switch
                   value={anyOn ? 'on' : first ? 'off' : null}
@@ -423,9 +434,6 @@ export function AcControl({
                 />
               </Row>
 
-              </div>
-
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               <Row label="Target">
                 <input
                   type="number"
@@ -475,7 +483,6 @@ export function AcControl({
                   ))}
                 </Select>
               </Row>
-              </div>
             </div>
           )}
           {/* The device id lives behind the gear in the header now. It is set

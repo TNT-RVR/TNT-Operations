@@ -7,6 +7,7 @@ import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
 import { fieldSupplies, supplyLines, jobsForCrew } from '@/domain/supplies'
 import { getTentPositions } from '@/domain/tentGrid'
+import { NewWorkOrder } from './NewWorkOrder'
 
 const TZ = 'America/Edmonton'
 /** How far ahead to look. A season is planned in weeks, not months. */
@@ -57,6 +58,7 @@ export default function ScheduleHome() {
 
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
   const myCrewId = crewOf(crewMembers, session.user.id)
+  const isAdmin = session.can('users', 'edit')
   const [mineOnly, setMineOnly] = useState(false)
 
   /** Every booked job from today to the horizon, in day order. */
@@ -111,6 +113,10 @@ export default function ScheduleHome() {
       />
 
       <div className="space-y-4 p-4 md:p-6">
+        {/* Booking is the office's job, so it sits above the day list rather
+            than inside it — and only for admins. */}
+        {isAdmin && <NewWorkOrder onCreated={() => void loadCalendarEvents()} />}
+
         {!myCrewId && (
           <p className="text-sm text-muted">
             You are not on a crew, so nothing here is yours yet.{' '}

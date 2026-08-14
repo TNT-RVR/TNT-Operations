@@ -298,14 +298,39 @@ export function AcControl({
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
+              {/*
+                Two buttons, not one toggle.
+
+                A toggle has to know the current state to offer the opposite
+                one, and with these pumps that knowledge is a guess: they
+                report nothing back, so the app falls back to a memory of the
+                last command anyone sent. When that memory reads "off" — which
+                is how it starts, and where it stays if a write is ever missed
+                — the only thing on offer is "Turn on", and OFF becomes
+                unreachable. That is the whole bug: the off command was never
+                sent, whatever the API did with it.
+
+                Both commands are always available now. The believed state is
+                shown by highlighting, not by hiding the other half.
+              */}
+              <Button
+                variant={anyOn ? 'primary' : 'ghost'}
+                size="sm"
+                disabled={busy}
+                onClick={() => void send({ on: true })}
+                title={anyOn ? 'Believed to be on already — sends the on command again' : undefined}
+              >
+                <Power size={14} className="mr-1 inline" />
+                Turn on
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                onClick={() => (anyOn ? setConfirmOff(true) : void send({ on: true }))}
+                onClick={() => setConfirmOff(true)}
               >
                 <Power size={14} className="mr-1 inline" />
-                {anyOn ? 'Turn off' : 'Turn on'}
+                Turn off
               </Button>
 
               <label className="flex items-center gap-1 text-sm text-muted">

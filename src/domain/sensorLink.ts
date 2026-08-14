@@ -29,6 +29,16 @@ export interface LinkChip {
   tone: 'green' | 'red' | 'neutral'
 }
 
+/**
+ * How old a reading may get before showing it as current is a lie.
+ *
+ * The same thresholds the watchdog alerts on (netlify/functions/watchdog.mjs):
+ * a running incubator polls every 15 minutes, an idle one every 6 hours, and
+ * both of these sit at roughly four missed cycles.
+ */
+const STALE_RUNNING_MIN = 60
+const STALE_IDLE_MIN = 24 * 60
+
 const ago = (from: string, now: number): string => {
   const min = (now - new Date(from).getTime()) / 60_000
   if (!Number.isFinite(min) || min < 0) return 'just now'
@@ -103,4 +113,23 @@ export function sensorLinkChip(
     detail: seen ? `Last seen ${ago(seen, now)}` : 'Never seen on the network',
     tone: 'red',
   }
+}
+
+/**
+ * Is this reading old enough that it should not be shown as the temperature?
+ *
+ * A card saying "12.6°C" beside a chip saying "Sensor offline" contradicts
+ * itself, and the number is the more believable half — it looks like a
+ * measurement. Greying it and dating it makes the card agree with itself.
+ */
+export function readingStaleness(
+  at: string | null | undefined,
+  running: boolean,
+  now = Date.now(),
+): { stale: boolean; label: string | null } {
+  if (!at) return { stale: false, label: null }
+  const min = (now - new Date(at).getTime()) / 60_000
+  if (!Number.isFinite(min)) return { stale: false, label: null }
+  const stale = min > (running ? STALE_RUNNING_MIN : STALE_IDLE_MIN)
+  return { stale, label: stale ? ago(at, now) : null }
 }

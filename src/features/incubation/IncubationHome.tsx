@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PageHeader, Badge, Gauge, EmptyState } from '@/components/ui'
-import { sensorLinkChip } from '@/domain/sensorLink'
+import { sensorLinkChip, readingStaleness } from '@/domain/sensorLink'
 import { useData } from '@/data/context'
 import { incubationProgress, getIncubationDay, incubatorDisplay } from '@/domain/incubation'
 import type { Incubator } from '@/data/types'
@@ -37,6 +37,10 @@ export default function IncubationHome() {
             r != null && d.running && d.humMin != null && d.humMax != null && (r.humidityPct < d.humMin || r.humidityPct > d.humMax)
 
           const link = sensorLinkChip(i, now.getTime(), r?.at)
+          // A reading old enough to be history is shown as history: greyed,
+          // and dated, so the number stops competing with the offline chip
+          // beside it for which half of the card to believe.
+          const age = readingStaleness(r?.at, d.running, now.getTime())
 
           const showProgress = i.tempMode === 'incubation' && !!i.incubationStart
           const p = showProgress ? incubationProgress(i.incubationStart!, now.toISOString()) : null
@@ -91,7 +95,11 @@ export default function IncubationHome() {
               <dl className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <dt className="text-muted">Temp (latest)</dt>
-                  <dd className={`font-semibold ${tempOut ? 'text-danger' : 'text-primary'}`}>
+                  <dd
+                    className={`font-semibold ${
+                      age.stale ? 'text-faint' : tempOut ? 'text-danger' : 'text-primary'
+                    }`}
+                  >
                     {r ? `${r.tempC.toFixed(1)}°C` : '—'}{' '}
                     {/* An off incubator isn't being held anywhere — it has no target. */}
                     <span className="text-xs text-faint">
@@ -101,7 +109,11 @@ export default function IncubationHome() {
                 </div>
                 <div>
                   <dt className="text-muted">Humidity (latest)</dt>
-                  <dd className={`font-semibold ${humOut ? 'text-danger' : 'text-primary'}`}>
+                  <dd
+                    className={`font-semibold ${
+                      age.stale ? 'text-faint' : humOut ? 'text-danger' : 'text-primary'
+                    }`}
+                  >
                     {r ? `${r.humidityPct}%` : '—'}{' '}
                     <span className="text-xs text-faint">
                       / {d.running ? fmtRange(d.humMin, d.humMax, '%', `${i.humidityTargetPct}%`) : '—'}
@@ -109,6 +121,10 @@ export default function IncubationHome() {
                   </dd>
                 </div>
               </dl>
+
+              {age.stale && age.label && (
+                <p className="mt-1 text-xs text-faint">Last reading {age.label} — not current</p>
+              )}
 
               <p className="mt-3 text-xs font-medium text-brand">View details →</p>
             </button>

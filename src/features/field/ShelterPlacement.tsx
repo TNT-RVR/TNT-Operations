@@ -203,6 +203,37 @@ export default function ShelterPlacement() {
     map.on('style.load', () => {
       addFieldLayers(map)
 
+      /*
+        Where the placed ones were MEANT to be.
+
+        Its own source, drawn under the live pins: a dashed ring at the grid
+        position and a hairline to where the shelter actually went. Together
+        they read as "this one moved, that far, that way", which is the only
+        way to tell a deliberate detour around a slough from a grid that is
+        quietly wrong.
+      */
+      map.addSource('planned', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'planned-link',
+        type: 'line',
+        source: 'planned',
+        filter: ['==', ['geometry-type'], 'LineString'],
+        paint: { 'line-color': PIN, 'line-width': 1, 'line-opacity': 0.5 },
+      })
+      map.addLayer({
+        id: 'planned-ring',
+        type: 'circle',
+        source: 'planned',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 3, 16, 7],
+          'circle-color': 'rgba(0,0,0,0)',
+          'circle-stroke-color': PIN,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-opacity': 0.55,
+        },
+      })
+
       map.addSource('pins', { type: 'geojson', data: EMPTY })
       // Not-placed: hollow ring. Placed: filled dot with dark outline.
       map.addLayer({
@@ -271,6 +302,39 @@ export default function ShelterPlacement() {
         }
       }),
     })
+
+    // Only for shelters that actually moved: a ring exactly under its pin is
+    // noise, and a zero-length line is a rendering artefact waiting to happen.
+    const moved = pins.flatMap((p) => {
+      const actual = placedAt.get(p.gridIdx)
+      if (!actual) return []
+      const ring = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+      }
+      const link = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: [
+            [p.lng, p.lat],
+            [actual.lng, actual.lat],
+          ],
+        },
+      }
+      return [ring, link]
+    })
+    ;(map.getSource('planned') as GeoJSONSource | undefined)?.setData({
+      type: 'FeatureCollection',
+      features: moved,
+    })
+    for (const id of ['planned-ring', 'planned-link']) {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, 'visibility', show.planned ? 'visible' : 'none')
+      }
+    }
   }, [ready, field, nudgedGeometry, pins, placedIdx, placedAt, show])
 
   // Fit to the field when it changes.

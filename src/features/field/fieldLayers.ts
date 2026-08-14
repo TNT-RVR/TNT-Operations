@@ -39,6 +39,8 @@ export interface FieldLayerVisibility {
   edges: boolean
   rowGuides: boolean
   pins: boolean
+  /** Where placed shelters were MEANT to go, against where they went. */
+  planned: boolean
 }
 
 /**
@@ -53,16 +55,27 @@ export const DEFAULT_LAYERS: FieldLayerVisibility = {
   wet: false,
   edges: false,
   rowGuides: false,
+  // Off by default: a crew placing shelters wants to see the next open pin,
+  // not a second set of rings behind the ones already done. It answers a
+  // question asked afterwards — how close did we get to the plan.
+  planned: false,
   pins: true,
 }
 
-/** Toggle rows, in the order they appear in the menu. */
-export const LAYER_TOGGLES: Array<[keyof FieldLayerVisibility, string]> = [
+/**
+ * Toggle rows, in the order they appear in the menu.
+ *
+ * `only` marks a row that one view can honour and another cannot — a switch
+ * that does nothing is worse than no switch, because it teaches people the
+ * menu is decorative.
+ */
+export const LAYER_TOGGLES: Array<[keyof FieldLayerVisibility, string, ('shelters' | 'trays')?]> = [
   ['boundary', 'Boundary'],
   ['tracks', 'Pivot tracks'],
   ['wet', 'Wet zones'],
   ['edges', 'Sprayer edge zones'],
   ['rowGuides', 'Bay guides'],
+  ['planned', 'Planned positions', 'shelters'],
   ['pins', 'Parking & gates'],
 ]
 

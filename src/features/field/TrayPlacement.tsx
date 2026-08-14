@@ -431,7 +431,7 @@ export default function TrayPlacement() {
             className="absolute right-14 top-0 w-52 rounded-md border border-default p-3 text-sm"
             style={{ background: 'color-mix(in srgb, var(--bg-raised) 96%, transparent)' }}
           >
-            {LAYER_TOGGLES.map(([k, label]) => (
+            {LAYER_TOGGLES.filter(([, , only]) => only !== 'shelters').map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 text-secondary">
                 <input
                   type="checkbox"

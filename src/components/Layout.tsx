@@ -63,10 +63,11 @@ const NAV: NavItem[] = [
     module: 'field',
     mobilePrimary: true,
     children: [
-      { to: '/field', label: 'Shelter placement', end: true },
-      { to: '/field/trays', label: 'Tray placement' },
+      // Placement is reached THROUGH a work order, not from the nav: the order
+      // carries the field, the job and the load list, and starting from the
+      // map means starting without any of it.
+      { to: '/field', label: 'Work orders', end: true },
       { to: '/field/crews', label: 'Crews' },
-      { to: '/field/schedule', label: 'Work orders' },
     ],
   },
   {

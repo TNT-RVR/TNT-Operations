@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Layers, Check, Mountain, Move } from 'lucide-react'
+import { Crosshair, Layers, Check, Mountain, Move , ChevronLeft } from 'lucide-react'
 import { useData } from '@/data/context'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { useSession } from '@/auth/session'
@@ -499,6 +499,15 @@ export default function ShelterPlacement() {
 
       {/* Top bar: field switcher + GPS pill */}
       <div className="absolute inset-x-2 top-2 flex items-center gap-2">
+        {/* Back to the order this came from. The map is a step inside a
+            job, not a place you live, and the load list is up there. */}
+        <Link
+          to="/field"
+          aria-label="Back to work orders"
+          className="flex items-center rounded-md border border-default bg-surface px-2 text-secondary"
+        >
+          <ChevronLeft size={18} />
+        </Link>
         <select
           className="input min-h-0 flex-1 py-2 text-sm"
           value={field?.id ?? ''}

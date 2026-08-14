@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, ClipboardList, MapPin } from 'lucide-react'
+import { CalendarDays, ClipboardList, MapPin, Play } from 'lucide-react'
 import { PageHeader, EmptyState, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
@@ -156,15 +156,10 @@ export default function ScheduleHome() {
                         </Badge>
                         <span className="text-sm text-secondary">{crewName(j.crewId)}</span>
                         {isMine && <span className="text-xs text-brand">yours</span>}
-                        {/* Straight to the map for that field, with it already
-                            selected — the point of booking it in advance. */}
-                        <Link
-                          className="ml-auto text-xs text-brand underline"
-                          to={`${j.task === 'tray' ? '/field/trays' : '/field'}?field=${j.fieldId}`}
-                        >
-                          <MapPin size={13} className="mr-1 inline" />
-                          Open {fieldName(j.fieldId)}
-                        </Link>
+                        <span className="ml-auto text-sm text-secondary">
+                          <MapPin size={13} className="mr-1 inline text-faint" />
+                          {fieldName(j.fieldId)}
+                        </span>
                       </div>
 
                       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
@@ -185,6 +180,19 @@ export default function ScheduleHome() {
                           Missing from the field: {s.unknowns.join(', ')}.
                         </p>
                       )}
+
+                      {/* The way into the map. Reading the order first is the
+                          point: the load list above is only useful before the
+                          trailer leaves, and a crew that starts from the map
+                          has already driven past the moment it mattered. */}
+                      <Link
+                        className="mt-3 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
+                        style={{ background: 'var(--brand)' }}
+                        to={`${j.task === 'tray' ? '/field/trays' : '/field/shelters'}?field=${j.fieldId}`}
+                      >
+                        <Play size={15} />
+                        Start {j.task === 'tray' ? 'tray' : 'shelter'} placement
+                      </Link>
                     </div>
                   )
                 })}
@@ -192,6 +200,39 @@ export default function ScheduleHome() {
             </section>
           ))
         )}
+
+        {/*
+          Unscheduled work.
+
+          Plans change in the field — a quarter finishes early, a booking was
+          never made, the office is asleep. Routing placement through work
+          orders is meant to put the load list in front of people, not to stop
+          a crew that has bees on the trailer and somewhere to put them. So the
+          door stays open, just plainly marked as being outside the schedule.
+        */}
+        <details className="rounded-md border border-default">
+          <summary className="cursor-pointer px-3 py-2 text-sm text-secondary">
+            Working something that isn't booked?
+          </summary>
+          <div className="flex flex-wrap gap-2 border-t border-default p-3">
+            <Link
+              to="/field/shelters"
+              className="rounded-md border border-default px-3 py-2 text-sm text-primary"
+            >
+              Shelter placement
+            </Link>
+            <Link
+              to="/field/trays"
+              className="rounded-md border border-default px-3 py-2 text-sm text-primary"
+            >
+              Tray placement
+            </Link>
+            <p className="w-full text-xs text-faint">
+              You'll pick the field yourself, and there is no load list — the
+              supplies above are worked out from the booking.
+            </p>
+          </div>
+        </details>
       </div>
     </div>
   )

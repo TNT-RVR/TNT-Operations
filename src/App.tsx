@@ -82,10 +82,12 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
         <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
-        <Route path="field" element={<Protected module="field"><ShelterPlacement /></Protected>} />
+        <Route path="field" element={<Protected module="field"><ScheduleHome /></Protected>} />
+        <Route path="field/shelters" element={<Protected module="field"><ShelterPlacement /></Protected>} />
         <Route path="field/trays" element={<Protected module="field"><TrayPlacement /></Protected>} />
         <Route path="field/crews" element={<Protected module="field"><CrewsView /></Protected>} />
-        <Route path="field/schedule" element={<Protected module="field"><ScheduleHome /></Protected>} />
+        {/* The old path, kept so a bookmarked link still lands somewhere sane. */}
+        <Route path="field/schedule" element={<Navigate to="/field" replace />} />
         <Route path="calendar" element={<Protected module="calendar"><CalendarHome /></Protected>} />
         <Route path="incubation" element={<Protected module="incubation"><IncubationHome /></Protected>} />
         <Route path="incubation/samples" element={<Protected module="incubation"><SamplesHome /></Protected>} />

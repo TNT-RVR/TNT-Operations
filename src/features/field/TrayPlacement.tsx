@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Crosshair, Mountain, Layers, Camera } from 'lucide-react'
+import { Crosshair, Mountain, Layers, Camera , ChevronLeft } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
@@ -390,6 +390,15 @@ export default function TrayPlacement() {
 
       {/* Field picker */}
       <div className="absolute left-3 right-3 top-3 flex gap-2">
+        {/* Back to the order this came from. The map is a step inside a
+            job, not a place you live, and the load list is up there. */}
+        <Link
+          to="/field"
+          aria-label="Back to work orders"
+          className="flex items-center rounded-md border border-default bg-surface px-2 text-secondary"
+        >
+          <ChevronLeft size={18} />
+        </Link>
         <select
           className="min-w-0 flex-1 rounded-md border border-default px-3 py-2 text-sm"
           style={{ background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)', color: 'var(--text-primary)' }}

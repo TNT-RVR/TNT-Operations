@@ -6,6 +6,10 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Layers, Check, Mountain, Move , ChevronLeft } from 'lucide-react'
 import { useData } from '@/data/context'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
+import { checkPlacementFix } from '@/domain/placementFix'
+import { fieldForPoint } from '@/domain/blockImport'
+import { fieldFrame } from '@/domain/fieldFrame'
+import { haversineMeters } from '@/domain/geo'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import type { Field } from '@/data/types'
@@ -355,6 +359,8 @@ export default function ShelterPlacement() {
 
   // ── GPS follow ─────────────────────────────────────────────────────────────
   const [gps, setGps] = useState<{ lat: number; lng: number; acc: number } | null>(null)
+  /** Why the last attempt to mark a shelter was refused, if it was. */
+  const [fixProblem, setFixProblem] = useState<string | null>(null)
   const [follow, setFollow] = useState(true)
   const followRef = useRef(follow)
   followRef.current = follow
@@ -561,20 +567,60 @@ export default function ShelterPlacement() {
     return { ...best, dist: bestD }
   }, [pins, placedIdx, gps])
 
+  /**
+   * Record the placement, having judged the fix first.
+   *
+   * A placement's fix becomes that shelter's position for the rest of the
+   * season — what a tray crew drives to and what the map shows as reality —
+   * so a bad fix is worse than no fix. No fix falls back to the planned pin
+   * and is honest about it; a bad one puts a shelter in the next quarter and
+   * looks just as authoritative.
+   */
   function markPlaced() {
+    if (!field || !target) return
+
+    const verdict = checkPlacementFix({
+      fix: gps,
+      // Null, not false, when the field cannot answer: a field with no usable
+      // boundary makes containment unknowable, and an unanswerable question
+      // must never become a refusal.
+      insideField:
+        gps && field.geometry && fieldFrame(field.geometry as Parameters<typeof fieldFrame>[0])
+          ? fieldForPoint([field], gps.lat, gps.lng) === field.id
+          : null,
+      driftM: gps ? haversineMeters({ lat: target.lat, lng: target.lng }, gps) : null,
+      fieldName: field.name,
+    })
+    if (!verdict.ok) {
+      setFixProblem(verdict.message)
+      return
+    }
+    setFixProblem(null)
+    commitPlacement(gps)
+  }
+
+  /**
+   * Write it down.
+   *
+   * `at` null means "record the planned position" — the escape from a refusal
+   * that a crew standing in a field with shelters on the trailer needs. It is
+   * a deliberate choice to log the plan rather than a wrong measurement.
+   */
+  function commitPlacement(at: { lat: number; lng: number } | null) {
     if (!field || !target) return
     addPlacedShelter({
       fieldId: field.id,
       qrCode: null,
       gridIdx: target.gridIdx,
-      lat: gps?.lat ?? target.lat,
-      lng: gps?.lng ?? target.lng,
+      lat: at?.lat ?? target.lat,
+      lng: at?.lng ?? target.lng,
       placedAt: new Date().toISOString(),
       placedBy: s.user.name,
       crewId: myCrewId,
       status: 'placed',
       notes: '',
     })
+    setFixProblem(null)
   }
 
   return (
@@ -857,6 +903,29 @@ export default function ShelterPlacement() {
           )}
         </div>
         <ProgressBar pct={pins.length ? (placedCount / pins.length) * 100 : 0} tone={placedCount === pins.length ? 'green' : 'brand'} />
+        {/*
+          A refused fix, and the two ways out of it.
+
+          Never a dead end: "Mark it placed" is right there to try again once
+          the phone settles, and recording the planned position is offered
+          plainly for a crew who cannot wait. What is NOT offered is saving the
+          bad fix — that is the one outcome with no honest reading later.
+        */}
+        {fixProblem && (
+          <div
+            className="mt-3 rounded-md p-2 text-sm"
+            style={{ background: 'var(--danger-bg)', color: 'var(--danger-fg)' }}
+          >
+            {fixProblem}
+            <button
+              className="mt-2 w-full rounded-md border px-3 py-2 text-xs font-semibold"
+              style={{ borderColor: 'var(--danger-fg)' }}
+              onClick={() => commitPlacement(null)}
+            >
+              Record the planned position instead
+            </button>
+          </div>
+        )}
         {canEdit && (
           <button className="btn-primary mt-3 w-full" onClick={markPlaced} disabled={!target}>
             <Check size={18} /> {target ? `Mark shelter #${target.gridIdx + 1} placed` : 'All shelters placed'}

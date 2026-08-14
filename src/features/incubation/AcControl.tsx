@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Power, Thermometer, Wind, RefreshCw } from 'lucide-react'
+import { Flame, Power, RefreshCw, Snowflake, Thermometer, Wind } from 'lucide-react'
 import { Button, Select } from '@/components/ui'
 import { supabase } from '@/data/supabaseClient'
 import { useData } from '@/data/context'
@@ -361,6 +361,33 @@ export function AcControl({
                   Set
                 </Button>
               </label>
+
+              {/*
+                Heat or cool.
+
+                Both are real incubator states — 30°C incubation is heating,
+                4°C cool storage is cooling — and the unit will happily sit in
+                the wrong one blowing against the target all day. Same
+                treatment as power: both shown, the believed one highlighted,
+                neither hidden. These pumps report nothing back, so hiding a
+                command behind a guess is how it becomes unreachable.
+              */}
+              {(['heat', 'cool'] as const).map((m) => (
+                <Button
+                  key={m}
+                  variant={first?.mode === m ? 'primary' : 'ghost'}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void send({ mode: m })}
+                >
+                  {m === 'heat' ? (
+                    <Flame size={14} className="mr-1 inline" />
+                  ) : (
+                    <Snowflake size={14} className="mr-1 inline" />
+                  )}
+                  {m === 'heat' ? 'Heat' : 'Cool'}
+                </Button>
+              ))}
 
               <label className="flex items-center gap-1 text-sm text-muted">
                 <Wind size={14} />

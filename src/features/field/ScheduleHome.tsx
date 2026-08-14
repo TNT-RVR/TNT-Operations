@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, ChevronRight, MapPin } from 'lucide-react'
+import { AlertTriangle, CalendarDays, ChevronRight, MapPin } from 'lucide-react'
 import { PageHeader, EmptyState, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
 import { jobsInWindow } from '@/domain/supplies'
+import { overdueJobs, OVERDUE_LOOKBACK_DAYS } from '@/domain/workOrderProgress'
 import { TASK_LABEL } from '@/domain/workOrder'
 import { NewWorkOrder } from './NewWorkOrder'
 
@@ -60,6 +61,7 @@ export default function ScheduleHome() {
     crews,
     crewMembers,
     calendarEvents,
+    placedShelters,
     loadCalendarEvents,
     loadCrews,
   } = useData()
@@ -95,6 +97,40 @@ export default function ScheduleHome() {
       .map(([ymd, list]) => ({ ymd, jobs: list }))
   }, [calendarEvents, crews, mineOnly, myCrewId])
 
+  /**
+   * Placement progress per field, read from the shelters themselves.
+   *
+   * No work order carries a "finished" flag and none should: it is state
+   * somebody has to remember to set, and it goes stale the first busy
+   * afternoon. Every placed shelter is a row, so this is a fact rather than a
+   * claim.
+   */
+  const progressFor = useMemo(() => {
+    const placedByField = new Map<string, number>()
+    for (const p of placedShelters) {
+      if (p.status !== 'placed' || !p.fieldId) continue
+      placedByField.set(p.fieldId, (placedByField.get(p.fieldId) ?? 0) + 1)
+    }
+    return (fieldId: string) => {
+      const f = fields.find((x) => x.id === fieldId)
+      if (!f) return null
+      return { placed: placedByField.get(fieldId) ?? 0, planned: f.shelterCount ?? 0 }
+    }
+  }, [placedShelters, fields])
+
+  /**
+   * Booked work that ran out of days without running out of shelters.
+   *
+   * These used to disappear the morning after their last date, leaving a
+   * half-placed quarter with nothing pointing at it — the sort of thing found
+   * in September.
+   */
+  const overdue = useMemo(() => {
+    const ids = crews.filter((c) => !mineOnly || c.id === myCrewId).map((c) => c.id)
+    const past = jobsInWindow(calendarEvents, ids, ymdIn(-OVERDUE_LOOKBACK_DAYS), ymdIn(-1))
+    return overdueJobs(past, today, progressFor)
+  }, [calendarEvents, crews, mineOnly, myCrewId, today, progressFor])
+
   const fieldName = (id: string) => fields.find((f) => f.id === id)?.name ?? 'Unknown field'
   const crewName = (id: string) => crews.find((c) => c.id === id)?.name ?? 'Crew'
 
@@ -126,6 +162,53 @@ export default function ScheduleHome() {
             </Link>
             .
           </p>
+        )}
+
+        {/*
+          Unfinished, and out of days. Above the schedule on purpose: it is
+          work somebody already committed to and did not complete, which beats
+          anything merely booked for later.
+        */}
+        {overdue.length > 0 && (
+          <section>
+            <h2 className="mb-2 flex items-center gap-2 font-semibold" style={{ color: 'var(--warn-fg)' }}>
+              <AlertTriangle size={16} />
+              Not finished
+            </h2>
+            <div className="space-y-2">
+              {overdue.map((j) => (
+                <Link
+                  key={`${j.eventId}-${j.crewId}`}
+                  to={`/field/order/${j.eventId}`}
+                  className="block rounded-md border p-3"
+                  style={{ borderColor: 'var(--warn-bd)' }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-primary">{j.title}</span>
+                    <Badge tone={j.task === 'tray' ? 'green' : j.task === 'removal' ? 'blue' : 'amber'}>
+                      {TASK_LABEL[j.task]}
+                    </Badge>
+                    <span className="text-sm text-secondary">{crewName(j.crewId)}</span>
+                    <span className="text-xs" style={{ color: 'var(--warn-fg)' }}>
+                      {j.daysLate === 1 ? 'due yesterday' : `${j.daysLate} days past its last day`}
+                    </span>
+                    {/* Only shelter work can prove how far it got; saying
+                        nothing beats inventing a number for the others. */}
+                    {j.progress && j.progress.planned > 0 && (
+                      <span className="font-mono text-xs text-secondary">
+                        {j.progress.placed}/{j.progress.planned} placed
+                      </span>
+                    )}
+                    <span className="ml-auto text-sm text-secondary">
+                      <MapPin size={13} className="mr-1 inline text-faint" />
+                      {fieldName(j.fieldId)}
+                    </span>
+                    <ChevronRight size={16} className="text-faint" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
         )}
 
         {days.length === 0 ? (

@@ -132,7 +132,7 @@ export default async (req) => {
     const site = process.env.URL || 'https://tntoperations.netlify.app'
     const back = (status, detail = '') =>
       Response.redirect(
-        `${site}/sales/quickbooks?qbo=${status}${detail ? `&detail=${encodeURIComponent(detail)}` : ''}`,
+        `${site}/users/integrations/quickbooks?qbo=${status}${detail ? `&detail=${encodeURIComponent(detail)}` : ''}`,
         302,
       )
 

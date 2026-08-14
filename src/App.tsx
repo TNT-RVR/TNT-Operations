@@ -1,4 +1,4 @@
-import { Navigate, Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import { Protected } from './components/Protected'
 import { useSession, type Module } from '@/auth/session'
@@ -40,6 +40,23 @@ import AnalysisWeather from './features/analysis/AnalysisWeather'
 import AnalysisGrowers from './features/analysis/AnalysisGrowers'
 import AnalysisMap from './features/analysis/AnalysisMap'
 import AnalysisUpload from './features/analysis/AnalysisUpload'
+
+/**
+ * A redirect that KEEPS the query string.
+ *
+ * `<Navigate to="/some/path">` drops search params. The QuickBooks OAuth
+ * callback used to land on /sales/quickbooks carrying ?qbo=…&detail=…, so the
+ * plain redirect threw the callback's own result away: a successful connect
+ * lost its "now set the mappings" prompt, and a FAILED one lost the reason
+ * entirely — the screen just said "Not connected" with no explanation of why.
+ *
+ * The callback now lands on the real path, but a redirect URI registered with
+ * Intuit outlives our routing, so the old one has to keep working — intact.
+ */
+function RedirectKeepingQuery({ to }: { to: string }) {
+  const { search } = useLocation()
+  return <Navigate to={`${to}${search}`} replace />
+}
 
 /**
  * The first screen after signing in: the Dashboard for anyone who has it, and
@@ -108,7 +125,7 @@ export default function App() {
         <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
         <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
         <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
-        <Route path="sales/quickbooks" element={<Navigate to="/users/integrations/quickbooks" replace />} />
+        <Route path="sales/quickbooks" element={<RedirectKeepingQuery to="/users/integrations/quickbooks" />} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />
         <Route path="analysis/fields/:id" element={<Protected module="analysis"><AnalysisFieldDetail /></Protected>} />

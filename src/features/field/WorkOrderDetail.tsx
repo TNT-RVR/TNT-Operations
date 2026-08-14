@@ -314,12 +314,17 @@ export default function WorkOrderDetail() {
                     </div>
                   </div>
                 ) : (
+                  /* Grey text with a small icon read as a caption, not a
+                     control — the same way the pencil did before it got a
+                     word on it. It is bordered and in the danger colour now:
+                     findable, and unmistakably a thing that does something. */
                   <button
-                    className="flex items-center gap-1 text-xs text-faint hover:text-primary"
+                    className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-sm font-semibold"
+                    style={{ borderColor: 'var(--danger-bd)', color: 'var(--danger-fg)' }}
                     onClick={() => setConfirmDelete(true)}
                   >
-                    <Trash2 size={13} />
-                    Cancel this work order
+                    <Trash2 size={15} />
+                    Cancel work order
                   </button>
                 )}
               </div>

@@ -149,14 +149,27 @@ export default function ShelterPlacement() {
     }
   }, [nudgedGeometry])
 
-  // Placed state for THIS field, keyed by grid index.
-  const placedIdx = useMemo(() => {
-    const set = new Set<number>()
+  /**
+   * Placed state for THIS field, keyed by grid index — and WHERE each one
+   * actually went.
+   *
+   * The grid says where a shelter was meant to go; the GPS fix says where the
+   * crew put it. Those differ by a few metres routinely and by rather more
+   * when a pin lands in a slough or on the wrong side of a wheel track, and
+   * the difference is the only record of what is really out in that field.
+   *
+   * A placement with no fix keeps its planned position: null island is not a
+   * location, and a pin in the Gulf of Guinea helps nobody.
+   */
+  const placedAt = useMemo(() => {
+    const m = new Map<number, { lat: number; lng: number } | null>()
     for (const p of placedShelters) {
-      if (p.fieldId === field?.id && p.gridIdx != null && p.status === 'placed') set.add(p.gridIdx)
+      if (p.fieldId !== field?.id || p.gridIdx == null || p.status !== 'placed') continue
+      m.set(p.gridIdx, p.lat != null && p.lng != null ? { lat: p.lat, lng: p.lng } : null)
     }
-    return set
+    return m
   }, [placedShelters, field])
+  const placedIdx = useMemo(() => new Set(placedAt.keys()), [placedAt])
   const placedCount = pins.filter((p) => placedIdx.has(p.gridIdx)).length
 
   // ── Map ────────────────────────────────────────────────────────────────────
@@ -245,13 +258,20 @@ export default function ShelterPlacement() {
 
     ;(map.getSource('pins') as GeoJSONSource | undefined)?.setData({
       type: 'FeatureCollection',
-      features: pins.map((p) => ({
-        type: 'Feature',
-        properties: { n: p.gridIdx + 1, placed: placedIdx.has(p.gridIdx) },
-        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-      })),
+      features: pins.map((p) => {
+        // A placed shelter sits where it was placed. Note that it does NOT
+        // move with a nudge: the nudge corrects the PLAN, and a shelter
+        // already standing in the field is not a plan any more.
+        const actual = placedAt.get(p.gridIdx) ?? null
+        const at = actual ?? { lat: p.lat, lng: p.lng }
+        return {
+          type: 'Feature' as const,
+          properties: { n: p.gridIdx + 1, placed: placedIdx.has(p.gridIdx) },
+          geometry: { type: 'Point' as const, coordinates: [at.lng, at.lat] },
+        }
+      }),
     })
-  }, [ready, field, nudgedGeometry, pins, placedIdx, show])
+  }, [ready, field, nudgedGeometry, pins, placedIdx, placedAt, show])
 
   // Fit to the field when it changes.
   useEffect(() => {

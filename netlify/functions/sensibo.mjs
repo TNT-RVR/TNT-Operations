@@ -96,11 +96,41 @@ async function setProperty(apiKey, deviceId, property, newValue) {
       body: JSON.stringify({ newValue, reason: 'UserRequest' }),
     },
   )
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+  return readOutcome(res)
+}
+
+/**
+ * What Sensibo actually said.
+ *
+ * HTTP 200 from this API means the request was well formed — NOT that the
+ * command was carried out. A declined command comes back 200 with
+ * `{"status":"failure"}` and a reason in the body, and reading only the status
+ * line turns that into a success on screen while the heat pump keeps running.
+ *
+ * That is exactly the shape of the bug this chases: our ON changed state in
+ * the Sensibo app, our OFF changed nothing there at all, and our code called
+ * both fine.
+ */
+async function readOutcome(res) {
+  const text = await res.text().catch(() => '')
+  let body = null
+  try {
+    body = JSON.parse(text)
+  } catch {
+    /* not JSON — the raw text is the best evidence available */
   }
-  return { ok: true }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 300)}` }
+
+  const status = body?.status
+  if (status && String(status).toLowerCase() !== 'success') {
+    const reason =
+      body?.failureReason ??
+      body?.reason ??
+      body?.result?.failureReason ??
+      JSON.stringify(body).slice(0, 300)
+    return { ok: false, error: `Sensibo declined it (${status}): ${reason}` }
+  }
+  return { ok: true, body }
 }
 
 /** Most recent acState for one device. */
@@ -253,37 +283,57 @@ export default async (req) => {
       }
       if (fanLevel !== undefined) next.fanLevel = fanLevel
 
-      const res = await withTimeout(
-        `${SENSIBO}/pods/${encodeURIComponent(deviceId)}/acStates?apiKey=${encodeURIComponent(apiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ acState: next }),
-        },
-      )
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        // A unit refusing a fan level or mode it doesn't support is normal and
-        // model-specific; report it rather than pretending it worked.
-        return { deviceId, ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` }
+      /**
+       * Power is sent on its own, the way the Sensibo app sends it.
+       *
+       * Posting a whole acState asks Sensibo to work out the intent from a
+       * diff against what it believes. That is why ON worked and OFF did not:
+       * ON is always a change from a stale "off" record, while OFF against
+       * that same record is no change at all — accepted, answered 200, and
+       * never transmitted. Nothing even appeared in the Sensibo app.
+       *
+       * The property endpoint states the intent, so a power press is a power
+       * press regardless of what Sensibo currently believes.
+       */
+      if (on !== undefined) {
+        const power = await setProperty(apiKey, deviceId, 'on', !!on)
+        if (!power.ok) return { deviceId, ok: false, error: power.error }
       }
 
-      // ── Power, said out loud ───────────────────────────────────────────────
-      // A power change gets sent again as an explicit single-property command,
-      // and then read back. The POST above may have been a no-op against a
-      // stale record; this is what actually turns the thing off.
+      // Everything else still goes as a state, and only when something in it
+      // actually changed — a power press must not resend a mode or a target.
+      const otherChanged =
+        mode !== undefined || targetTemperature !== undefined || fanLevel !== undefined
+      if (otherChanged) {
+        const res = await withTimeout(
+          `${SENSIBO}/pods/${encodeURIComponent(deviceId)}/acStates?apiKey=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acState: next }),
+          },
+        )
+        // A unit refusing a fan level or mode it doesn't support is normal and
+        // model-specific; report it rather than pretending it worked.
+        const outcome = await readOutcome(res)
+        if (!outcome.ok) return { deviceId, ok: false, error: outcome.error }
+      }
+
+      // ── Did it take? ─────────────────────────────────────────────────────
+      // Read back rather than trust the acknowledgement. This confirms what
+      // Sensibo holds for the pod, which is not the same as measuring the AC —
+      // a unit switched at the wall can still disagree with both.
       let verified = null
       if (on !== undefined) {
-        const after = await getState(apiKey, deviceId)
-        if (after.state && !!after.state.on !== !!next.on) {
-          const forced = await setProperty(apiKey, deviceId, 'on', !!next.on)
-          if (!forced.ok) return { deviceId, ok: false, error: forced.error }
-        }
-        // Read once more so the answer is what Sensibo holds, not what we hoped.
         const confirm = await getState(apiKey, deviceId)
-        // Null when the pod reports nothing back — several of these units do
-        // not, and claiming failure there would be as wrong as claiming success.
-        verified = confirm.state ? !!confirm.state.on === !!next.on : null
+        // Null when the pod reports nothing back: several of these do not, and
+        // claiming failure there would be as wrong as claiming success.
+        verified = confirm.state ? !!confirm.state.on === !!on : null
+        if (verified === false) {
+          console.warn(
+            `[sensibo] ${deviceId}: asked for on=${!!on}, pod still reads on=${confirm.state?.on}`,
+          )
+        }
       }
 
       await writeMemory(deviceId, next)

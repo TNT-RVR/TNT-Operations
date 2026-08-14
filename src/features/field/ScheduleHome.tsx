@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CalendarDays, ClipboardList, MapPin, Pencil, Play } from 'lucide-react'
+import { CalendarDays, ChevronRight, MapPin } from 'lucide-react'
 import { PageHeader, EmptyState, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { crewOf } from '@/domain/crews'
-import { fieldSupplies, supplyLines, jobsInWindow } from '@/domain/supplies'
-import { getTentPositions } from '@/domain/tentGrid'
-import { TASK_LABEL, workOrderTitle } from '@/domain/workOrder'
-import { NewWorkOrder, WorkOrderForm } from './NewWorkOrder'
+import { jobsInWindow } from '@/domain/supplies'
+import { TASK_LABEL } from '@/domain/workOrder'
+import { NewWorkOrder } from './NewWorkOrder'
 
 const TZ = 'America/Edmonton'
 /** How far ahead to look. A season is planned in weeks, not months. */
@@ -61,7 +60,6 @@ export default function ScheduleHome() {
     crews,
     crewMembers,
     calendarEvents,
-    placedShelters,
     loadCalendarEvents,
     loadCrews,
   } = useData()
@@ -77,8 +75,6 @@ export default function ScheduleHome() {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
   const myCrewId = crewOf(crewMembers, session.user.id)
   const isAdmin = session.can('users', 'edit')
-  /** The booking open for changes, if any — one at a time. */
-  const [editing, setEditing] = useState<string | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
 
   /**
@@ -98,26 +94,6 @@ export default function ScheduleHome() {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([ymd, list]) => ({ ymd, jobs: list }))
   }, [calendarEvents, crews, mineOnly, myCrewId])
-
-  /** Supplies per field, worked out once rather than per row. */
-  const suppliesFor = useMemo(() => {
-    const cache = new Map<string, ReturnType<typeof fieldSupplies>>()
-    return (fieldId: string) => {
-      const hit = cache.get(fieldId)
-      if (hit) return hit
-      const f = fields.find((x) => x.id === fieldId)
-      let count = 0
-      try {
-        if (f?.geometry) count = getTentPositions(f.geometry).length
-      } catch {
-        count = 0
-      }
-      const placed = placedShelters.filter((p) => p.fieldId === fieldId && p.status === 'placed').length
-      const s = fieldSupplies(f?.geometry as Record<string, unknown> | undefined, count, placed)
-      cache.set(fieldId, s)
-      return s
-    }
-  }, [fields, placedShelters])
 
   const fieldName = (id: string) => fields.find((f) => f.id === id)?.name ?? 'Unknown field'
   const crewName = (id: string) => crews.find((c) => c.id === id)?.name ?? 'Crew'
@@ -171,42 +147,17 @@ export default function ScheduleHome() {
 
               <div className="space-y-2">
                 {jobs.map((j) => {
-                  const s = suppliesFor(j.fieldId)
-                  const lines = supplyLines(j.task, s)
                   const isMine = j.crewId === myCrewId
 
-                  // In place rather than in a dialog: the thing being changed
-                  // stays where it was in the list, so it is obvious which of
-                  // three bookings on a Thursday is the one being edited.
-                  if (editing === j.eventId) {
-                    const ev = calendarEvents.find((e) => e.id === j.eventId)
-                    return (
-                      <WorkOrderForm
-                        key={j.eventId}
-                        initial={{
-                          id: j.eventId,
-                          crewId: j.crewId,
-                          task: j.task,
-                          fieldId: j.fieldId,
-                          startDate: j.startDate,
-                          endDate: j.endDate ?? '',
-                          // An auto-generated name goes back to being blank so
-                          // it follows a change of job or field. Only a name
-                          // somebody actually typed is worth preserving.
-                          title:
-                            j.title === workOrderTitle(j.task, fieldName(j.fieldId)) ? '' : j.title,
-                          notes: ev?.notes ?? '',
-                        }}
-                        onDone={() => void loadCalendarEvents()}
-                        onCancel={() => setEditing(null)}
-                      />
-                    )
-                  }
-
+                  // The whole card opens the order. Nothing on the list is a
+                  // shortcut past it: the load list and the start button live
+                  // on the order itself, so the only way to the map is
+                  // through the page that says what to put on the trailer.
                   return (
-                    <div
+                    <Link
                       key={`${j.eventId}-${j.crewId}`}
-                      className="rounded-md border border-default p-3"
+                      to={`/field/order/${j.eventId}`}
+                      className="block rounded-md border border-default p-3"
                       style={isMine ? { borderColor: 'var(--brand)' } : undefined}
                     >
                       <div className="flex flex-wrap items-center gap-2">
@@ -234,59 +185,9 @@ export default function ScheduleHome() {
                           <MapPin size={13} className="mr-1 inline text-faint" />
                           {fieldName(j.fieldId)}
                         </span>
-                        {/* A bare pencil is easy to miss on a phone in a
-                            truck; the word is what people look for. */}
-                        {isAdmin && (
-                          <button
-                            className="flex items-center gap-1 rounded-md border border-default px-2 py-1 text-xs font-semibold text-primary"
-                            onClick={() => setEditing(j.eventId)}
-                            aria-label={`Edit ${j.title}`}
-                          >
-                            <Pencil size={13} />
-                            Edit
-                          </button>
-                        )}
+                        <ChevronRight size={16} className="text-faint" />
                       </div>
-
-                      <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
-                        <span className="flex items-center gap-1 uppercase tracking-wide text-faint">
-                          <ClipboardList size={12} />
-                          Load
-                        </span>
-                        {lines.map((l) => (
-                          <span key={l.item} className="text-secondary">
-                            <span className="font-mono font-semibold text-primary">{l.qty}</span> {l.item}
-                            {l.note ? <span className="text-faint"> — {l.note}</span> : null}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Acres and gallons only ever fed the tray count, so
-                          only a tray crew is missing anything without them. */}
-                      {j.task === 'tray' && s.unknowns.length > 0 && (
-                        <p className="mt-1 text-xs text-amber-600">
-                          Missing from the field: {s.unknowns.join(', ')}.
-                        </p>
-                      )}
-
-                      {/* The way into the map. Reading the order first is the
-                          point: the load list above is only useful before the
-                          trailer leaves, and a crew that starts from the map
-                          has already driven past the moment it mattered. */}
-                      <Link
-                        className="mt-3 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
-                        style={{ background: 'var(--brand)' }}
-                        // Removal works the shelter map: it is the view that
-                        // knows where every shelter was put, which is exactly
-                        // what a crew collecting them needs.
-                        to={`${j.task === 'tray' ? '/field/trays' : '/field/shelters'}?field=${j.fieldId}`}
-                      >
-                        <Play size={15} />
-                        {j.task === 'removal'
-                          ? 'Start shelter removal'
-                          : `Start ${j.task === 'tray' ? 'tray' : 'shelter'} placement`}
-                      </Link>
-                    </div>
+                    </Link>
                   )
                 })}
               </div>

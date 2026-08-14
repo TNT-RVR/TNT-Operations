@@ -244,61 +244,77 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
     <Modal title={incubator.name} onClose={onClose} wide>
       <div className="space-y-5">
         {/* Mode + progress */}
-        <div className="flex flex-wrap items-center gap-3">
-          {canEdit ? (
-            <label className="flex items-center gap-2">
-              <span className="label">Mode</span>
-              <select
-                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
-                value={incubator.tempMode ?? 'off'}
-                onChange={(e) => {
-                  const mode = e.target.value
-                  const patch: Partial<Incubator> = { tempMode: mode }
-                  // Starting an incubation with no start date on record: stamp
-                  // today so the milestone calendar has something to schedule
-                  // from. Editable below, and never overwritten if already set.
-                  if (mode === 'incubation' && !incubator.incubationStart) {
-                    patch.incubationStart = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
-                  }
-                  saveIncubator(incubator.id, patch)
-                }}
+        <div className="space-y-3">
+          {/*
+            Mode and Started share one grid, for the same reason the heat-pump
+            controls do: each was sized to its own label, so the two dropdowns
+            began at different indents and the block read as crooked on a
+            phone. Label column, control column, both aligned.
+          */}
+          <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2">
+            {canEdit ? (
+              <>
+                <span className="label">Mode</span>
+                <select
+                  className="w-full max-w-56 rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                  value={incubator.tempMode ?? 'off'}
+                  onChange={(e) => {
+                    const mode = e.target.value
+                    const patch: Partial<Incubator> = { tempMode: mode }
+                    // Starting an incubation with no start date on record: stamp
+                    // today so the milestone calendar has something to schedule
+                    // from. Editable below, and never overwritten if already set.
+                    if (mode === 'incubation' && !incubator.incubationStart) {
+                      patch.incubationStart = new Date().toLocaleDateString('en-CA', { timeZone: TZ })
+                    }
+                    saveIncubator(incubator.id, patch)
+                  }}
+                >
+                  {(Object.keys(TEMP_MODES) as TempMode[]).map((m) => (
+                    <option key={m} value={m}>
+                      {TEMP_MODES[m].label}
+                    </option>
+                  ))}
+                </select>
+
+                <span className="label">Started</span>
+                <input
+                  type="date"
+                  className="w-full max-w-56 rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
+                  value={incubator.incubationStart?.slice(0, 10) ?? ''}
+                  onChange={(e) => saveIncubator(incubator.id, { incubationStart: e.target.value || null })}
+                />
+              </>
+            ) : (
+              <>
+                <span className="label">Mode</span>
+                <span>
+                  <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* The facts about this incubator, on their own line — they are read,
+              not set, and mixing them in with the controls is what made the
+              header look like a pile. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {incubator.location && <span className="text-muted">{incubator.location}</span>}
+            {day != null && <span className="font-medium text-secondary">Day {day}</span>}
+            {incubator.capacity != null && (
+              <span className="text-faint">capacity {incubator.capacity}</span>
+            )}
+            {canEdit && (
+              <Link
+                to={`/incubation/scan?incubator=${incubator.id}`}
+                className="btn-primary ml-auto px-3 py-1.5 text-sm"
+                onClick={onClose}
               >
-                {(Object.keys(TEMP_MODES) as TempMode[]).map((m) => (
-                  <option key={m} value={m}>
-                    {TEMP_MODES[m].label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <Badge tone={d.running ? 'green' : 'brand'}>{d.modeLabel}</Badge>
-          )}
-          {canEdit && (
-            <label className="flex items-center gap-2">
-              <span className="label">Started</span>
-              <input
-                type="date"
-                className="rounded-sm border border-default bg-inset px-2 py-1.5 text-sm text-primary"
-                value={incubator.incubationStart?.slice(0, 10) ?? ''}
-                onChange={(e) => saveIncubator(incubator.id, { incubationStart: e.target.value || null })}
-              />
-            </label>
-          )}
-          {incubator.location && <span className="text-sm text-muted">{incubator.location}</span>}
-          {day != null && <span className="text-sm font-medium text-secondary">Day {day}</span>}
-          {incubator.capacity != null && (
-            <span className="text-sm text-faint">capacity {incubator.capacity}</span>
-          )}
-          {canEdit && (
-            <Link
-              to={`/incubation/scan?incubator=${incubator.id}`}
-              className="btn-primary ml-auto px-3 py-1.5 text-sm"
-              onClick={onClose}
-            >
-              <QrCode size={16} className="mr-1 inline" />
-              Add trays
-            </Link>
-          )}
+                <QrCode size={16} className="mr-1 inline" />
+                Add trays
+              </Link>
+            )}
+          </div>
         </div>
         {/* Manual heat-pump control. Deliberately sits beneath the mode: the
             two are related but NOT linked, and seeing them together is how a

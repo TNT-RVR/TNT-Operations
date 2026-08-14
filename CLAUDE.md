@@ -132,9 +132,16 @@ _Last reviewed 2026-08-03._
           the way the planter does, and the crop rows already are that guide.
           One line per diagonal STRIP, fitted to its own pins; near-parallel
           guides then merge into the line between them, at a threshold derived
-          from the field's own guide spacing rather than a flat distance —
-          a duplicate sits an order of magnitude closer than the next real
-          guide, so a third of the typical spacing separates them). Each guide is a straight
+          from the spacing of the guides PARALLEL TO EACH ONE — not a flat
+          distance, and not one figure for the whole drawing: rows and
+          diagonals are spaced by different amounts (300 m vs tens of metres on
+          an open pivot) and a pooled figure swallowed real diagonals. The
+          spacing is read at the 90th percentile of nearest-neighbour gaps,
+          NOT the median: a duplicate's nearest neighbour is its own twin, so
+          doubles sit in the low tail and a middle reading is itself a
+          duplicate once a third of the guides are doubled. Half of that is
+          the merge distance — calibrated against a real field measured at
+          50 ft doubles against 180 ft real spacing). Each guide is a straight
           LINE spanning the field extent, not a polyline visiting the pins — it
           carries through gaps, reaches past the last shelter, and cannot kink;
           the map trims it with `clipToField`. Collinear guides dedupe by

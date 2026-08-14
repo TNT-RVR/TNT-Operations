@@ -600,7 +600,31 @@ const MERGE_FLOOR_M = 3.0
  * It works because doubles are a small minority — the typical spacing is the
  * REAL spacing, and a duplicate sits an order of magnitude closer than it.
  */
-const MERGE_SPACING_FRACTION = 1 / 3
+const MERGE_SPACING_FRACTION = 0.5
+
+/**
+ * Which percentile of the nearest-neighbour gaps counts as "typical spacing".
+ *
+ * NOT the median. A doubled guide's nearest neighbour IS its own duplicate, so
+ * every double contributes one of the very gaps this is trying to measure past
+ * — enough of them and the median lands between the true spacing and the
+ * duplicate separation, and the threshold derived from it is too small to
+ * merge the thing that dragged it down. Measured on a real field: doubles 50 ft
+ * apart against a true spacing of 180 ft, which is 28% and should have merged
+ * at a third, and did not.
+ *
+ * Doubles sit in the LOW tail of that distribution — a duplicate's nearest
+ * neighbour is its own twin — so the estimate is read HIGH, near the top, where
+ * the gaps between guides that were never duplicated live. Reading the middle
+ * fails as soon as a third of the guides are doubled: the middle is then itself
+ * a duplicate, and a threshold derived from it is too small to merge the very
+ * gaps that dragged it down. Measured that way on a synthetic grid with half
+ * its ranks split, and it left every one of them standing.
+ *
+ * Reading high can only OVER-estimate the spacing, which merges more eagerly —
+ * the direction the field crew wants — and the fraction above bounds it.
+ */
+const MERGE_SPACING_PERCENTILE = 0.9
 /** …and only when they point the same way, to within this angle. */
 const MERGE_COS = Math.cos((4 * Math.PI) / 180)
 
@@ -789,21 +813,46 @@ export function alignmentLines(
       return Math.abs((b.lateral - a.lateral) * a.dAlong - (b.along - a.along) * a.dLat)
     }
 
-    // How far apart are guides on THIS field? Each guide's nearest parallel
-    // neighbour, taken at the median so a handful of duplicates cannot drag the
-    // answer down to their own separation.
-    const nearest: number[] = []
-    for (let i = 0; i < input.length; i++) {
+    const percentile = (xs: number[], q: number): number => {
+      if (xs.length === 0) return 0
+      const v = xs.slice().sort((a, b) => a - b)
+      return v[Math.min(v.length - 1, Math.floor(q * (v.length - 1)))]
+    }
+
+    // How far apart are guides on this field — PER DIRECTION.
+    //
+    // Not one number for the whole drawing. Rows and diagonals are spaced by
+    // different quantities: on a wide-open pivot the rows can sit 300 m apart
+    // while the diagonals crossing them are a few tens of metres apart, and a
+    // threshold from the pooled figure swallowed real diagonals wholesale.
+    //
+    // So each guide's threshold comes from the guides PARALLEL TO IT: their
+    // nearest-neighbour gaps, read near the top of the range (see the constant)
+    // and halved. Every guide therefore carries the spacing of its own family.
+    const nearestFor = (i: number): number => {
       let best = Infinity
       for (let j = 0; j < input.length; j++) {
         if (i === j) continue
         const g = gapBetween(input[i], input[j])
         if (g < best) best = g
       }
-      if (Number.isFinite(best)) nearest.push(best)
+      return best
     }
-    const typical = nearest.length ? median(nearest) : 0
-    const tol = Math.max(MERGE_FLOOR_M, typical * MERGE_SPACING_FRACTION)
+    const nn = input.map((_, i) => nearestFor(i))
+    const tolFor = new Map<Guide, number>()
+    for (let i = 0; i < input.length; i++) {
+      const family: number[] = []
+      for (let j = 0; j < input.length; j++) {
+        if (Number.isFinite(gapBetween(input[i], input[j])) && Number.isFinite(nn[j])) {
+          family.push(nn[j])
+        }
+      }
+      const typical = percentile(family, MERGE_SPACING_PERCENTILE)
+      tolFor.set(input[i], Math.max(MERGE_FLOOR_M, typical * MERGE_SPACING_FRACTION))
+    }
+    /** The looser of the pair's own thresholds — either may be the duplicate. */
+    const tolBetween = (a: Guide, b: Guide) =>
+      Math.max(tolFor.get(a) ?? MERGE_FLOOR_M, tolFor.get(b) ?? MERGE_FLOOR_M)
 
     let out = input.slice()
     for (let pass = 0; pass < 8; pass++) {
@@ -820,7 +869,7 @@ export function alignmentLines(
           // along a row is one line on the ground however it was derived, and
           // drawing it twice is exactly the doubling this is here to stop. The
           // heavier guide keeps its label.
-          if (gapBetween(a, b) > tol) continue
+          if (gapBetween(a, b) > tolBetween(a, b)) continue
           const w = a.weight + b.weight
           const bSign = a.dLat * b.dLat + a.dAlong * b.dAlong >= 0 ? 1 : -1
           a = {
@@ -832,7 +881,9 @@ export function alignmentLines(
             weight: w,
           }
           const len = Math.hypot(a.dLat, a.dAlong) || 1
+          const carried = tolBetween(a, b)
           a = { ...a, dLat: a.dLat / len, dAlong: a.dAlong / len }
+          tolFor.set(a, carried)
           used.add(j)
           merged = true
         }

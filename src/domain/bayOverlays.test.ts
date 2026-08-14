@@ -642,3 +642,65 @@ describe('alignmentLines — never two lines where one belongs', () => {
     expect(diagonals.length).toBeLessThanOrEqual(1)
   })
 })
+
+describe('alignmentLines — the field that was measured', () => {
+  const f = fieldFrame(FIELD)!
+  const FT = 0.3048
+  const SPACING_FT = 180 // between neighbouring good guides, measured on the map
+  const DOUBLE_FT = 50 // the widest surviving duplicate, measured on the map
+
+  /**
+   * Rows at the measured spacing, with some ranks split into a pair the
+   * measured distance apart — the shape that was still drawing doubles.
+   *
+   * Every second rank is split, so a THIRD of the guides are duplicates. That
+   * is deliberately worse than the real field: it is what breaks a median-based
+   * spacing estimate, and the estimate has to survive it.
+   */
+  const splitRows = (ranks: number, splitEvery: number) => {
+    const pins: Array<{ lat: number; lng: number }> = []
+    for (let r = 0; r < ranks; r++) {
+      const along = (r - ranks / 2) * SPACING_FT * FT
+      const split = splitEvery > 0 && r > 0 && r % splitEvery === 0
+      for (let c = 0; c < 8; c++) {
+        const lateral = (c - 4) * 40
+        // Half the rank sits DOUBLE_FT along from the other half, so the row
+        // grouping sees two ranks where the crew sees one line.
+        const offset = split && c >= 4 ? DOUBLE_FT * FT : 0
+        const [lng, lat] = latAlongToLonLat(f, lateral, along + offset)
+        pins.push({ lat, lng })
+      }
+    }
+    return pins
+  }
+
+  const rowGaps = (pins: Array<{ lat: number; lng: number }>) => {
+    const rows = alignmentLines(pins, FIELD).features.filter((x) => x.properties?.axis === 'row')
+    const alongs = rows.map((r) => toAlong(f, r.geometry.coordinates[0])).sort((a, b) => a - b)
+    return alongs.slice(1).map((v, i) => v - alongs[i])
+  }
+
+  it('merges a 50 ft double when the real spacing is 180 ft', () => {
+    // 50/180 is 28%. It has to merge, and the guide it leaves must sit BETWEEN
+    // the two — which is what the crew asked for when neither is more right.
+    const gaps = rowGaps(splitRows(8, 2))
+    expect(gaps.length).toBeGreaterThan(0)
+    expect(Math.min(...gaps)).toBeGreaterThan(DOUBLE_FT * FT + 1)
+  })
+
+  it('still keeps guides a genuine 180 ft apart', () => {
+    // The other half of the bargain: merging harder must not start swallowing
+    // the real lines either side.
+    const gaps = rowGaps(splitRows(8, 0)) // no splits at all
+    expect(gaps.length).toBeGreaterThan(0)
+    for (const g of gaps) expect(g).toBeGreaterThan(SPACING_FT * FT * 0.9)
+  })
+
+  it('survives a third of the guides being doubled', () => {
+    // The case that defeated a median: with enough duplicates the middle of the
+    // distribution IS a duplicate, and a threshold derived from it is too small
+    // to merge the very gaps that dragged it down.
+    const gaps = rowGaps(splitRows(9, 3))
+    expect(Math.min(...gaps)).toBeGreaterThan(DOUBLE_FT * FT + 1)
+  })
+})

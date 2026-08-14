@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Flame, Power, RefreshCw, Snowflake } from 'lucide-react'
+import { Flame, Power, RefreshCw, Settings, Snowflake } from 'lucide-react'
 import { Button, Select } from '@/components/ui'
 import { supabase } from '@/data/supabaseClient'
 import { useData } from '@/data/context'
@@ -323,12 +323,28 @@ export function AcControl({
             </p>
           )}
         </div>
-        {first && (
-          <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
-            <RefreshCw size={14} className="mr-1 inline" />
-            Refresh
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {first && (
+            <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={loading || busy}>
+              <RefreshCw size={14} className="mr-1 inline" />
+              Refresh
+            </Button>
+          )}
+          {canEdit && (
+            <button
+              className="rounded-sm p-1.5 text-faint hover:text-primary"
+              onClick={() => setLinking((v) => !v)}
+              aria-label={
+                ids.length > 1
+                  ? `Change the ${ids.length} linked Sensibo devices`
+                  : `Change the linked Sensibo device (${ids[0]})`
+              }
+              title={ids.length > 1 ? `${ids.length} devices linked` : `Device ${ids[0]}`}
+            >
+              <Settings size={15} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* An AC fighting the incubation mode is worth seeing before the bees
@@ -462,13 +478,10 @@ export function AcControl({
               </div>
             </div>
           )}
-          {linking ? (
-            deviceEditor
-          ) : (
-            <button className="text-xs text-muted underline" onClick={() => setLinking(true)}>
-              {ids.length > 1 ? `${ids.length} devices linked` : `Device ${ids[0]}`} — change
-            </button>
-          )}
+          {/* The device id lives behind the gear in the header now. It is set
+              once when a pump is installed and never again, and it was the
+              only line of text under a panel of controls people use daily. */}
+          {linking && deviceEditor}
             </>
           )}
         </div>

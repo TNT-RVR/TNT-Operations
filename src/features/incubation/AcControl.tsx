@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Flame, Power, RefreshCw, Snowflake, Thermometer, Wind } from 'lucide-react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Flame, Power, RefreshCw, Snowflake } from 'lucide-react'
 import { Button, Select } from '@/components/ui'
 import { supabase } from '@/data/supabaseClient'
 import { useData } from '@/data/context'
@@ -16,6 +16,16 @@ import {
   type AcState,
 } from '@/domain/sensibo'
 import { heatPumpSetting, TEMP_MODES, type TempMode } from '@/domain/incubation'
+
+/** One labelled line of the control panel. */
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-14 shrink-0 text-xs uppercase tracking-wide text-faint">{label}</span>
+      {children}
+    </div>
+  )
+}
 
 interface DeviceState {
   deviceId: string
@@ -297,44 +307,74 @@ export function AcControl({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {/*
-                Two buttons, not one toggle.
+            /*
+              Four labelled rows: power, mode, target, fan.
 
-                A toggle has to know the current state to offer the opposite
-                one, and with these pumps that knowledge is a guess: they
-                report nothing back, so the app falls back to a memory of the
-                last command anyone sent. When that memory reads "off" — which
-                is how it starts, and where it stays if a write is ever missed
-                — the only thing on offer is "Turn on", and OFF becomes
-                unreachable. That is the whole bug: the off command was never
-                sent, whatever the API did with it.
+              These were one wrapping line, which on a narrow card broke
+              wherever it felt like — power and mode buttons ending up on
+              different rows from each other with a temperature box in
+              between. Nothing was grouped and nothing was named, so the row
+              had to be read left to right to work out what any button did.
 
-                Both commands are always available now. The believed state is
-                shown by highlighting, not by hiding the other half.
-              */}
-              <Button
-                variant={anyOn ? 'primary' : 'ghost'}
-                size="sm"
-                disabled={busy}
-                onClick={() => void send({ on: true })}
-                title={anyOn ? 'Believed to be on already — sends the on command again' : undefined}
-              >
-                <Power size={14} className="mr-1 inline" />
-                Turn on
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => setConfirmOff(true)}
-              >
-                <Power size={14} className="mr-1 inline" />
-                Turn off
-              </Button>
+              A row per decision, each one labelled, in the order somebody
+              actually sets a pump: is it running, is it heating or cooling,
+              what is it aiming for, how hard is the fan.
+            */
+            <div className="space-y-2">
+              <Row label="Power">
+                {/*
+                  Two buttons, not one toggle.
 
-              <label className="flex items-center gap-1 text-sm text-muted">
-                <Thermometer size={14} />
+                  A toggle has to know the current state to offer the opposite
+                  one, and with these pumps that is a guess: they report
+                  nothing back, so the app falls back to a memory of the last
+                  command anyone sent. When that memory reads "off" — how it
+                  starts, and where it stays if a write is missed — the only
+                  thing on offer is "Turn on", and OFF becomes unreachable.
+                  Both are always available; the believed state is shown by
+                  highlighting, not by hiding half the control.
+                */}
+                <Button
+                  variant={anyOn ? 'primary' : 'ghost'}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void send({ on: true })}
+                  title={anyOn ? 'Believed to be on already — sends the on command again' : undefined}
+                >
+                  <Power size={14} className="mr-1 inline" />
+                  On
+                </Button>
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmOff(true)}>
+                  <Power size={14} className="mr-1 inline" />
+                  Off
+                </Button>
+              </Row>
+
+              {/* Heat and cool are both real incubator states — 30°C
+                  incubation heats, cool storage cools — and a unit left in
+                  the wrong one blows against the target all day. */}
+              <Row label="Mode">
+                <Button
+                  variant={first?.mode === 'heat' ? 'primary' : 'ghost'}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void send({ mode: 'heat' })}
+                >
+                  <Flame size={14} className="mr-1 inline" />
+                  Heat
+                </Button>
+                <Button
+                  variant={first?.mode === 'cool' ? 'primary' : 'ghost'}
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void send({ mode: 'cool' })}
+                >
+                  <Snowflake size={14} className="mr-1 inline" />
+                  Cool
+                </Button>
+              </Row>
+
+              <Row label="Target">
                 <input
                   type="number"
                   min={MIN_TEMP_F}
@@ -346,7 +386,7 @@ export function AcControl({
                   className="input w-20"
                   aria-label="Target temperature in Fahrenheit"
                 />
-                °F
+                <span className="text-sm text-muted">°F</span>
                 <Button
                   size="sm"
                   disabled={busy || !tempInput.trim()}
@@ -360,37 +400,16 @@ export function AcControl({
                 >
                   Set
                 </Button>
-              </label>
+                {/* The rest of this system is Celsius; the units are not. Show
+                    what a typed °F actually means before it is sent. */}
+                {tempInput.trim() !== '' && Number.isFinite(Number(tempInput)) && (
+                  <span className="text-xs text-faint">
+                    = {fToC(Number(tempInput)).toFixed(0)}°C
+                  </span>
+                )}
+              </Row>
 
-              {/*
-                Heat or cool.
-
-                Both are real incubator states — 30°C incubation is heating,
-                4°C cool storage is cooling — and the unit will happily sit in
-                the wrong one blowing against the target all day. Same
-                treatment as power: both shown, the believed one highlighted,
-                neither hidden. These pumps report nothing back, so hiding a
-                command behind a guess is how it becomes unreachable.
-              */}
-              {(['heat', 'cool'] as const).map((m) => (
-                <Button
-                  key={m}
-                  variant={first?.mode === m ? 'primary' : 'ghost'}
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void send({ mode: m })}
-                >
-                  {m === 'heat' ? (
-                    <Flame size={14} className="mr-1 inline" />
-                  ) : (
-                    <Snowflake size={14} className="mr-1 inline" />
-                  )}
-                  {m === 'heat' ? 'Heat' : 'Cool'}
-                </Button>
-              ))}
-
-              <label className="flex items-center gap-1 text-sm text-muted">
-                <Wind size={14} />
+              <Row label="Fan">
                 <Select
                   className="w-28"
                   value={first?.fanLevel ?? 'auto'}
@@ -403,7 +422,7 @@ export function AcControl({
                     </option>
                   ))}
                 </Select>
-              </label>
+              </Row>
             </div>
           )}
           {linking ? (

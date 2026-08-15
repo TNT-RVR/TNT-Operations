@@ -34,6 +34,7 @@ import {
   logSync,
   qboFetch,
   revoke,
+  sealTokens,
 } from './lib/qbo.mjs'
 
 /** State is valid for ten minutes — long enough to sign in to Intuit, no longer. */
@@ -165,7 +166,14 @@ export default async (req) => {
         last_error: '',
       }
 
-      await db().write('POST', 'qbo_connection?on_conflict=realm_id', row, 'resolution=merge-duplicates,return=minimal')
+      // sealTokens, not row — the tokens are encrypted before they ever reach
+      // the database. See lib/qbo.mjs.
+      await db().write(
+        'POST',
+        'qbo_connection?on_conflict=realm_id',
+        sealTokens(row),
+        'resolution=merge-duplicates,return=minimal',
+      )
 
       // Cache the company facts the mapping layer needs. Non-fatal: the
       // connection works without them and the settings screen can refresh.

@@ -60,6 +60,22 @@ Netlify → Site configuration → Environment variables:
 | `QBO_CLIENT_SECRET` | Client Secret from Intuit |
 | `QBO_REDIRECT_URI` | The exact URI from step 2 |
 | `QBO_ENVIRONMENT` | `sandbox` now, `production` later |
+| `QBO_TOKEN_KEY` | 32 random bytes, base64 — see below |
+
+**`QBO_TOKEN_KEY` is required.** Generate it once and keep it:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+It encrypts the OAuth tokens before they are written to the database, which
+Intuit requires. Without it every QuickBooks endpoint answers 501 and names it
+— deliberately, because a security control that quietly falls back to storing
+tokens in the clear is not a control.
+
+**Losing this key means reconnecting, not losing data.** Nothing else is
+encrypted with it. **Changing it** has the same effect: the stored tokens stop
+opening, so disconnect and reconnect if you ever rotate it.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE` are already set from the other
 functions.
@@ -210,3 +226,19 @@ read it through the API; only the service-role key in Netlify's environment
 can. The app sees connection state through the `qbo_status` view, which exposes
 expiry and configuration but never the tokens. If you add a column there, check
 you're not exposing a secret.
+
+On top of that, the tokens are **encrypted with AES-256-GCM before they are
+written**, under `QBO_TOKEN_KEY`. That key lives only in Netlify's environment,
+so the key and the ciphertext are never in the same place: a database backup,
+snapshot or export — or the service-role key itself — is not enough to reach
+the books. GCM authenticates as well as encrypts, so a token altered at rest
+fails to open instead of being sent to Intuit.
+
+Tokens are also **erased on disconnect**, and when Intuit rejects a refresh. A
+revoked token is useless to us but is still a credential-shaped secret that can
+be leaked, and nothing reads those columns afterwards — reconnecting writes a
+fresh pair.
+
+A connection made before encryption existed is stored in the clear and still
+opens; it re-seals on its next refresh, which for an active connection is
+within the hour.

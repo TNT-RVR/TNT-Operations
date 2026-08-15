@@ -12,6 +12,8 @@
  * logged and swallowed.
  */
 
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+
 const INTUIT_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 const INTUIT_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke'
 export const INTUIT_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
@@ -33,8 +35,85 @@ export function env() {
   if (!clientId) missing.push('QBO_CLIENT_ID')
   if (!clientSecret) missing.push('QBO_CLIENT_SECRET')
   if (!redirectUri) missing.push('QBO_REDIRECT_URI')
+  // Required, not optional. A missing key must stop the integration, not
+  // silently downgrade it to storing tokens in the clear — a security control
+  // with a quiet fallback is not a control. Absent it, every entry point
+  // answers 501 with this name in the list, which says exactly what to fix.
+  if (!process.env.QBO_TOKEN_KEY) missing.push('QBO_TOKEN_KEY')
   return { url, key, clientId, clientSecret, redirectUri, missing }
 }
+
+// ── Token encryption ─────────────────────────────────────────────────────────
+
+/**
+ * OAuth tokens are encrypted with a key this database never sees.
+ *
+ * Intuit's guidance is that tokens must be encrypted in storage, behind a key
+ * or a secrets vault. Row-level security already makes qbo_connection
+ * unreadable through the API by every user including admins, and Supabase
+ * encrypts its disks — but both of those are defences the DATABASE holds. A
+ * backup, a snapshot, a support export, or anyone who obtains the service-role
+ * key gets the plaintext anyway.
+ *
+ * So the tokens are sealed in the function, with AES-256-GCM under
+ * QBO_TOKEN_KEY, which lives only in Netlify's environment. The key and the
+ * ciphertext are never in the same place, so a copy of the database is not
+ * enough to reach anyone's books. GCM also authenticates: a token altered at
+ * rest fails to open rather than being sent to Intuit.
+ *
+ * Generate the key with:
+ *   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+ */
+const SEAL_PREFIX = 'qbo1.'
+
+function tokenKey() {
+  const raw = process.env.QBO_TOKEN_KEY ?? ''
+  const key = Buffer.from(raw, 'base64')
+  if (key.length !== 32) {
+    throw new Error('QBO_TOKEN_KEY must be 32 bytes, base64-encoded (see lib/qbo.mjs for how to generate one)')
+  }
+  return key
+}
+
+/** Encrypt one token. Returns a self-describing string. */
+export function sealToken(plain) {
+  if (!plain) return plain
+  const iv = randomBytes(12)
+  const c = createCipheriv('aes-256-gcm', tokenKey(), iv)
+  const ct = Buffer.concat([c.update(String(plain), 'utf8'), c.final()])
+  return [SEAL_PREFIX + iv.toString('base64url'), c.getAuthTag().toString('base64url'), ct.toString('base64url')].join(
+    '.',
+  )
+}
+
+/**
+ * Decrypt one token.
+ *
+ * A value without the marker is passed through unchanged. That is deliberate:
+ * connections made before this change are stored in the clear, and refusing
+ * them would break a live connection on deploy. They re-seal on the next token
+ * refresh, which for an active connection is within the hour.
+ */
+export function openToken(stored) {
+  if (!stored || !String(stored).startsWith(SEAL_PREFIX)) return stored
+  // The marker itself ends in a dot, so it comes off BEFORE the split — with
+  // it left on, the split yields four parts and the IV reads as empty.
+  const [ivPart, tagPart, ctPart] = String(stored).slice(SEAL_PREFIX.length).split('.')
+  const d = createDecipheriv('aes-256-gcm', tokenKey(), Buffer.from(ivPart, 'base64url'))
+  d.setAuthTag(Buffer.from(tagPart, 'base64url'))
+  return Buffer.concat([d.update(Buffer.from(ctPart, 'base64url')), d.final()]).toString('utf8')
+}
+
+/** Seal the token fields of a row about to be written. */
+export const sealTokens = (row) => ({
+  ...row,
+  ...(row.access_token !== undefined ? { access_token: sealToken(row.access_token) } : {}),
+  ...(row.refresh_token !== undefined ? { refresh_token: sealToken(row.refresh_token) } : {}),
+})
+
+/** Open the token fields of a row just read. */
+export const openTokens = (row) =>
+  row && { ...row, access_token: openToken(row.access_token), refresh_token: openToken(row.refresh_token) }
 
 /** API host for a connection's environment. */
 export const apiBase = (environment) =>
@@ -95,7 +174,9 @@ export async function getConnection() {
   const rows = await sb().get(
     `qbo_connection?environment=eq.${activeEnvironment()}&select=*&order=connected_at.desc&limit=1`,
   )
-  return rows[0] ?? null
+  // Opened here, once, so every caller downstream holds usable tokens and no
+  // call site has to remember to decrypt.
+  return rows[0] ? openTokens(rows[0]) : null
 }
 
 export async function logSync({ realmId, entityType, localId, action, ok, message }) {
@@ -163,7 +244,10 @@ export async function refreshTokens(conn) {
     await sb().write(
       'PATCH',
       `qbo_connection?realm_id=eq.${encodeURIComponent(conn.realm_id)}`,
-      { disconnected_at: new Date().toISOString(), last_error: message },
+      // The refresh token is dead — Intuit has told us so. Keeping the text
+      // around stores a credential that can no longer be used but can still be
+      // stolen, so it goes with the connection. See revoke() for the rule.
+      { disconnected_at: new Date().toISOString(), last_error: message, access_token: '', refresh_token: '' },
       'return=minimal',
     )
     throw new Error(message)
@@ -183,11 +267,13 @@ export async function refreshTokens(conn) {
     last_error: '',
   }
 
-  // Persist BEFORE returning — see the module header.
+  // Persist BEFORE returning — see the module header. Sealed on the way in;
+  // the copy returned to the caller stays plaintext, because it is about to be
+  // used to make a call.
   await sb().write(
     'PATCH',
     `qbo_connection?realm_id=eq.${encodeURIComponent(conn.realm_id)}`,
-    updated,
+    sealTokens(updated),
     'return=minimal',
   )
 
@@ -252,7 +338,17 @@ export async function qboQuery(conn, query) {
   return qboFetch(conn, `query?query=${encodeURIComponent(query)}`)
 }
 
-/** Tell Intuit to forget the refresh token, then mark the row disconnected. */
+/**
+ * Tell Intuit to forget the refresh token, then mark the row disconnected AND
+ * clear the token text.
+ *
+ * Intuit's guidance is to revoke and then clean up the stored record, and the
+ * reason is worth stating: a revoked token is dead to us but is still a
+ * credential-shaped secret sitting in a database. It cannot be used, but it can
+ * be leaked, and it will outlive everyone's memory of what it was for. Nothing
+ * reads these columns after disconnect — reconnecting writes a fresh pair — so
+ * there is nothing to lose by emptying them.
+ */
 export async function revoke(conn) {
   const { clientId, clientSecret } = env()
   try {
@@ -272,7 +368,12 @@ export async function revoke(conn) {
   await sb().write(
     'PATCH',
     `qbo_connection?realm_id=eq.${encodeURIComponent(conn.realm_id)}`,
-    { disconnected_at: new Date().toISOString(), last_error: 'Disconnected by a user.' },
+    {
+      disconnected_at: new Date().toISOString(),
+      last_error: 'Disconnected by a user.',
+      access_token: '',
+      refresh_token: '',
+    },
     'return=minimal',
   )
 }

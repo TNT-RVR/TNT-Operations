@@ -14,11 +14,74 @@
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 
-const INTUIT_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
-const INTUIT_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke'
-export const INTUIT_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 export const QBO_SCOPE = 'com.intuit.quickbooks.accounting'
 export const MINOR_VERSION = 70
+
+// ── OAuth endpoints, from Intuit's discovery document ────────────────────────
+
+/**
+ * Intuit publishes its OAuth endpoints so that apps do not hardcode them, and
+ * can follow a change without a redeploy. We read them from there.
+ *
+ * The values below are what discovery returns TODAY, and they are the fallback
+ * rather than the source. Discovery is one more network call in the path of
+ * connecting, and if it is down, refusing to talk to Intuit at all would be a
+ * worse outcome than using the endpoints that have not moved in years. So a
+ * failed lookup logs and falls back; it never throws.
+ *
+ * Sandbox and production differ only in `userinfo_endpoint`, which we do not
+ * use — but they are fetched per environment anyway, because the day that
+ * stops being true should not be a day we find out the hard way.
+ */
+const DISCOVERY_URL = {
+  production: 'https://developer.api.intuit.com/.well-known/openid_configuration',
+  sandbox: 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration',
+}
+
+const FALLBACK_ENDPOINTS = {
+  auth: 'https://appcenter.intuit.com/connect/oauth2',
+  token: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+  revoke: 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke',
+}
+
+/** Cached per warm container. Endpoints change on the order of never. */
+const DISCOVERY_TTL_MS = 12 * 60 * 60 * 1000
+let discovered = null
+
+/**
+ * Drop the cache. Only the tests need this — in a function the cache is exactly
+ * what we want, and a cold start clears it anyway. Without it, the first test
+ * to look up endpoints decides the answer for every test after it.
+ */
+export function resetDiscoveryCache() {
+  discovered = null
+}
+
+export async function endpoints() {
+  const environment = activeEnvironment()
+  if (discovered && discovered.environment === environment && Date.now() - discovered.at < DISCOVERY_TTL_MS) {
+    return discovered.value
+  }
+
+  let value = FALLBACK_ENDPOINTS
+  try {
+    const r = await fetch(DISCOVERY_URL[environment], { headers: { Accept: 'application/json' } })
+    if (!r.ok) throw new Error(`${r.status}`)
+    const doc = await r.json()
+    // Take each endpoint only if discovery actually supplied it — a partial
+    // document must not blank out an endpoint we know.
+    value = {
+      auth: doc.authorization_endpoint || FALLBACK_ENDPOINTS.auth,
+      token: doc.token_endpoint || FALLBACK_ENDPOINTS.token,
+      revoke: doc.revocation_endpoint || FALLBACK_ENDPOINTS.revoke,
+    }
+  } catch (e) {
+    console.warn(`[qbo] discovery lookup failed (${e.message}); using known endpoints`)
+  }
+
+  discovered = { environment, at: Date.now(), value }
+  return value
+}
 
 /** Refresh this early, so a call never starts with a nearly-dead token. */
 const REFRESH_SKEW_MS = 5 * 60 * 1000
@@ -203,7 +266,7 @@ const basicAuth = (id, secret) => `Basic ${Buffer.from(`${id}:${secret}`).toStri
 /** Exchange an authorization code for the first token pair. */
 export async function exchangeCode(code) {
   const { clientId, clientSecret, redirectUri } = env()
-  const r = await fetch(INTUIT_TOKEN_URL, {
+  const r = await fetch((await endpoints()).token, {
     method: 'POST',
     headers: {
       Authorization: basicAuth(clientId, clientSecret),
@@ -228,7 +291,7 @@ export async function exchangeCode(code) {
  */
 export async function refreshTokens(conn) {
   const { clientId, clientSecret } = env()
-  const r = await fetch(INTUIT_TOKEN_URL, {
+  const r = await fetch((await endpoints()).token, {
     method: 'POST',
     headers: {
       Authorization: basicAuth(clientId, clientSecret),
@@ -352,7 +415,7 @@ export async function qboQuery(conn, query) {
 export async function revoke(conn) {
   const { clientId, clientSecret } = env()
   try {
-    await fetch(INTUIT_REVOKE_URL, {
+    await fetch((await endpoints()).revoke, {
       method: 'POST',
       headers: {
         Authorization: basicAuth(clientId, clientSecret),

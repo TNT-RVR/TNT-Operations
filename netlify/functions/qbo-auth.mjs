@@ -17,17 +17,23 @@
  *
  * The callback is different: it is Intuit redirecting a browser, so it carries
  * no app session. The `state` parameter is what ties it back to the admin who
- * began the flow — it is a signed, single-use, short-lived value, checked
- * before any token is stored. Without that check, anyone who found this URL
- * could bind their own QuickBooks company to the app.
+ * began the flow — signed, short-lived, and single-use, checked before any
+ * token is stored. Without that check, anyone who found this URL could bind
+ * their own QuickBooks company to the app.
+ *
+ * Single-use is enforced by SPENDING the state's nonce in qbo_oauth_state, not
+ * by the signature. This comment used to claim single-use while the code only
+ * checked the signature and the expiry, which left a captured value replayable
+ * for its whole ten-minute window — the property the state parameter exists to
+ * provide. If you change consumeState, keep that true.
  */
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
-  INTUIT_AUTH_URL,
   QBO_SCOPE,
   activeEnvironment,
   apiBase,
   db,
+  endpoints,
   env,
   exchangeCode,
   getConnection,
@@ -43,25 +49,78 @@ const STATE_TTL_MS = 10 * 60 * 1000
 const json = (body, status) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
-/** Sign `${userId}.${expiry}` so the callback can trust where it came from. */
-function makeState(userId) {
+/**
+ * Sign `${userId}.${expiry}.${nonce}` so the callback can trust where it came
+ * from, and can tell a first use from a replay.
+ *
+ * The nonce carries no meaning — it exists so that two states issued in the
+ * same millisecond by the same admin are still distinguishable, and so that
+ * consuming one is a single INSERT against a primary key.
+ */
+export function makeState(userId) {
   const secret = process.env.QBO_CLIENT_SECRET
-  const payload = `${userId}.${Date.now() + STATE_TTL_MS}`
+  const payload = `${userId}.${Date.now() + STATE_TTL_MS}.${randomBytes(16).toString('base64url')}`
   const sig = createHmac('sha256', secret).update(payload).digest('base64url')
   return `${payload}.${sig}`
 }
 
-function verifyState(state) {
+/**
+ * Check the signature and the expiry. Cheap, and no I/O — so a forged or stale
+ * state is rejected without touching the database.
+ */
+export function checkStateSignature(state) {
   const secret = process.env.QBO_CLIENT_SECRET
   const parts = String(state ?? '').split('.')
-  if (parts.length !== 3) return null
-  const [userId, expiry, sig] = parts
-  const expected = createHmac('sha256', secret).update(`${userId}.${expiry}`).digest('base64url')
+  if (parts.length !== 4) return null
+  const [userId, expiry, nonce, sig] = parts
+  const expected = createHmac('sha256', secret).update(`${userId}.${expiry}.${nonce}`).digest('base64url')
   const a = Buffer.from(sig)
   const b = Buffer.from(expected)
+  // timingSafeEqual throws on a length mismatch, so the length is checked first
+  // — and a wrong length is already a wrong signature.
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
   if (Number(expiry) < Date.now()) return null
-  return userId
+  return { userId, nonce }
+}
+
+/**
+ * Verify a state AND spend it. Returns the user id once, then never again.
+ *
+ * Consuming is an INSERT on a primary key rather than a read-then-write, so two
+ * callbacks racing with the same state cannot both pass: one inserts, the other
+ * gets a duplicate-key error. Checking "have we seen this?" and then recording
+ * it would leave exactly that gap.
+ *
+ * A storage failure REFUSES the state. If we cannot prove this is the first
+ * use, we have not got the property we claim to have, and the cost of being
+ * wrong is binding someone else's QuickBooks company to this app. The cost of
+ * refusing is that an admin clicks Connect again.
+ */
+async function consumeState(state) {
+  const checked = checkStateSignature(state)
+  if (!checked) return null
+
+  try {
+    await db().write('POST', 'qbo_oauth_state', { nonce: checked.nonce }, 'return=minimal')
+  } catch (e) {
+    // 23505 is unique_violation: this state has already been spent.
+    const replay = /23505|duplicate key/i.test(e.message)
+    console.warn(`[qbo] state refused (${replay ? 'replay' : e.message})`)
+    return null
+  }
+
+  // Opportunistic sweep. These rows are dead the moment they expire, and the
+  // connect flow is rare enough that one extra request costs nothing.
+  db()
+    .write(
+      'DELETE',
+      `qbo_oauth_state?used_at=lt.${new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()}`,
+      undefined,
+      'return=minimal',
+    )
+    .catch(() => {})
+
+  return checked.userId
 }
 
 /** Verify the caller is an admin, using their own token. */
@@ -112,7 +171,8 @@ export default async (req) => {
     const auth = await requireAdmin(req)
     if (auth.error) return json({ error: auth.error }, auth.status)
 
-    const target = new URL(INTUIT_AUTH_URL)
+    // From discovery, not a constant — see lib/qbo.mjs.
+    const target = new URL((await endpoints()).auth)
     target.searchParams.set('client_id', clientId)
     target.searchParams.set('response_type', 'code')
     target.searchParams.set('scope', QBO_SCOPE)
@@ -142,10 +202,15 @@ export default async (req) => {
     }
     if (!code || !realmId) return back('error', 'Intuit did not return a code.')
 
-    const userId = verifyState(state)
+    const userId = await consumeState(state)
     if (!userId) {
-      await logSync({ entityType: 'auth', action: 'auth', ok: false, message: 'Callback with a bad or expired state.' })
-      return back('error', 'That connect link expired or was tampered with. Start again from the app.')
+      await logSync({
+        entityType: 'auth',
+        action: 'auth',
+        ok: false,
+        message: 'Callback with a bad, expired, or already-used state.',
+      })
+      return back('error', 'That connect link expired, was already used, or was tampered with. Start again from the app.')
     }
 
     try {

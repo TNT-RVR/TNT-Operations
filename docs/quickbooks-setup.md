@@ -84,18 +84,22 @@ functions.
 browser bundle, and the client secret in a public bundle means anyone can
 impersonate the app against Intuit.
 
-## 4. Run the migration
+## 4. Run the migrations
 
-Paste `supabase/migrations/0017_quickbooks.sql` into the Supabase SQL editor.
+Paste `supabase/migrations/0017_quickbooks.sql` and then
+`supabase/migrations/0033_qbo_oauth_state.sql` into the Supabase SQL editor.
 
 Verify:
 
 ```sql
 select table_name from information_schema.tables
-where table_name in ('qbo_connection','qbo_links','qbo_sync_log');
+where table_name in ('qbo_connection','qbo_links','qbo_sync_log','qbo_oauth_state');
 ```
 
-Three rows.
+Four rows. **0033 is required to connect** — without it, spending the OAuth
+state fails and every callback is refused. That is the safe direction to fail
+(see the note on single-use state at the end), but it looks like a broken
+connect button, so run it.
 
 ## 5. Make a sandbox company
 
@@ -242,3 +246,24 @@ fresh pair.
 A connection made before encryption existed is stored in the clear and still
 opens; it re-seals on its next refresh, which for an active connection is
 within the hour.
+
+### Single-use connect links
+
+Intuit's callback is a plain browser redirect carrying no session, so the
+`state` parameter is the only thing tying it back to the admin who started the
+flow. It is signed (HMAC-SHA256), expires after ten minutes, and is **single
+use**: its nonce is spent by inserting it into `qbo_oauth_state`, whose primary
+key makes a second attempt fail. Spending is an INSERT rather than a
+read-then-write, so two callbacks racing with the same value cannot both pass.
+
+If that write fails for any reason, the callback is **refused**. Being unable
+to prove a state is unused is the same as knowing it isn't, and the cost of
+guessing wrong is someone else's QuickBooks company bound to this app. The cost
+of refusing is one more click on Connect.
+
+### OAuth endpoints come from discovery
+
+The authorisation, token and revocation URLs are read from Intuit's discovery
+document rather than hardcoded, so an endpoint change does not need a redeploy.
+The lookup is cached for twelve hours, and if it fails the previously known
+endpoints are used — a discovery outage must not stop you reaching QuickBooks.

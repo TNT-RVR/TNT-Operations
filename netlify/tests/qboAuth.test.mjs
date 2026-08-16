@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { checkStateSignature, makeState } from './qbo-auth.mjs'
-import { endpoints, resetDiscoveryCache } from './lib/qbo.mjs'
+import { checkStateSignature, makeState } from '../functions/qbo-auth.mjs'
+import { endpoints, resetDiscoveryCache } from '../functions/lib/qbo.mjs'
 
 /**
  * The OAuth state parameter, and the discovery lookup.

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import { env, openToken, openTokens, sealToken, sealTokens } from './qbo.mjs'
+import { env, openToken, openTokens, sealToken, sealTokens } from '../functions/lib/qbo.mjs'
 
 /**
  * Token encryption at rest.

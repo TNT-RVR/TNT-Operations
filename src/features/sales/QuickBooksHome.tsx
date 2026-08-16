@@ -46,6 +46,8 @@ interface Options {
   taxCodes: Array<{ Id: string; Name: string }>
   incomeAccounts: Array<{ Id: string; Name: string }>
   serviceItems: Array<{ Id: string; Name: string }>
+  /** Why the lists are empty, when QuickBooks refused rather than returned none. */
+  optionsError?: string
 }
 
 /** Call a QuickBooks function with the caller's own token — the role is checked server-side. */
@@ -70,6 +72,8 @@ export default function QuickBooksHome() {
   const [params, setParams] = useSearchParams()
   const [status, setStatus] = useState<QboStatus | null>(null)
   const [stale, setStale] = useState<QboStatus[]>([])
+  /** What this DEPLOY is pointed at — distinct from what is stored. See below. */
+  const [cfg, setCfg] = useState<{ environment: string; clientId: string; redirectUri: string } | null>(null)
   const [log, setLog] = useState<SyncLogRow[]>([])
   const [options, setOptions] = useState<Options | null>(null)
   const [loading, setLoading] = useState(true)
@@ -103,6 +107,16 @@ export default function QuickBooksHome() {
     void load()
   }, [load])
 
+  // Which Intuit app this deploy will actually use. Admins only, and failure is
+  // silent on purpose — this is a diagnostic, and a viewer who cannot read it
+  // should simply not see it rather than be shown an error.
+  useEffect(() => {
+    if (!isAdmin) return
+    void callFn('qbo-auth?action=config').then((r) => {
+      if (r.ok) setCfg(r as unknown as { environment: string; clientId: string; redirectUri: string })
+    })
+  }, [isAdmin])
+
   // The OAuth callback bounces back here with ?qbo=connected|denied|error.
   const callbackResult = params.get('qbo')
   useEffect(() => {
@@ -122,8 +136,12 @@ export default function QuickBooksHome() {
     setBusy('options')
     const r = await callFn('qbo-sync', { action: 'options' })
     setBusy('')
-    if (r.ok) setOptions(r as unknown as Options)
-    else setError(r.error ?? 'Could not read QuickBooks settings')
+    if (!r.ok) return setError(r.error ?? 'Could not read QuickBooks settings')
+    const o = r as unknown as Options
+    setOptions(o)
+    // The call succeeded, but QuickBooks refused the queries inside it. Without
+    // this the screen shows four empty dropdowns and explains nothing.
+    if (o.optionsError) setError(`QuickBooks would not list the options — ${o.optionsError}`)
   }, [])
 
   useEffect(() => {
@@ -238,6 +256,29 @@ export default function QuickBooksHome() {
                 ) : (
                   <p className="mt-1 text-xs text-muted">
                     Connect a QuickBooks Online company to start pushing invoices.
+                  </p>
+                )}
+
+                {/*
+                  What this DEPLOY will use, shown whether connected or not —
+                  the point is to be readable BEFORE clicking Connect.
+
+                  Netlify injects environment variables into functions at deploy
+                  time, so changing QBO_CLIENT_ID in its dashboard does nothing
+                  until a new deploy runs. Until then the function keeps using
+                  the previous Intuit app, and the only symptom is Intuit
+                  offering a company from the wrong environment — with nothing
+                  anywhere pointing at the stale deploy. Compare the id below
+                  against the Intuit dashboard and that becomes a five-second
+                  check instead of an afternoon.
+                */}
+                {cfg && (
+                  <p className="mt-1.5 text-xs text-muted">
+                    This deploy uses Intuit app{' '}
+                    <code className="text-secondary" title="Masked — compare against Keys & credentials at Intuit">
+                      {cfg.clientId}
+                    </code>{' '}
+                    · <span className={cfg.environment === 'production' ? 'text-secondary' : 'text-warn'}>{cfg.environment}</span>
                   </p>
                 )}
               </div>

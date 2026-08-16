@@ -210,6 +210,21 @@ function sb() {
 
 export const db = sb
 
+/**
+ * Show enough of a key to recognise it, not enough to use it.
+ *
+ * A client id is not a secret — it travels in the authorize URL in plain sight
+ * — but a full one is 50 characters of noise that nobody compares correctly by
+ * eye. Head and tail are what a person actually matches against the dashboard.
+ */
+export function maskKey(value, lead = 6, tail = 4) {
+  const s = String(value ?? '')
+  if (!s) return ''
+  // Too short to reveal anything without revealing most of it.
+  if (s.length <= lead + tail) return '•'.repeat(s.length)
+  return `${s.slice(0, lead)}…${s.slice(-tail)}`
+}
+
 /** Which books this deploy is pointed at. The deploy config is the authority. */
 export const activeEnvironment = () =>
   process.env.QBO_ENVIRONMENT === 'production' ? 'production' : 'sandbox'

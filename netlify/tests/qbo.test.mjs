@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import { env, openToken, openTokens, sealToken, sealTokens } from '../functions/lib/qbo.mjs'
+import { env, maskKey, openToken, openTokens, sealToken, sealTokens } from '../functions/lib/qbo.mjs'
 
 /**
  * Token encryption at rest.
@@ -93,6 +93,32 @@ describe('sealTokens / openTokens', () => {
     const patch = sealTokens({ company_name: 'Books' })
     expect('access_token' in patch).toBe(false)
     expect('refresh_token' in patch).toBe(false)
+  })
+})
+
+describe('maskKey', () => {
+  // The two real client ids from the deploy that went wrong. They share the
+  // "AB" prefix every Intuit key has and diverge at the third character, which
+  // is exactly why the mask must show the HEAD and not only the tail.
+  const DEV = 'ABDpI423VmPNoVSbByu5kh8ILFwdLWGwM7Jg9a1DvEpb9G3xUi'
+  const PROD = 'ABFIEbj32Xjegj3Oy2Bp9hr26QrijWBSpaTTz9xrQnjL0XzfS6'
+
+  it('keeps the two apart at a glance', () => {
+    expect(maskKey(DEV)).toBe('ABDpI4…3xUi')
+    expect(maskKey(PROD)).toBe('ABFIEb…zfS6')
+    expect(maskKey(DEV)).not.toBe(maskKey(PROD))
+  })
+
+  it('does not print the whole key', () => {
+    expect(maskKey(PROD).length).toBeLessThan(PROD.length / 2)
+    expect(maskKey(PROD)).not.toContain(PROD.slice(10, 30))
+  })
+
+  it('reveals nothing from a short value', () => {
+    expect(maskKey('secret')).toBe('••••••')
+    expect(maskKey('')).toBe('')
+    expect(maskKey(null)).toBe('')
+    expect(maskKey(undefined)).toBe('')
   })
 })
 

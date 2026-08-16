@@ -38,6 +38,7 @@ import {
   exchangeCode,
   getConnection,
   logSync,
+  maskKey,
   qboFetch,
   revoke,
   sealTokens,
@@ -165,6 +166,21 @@ export default async (req) => {
 
   const url = new URL(req.url)
   const action = url.searchParams.get('action') ?? (req.method === 'POST' ? 'disconnect' : '')
+
+  // ── Config ──
+  //
+  // What this DEPLOY is pointed at, as opposed to what is stored. The two can
+  // differ in one direction that matters: Netlify injects environment variables
+  // into functions at DEPLOY time, so changing QBO_CLIENT_ID in the dashboard
+  // does nothing until a new deploy runs. Until then the function keeps using
+  // the previous app, and the only visible symptom is Intuit offering the wrong
+  // company from a screen that explains nothing. This makes it readable before
+  // anyone clicks Connect.
+  if (action === 'config') {
+    const auth = await requireAdmin(req)
+    if (auth.error) return json({ error: auth.error }, auth.status)
+    return json({ environment: activeEnvironment(), clientId: maskKey(clientId), redirectUri }, 200)
+  }
 
   // ── Start ──
   if (action === 'start') {

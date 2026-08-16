@@ -318,20 +318,39 @@ async function refreshConfig(conn) {
   return patch
 }
 
-/** Tax codes, income accounts and service items, for the settings dropdowns. */
+/**
+ * Tax codes, income accounts and service items, for the settings dropdowns.
+ *
+ * Each query is caught so that one failing does not empty the other two — but
+ * the REASON is now returned rather than discarded. Swallowing it produced the
+ * worst possible screen: four dropdowns offering nothing, no error anywhere,
+ * and no hint that QuickBooks had refused every request. An empty list and a
+ * refused request look identical to the person staring at them, so the app has
+ * to say which one happened.
+ */
 async function readOptions(conn) {
+  const errors = []
+  const ask = async (query) => {
+    try {
+      return (await qboQuery(conn, query)).data
+    } catch (e) {
+      errors.push(e.message)
+      return null
+    }
+  }
+
   const [taxes, accounts, items] = await Promise.all([
-    qboQuery(conn, 'select Id, Name, Description from TaxCode maxresults 100').catch(() => ({ data: null })),
-    qboQuery(
-      conn,
-      "select Id, Name, AccountType from Account where AccountType = 'Income' maxresults 100",
-    ).catch(() => ({ data: null })),
-    qboQuery(conn, "select Id, Name, Type from Item where Type = 'Service' maxresults 100").catch(() => ({ data: null })),
+    ask('select Id, Name, Description from TaxCode maxresults 100'),
+    ask("select Id, Name, AccountType from Account where AccountType = 'Income' maxresults 100"),
+    ask("select Id, Name, Type from Item where Type = 'Service' maxresults 100"),
   ])
+
   return {
-    taxCodes: taxes.data?.QueryResponse?.TaxCode ?? [],
-    incomeAccounts: accounts.data?.QueryResponse?.Account ?? [],
-    serviceItems: items.data?.QueryResponse?.Item ?? [],
+    taxCodes: taxes?.QueryResponse?.TaxCode ?? [],
+    incomeAccounts: accounts?.QueryResponse?.Account ?? [],
+    serviceItems: items?.QueryResponse?.Item ?? [],
+    // One message is enough — three copies of the same 403 is noise.
+    optionsError: errors[0] ?? '',
   }
 }
 

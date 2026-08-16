@@ -169,9 +169,20 @@ async function syncOrder(conn, orderId) {
 
   // Currency guard: QuickBooks rejects a foreign-currency transaction when
   // multicurrency is off, with an opaque error.
+  //
+  // `multicurrency_enabled` is cached from the last time we read QuickBooks,
+  // and it is stale in exactly the direction that matters here: this error
+  // tells the operator to go and switch multicurrency ON, and if we never
+  // re-read it, the push keeps failing after they have — a dead end at the end
+  // of instructions the app itself gave. So ask QuickBooks before refusing.
+  // Only on the failing path, so a normal push costs nothing extra.
+  if (o.currency !== conn.home_currency && !conn.multicurrency_enabled) {
+    conn = { ...conn, ...(await refreshConfig(conn)) }
+  }
   if (o.currency !== conn.home_currency && !conn.multicurrency_enabled) {
     throw new Error(
-      `Order is in ${o.currency} but the QuickBooks file is ${conn.home_currency} with multicurrency off`,
+      `Order is in ${o.currency} but the QuickBooks file is ${conn.home_currency} with multicurrency off. ` +
+        'Turn it on in QuickBooks (Account and Settings → Advanced → Currency) — it cannot be undone — then send again.',
     )
   }
 
@@ -376,6 +387,7 @@ export default async (req) => {
       action: result?.created === false ? 'update' : result?.created ? 'create' : 'read',
       ok: true,
       message: '',
+      intuitTid: result?.intuitTid,
     })
     return json({ ok: true, ...result }, 200)
   } catch (e) {
@@ -386,6 +398,9 @@ export default async (req) => {
       action: 'create',
       ok: false,
       message: e.message,
+      // Set by qboFetch when Intuit answered. Absent for our own validation
+      // failures, which never reached them.
+      intuitTid: e.intuitTid,
     })
     return json({ ok: false, error: e.message }, 400)
   }

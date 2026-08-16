@@ -242,7 +242,7 @@ export async function getConnection() {
   return rows[0] ? openTokens(rows[0]) : null
 }
 
-export async function logSync({ realmId, entityType, localId, action, ok, message }) {
+export async function logSync({ realmId, entityType, localId, action, ok, message, intuitTid }) {
   try {
     await sb().write('POST', 'qbo_sync_log', {
       realm_id: realmId ?? null,
@@ -252,6 +252,8 @@ export async function logSync({ realmId, entityType, localId, action, ok, messag
       ok,
       // Trim: Intuit errors can be enormous and the bell shows this verbatim.
       message: String(message ?? '').slice(0, 500),
+      // Intuit's own handle on the call, for when their support asks.
+      intuit_tid: intuitTid ? String(intuitTid).slice(0, 100) : null,
     })
   } catch (e) {
     // Never let logging failure mask the original error.
@@ -385,15 +387,24 @@ export async function qboFetch(conn, path, { method = 'GET', body, retry = true 
   const text = await r.text()
   const json = text ? JSON.parse(text) : null
 
+  // Intuit stamps every response with a transaction id. It is the first thing
+  // their support asks for, and it is the ONLY handle on a specific call once
+  // it is over — so it is captured on success and failure alike, and carried
+  // into the error so it reaches the log and the operator rather than being
+  // dropped with the Response object.
+  const intuitTid = r.headers.get('intuit_tid') ?? ''
+
   if (!r.ok) {
     // Intuit nests the useful part several levels down and returns 200-shaped
     // errors in some cases. Dig out something a human can act on.
     const fault = json?.Fault?.Error?.[0]
     const detail = fault ? `${fault.Message}${fault.Detail ? ` — ${fault.Detail}` : ''}` : text.slice(0, 300)
-    throw new Error(`QuickBooks ${r.status}: ${detail}`)
+    const err = new Error(`QuickBooks ${r.status}: ${detail}${intuitTid ? ` (intuit_tid ${intuitTid})` : ''}`)
+    err.intuitTid = intuitTid
+    throw err
   }
 
-  return { data: json, conn: fresh }
+  return { data: json, conn: fresh, intuitTid }
 }
 
 /** Run a QBO SQL-ish query. */

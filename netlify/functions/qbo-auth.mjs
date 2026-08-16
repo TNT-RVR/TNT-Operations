@@ -258,7 +258,14 @@ export default async (req) => {
       await logSync({ realmId, entityType: 'auth', action: 'auth', ok: true, message: 'Connected.' })
       return back('connected')
     } catch (e) {
-      await logSync({ realmId, entityType: 'auth', action: 'auth', ok: false, message: e.message })
+      await logSync({
+        realmId,
+        entityType: 'auth',
+        action: 'auth',
+        ok: false,
+        message: e.message,
+        intuitTid: e.intuitTid,
+      })
       return back('error', e.message)
     }
   }

@@ -190,7 +190,14 @@ also a permanent invitation to confusion during a future debugging session.
 QuickBooks file is CAD with multicurrency off, a USD invoice is rejected. The
 app blocks that push and says so, rather than letting QuickBooks return
 something opaque. Turning multicurrency on is **irreversible** — Account and
-Settings → Advanced → Currency.
+Settings → Advanced → Currency. Once you have, just send again: a blocked push
+re-reads the setting from QuickBooks before refusing, so you do not have to
+refresh anything by hand.
+
+**Every sync attempt records Intuit's `intuit_tid`.** It is the first thing
+their support asks for and the only handle on a specific call after the fact.
+Failures also carry it in the message text, so it is visible on the settings
+screen without going to the database.
 
 **Refresh tokens expire after ~101 days of no use.** Ordinary use keeps the
 connection alive indefinitely. A quiet winter could let it lapse, and you'll get

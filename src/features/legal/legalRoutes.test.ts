@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -58,11 +59,38 @@ describe('the legal pages need no backend', () => {
     expect(page).not.toMatch(/from '@\/auth\//)
   })
 
-  it('states a contact address, and only one', () => {
-    // Both documents read from one constant, so the address can never be
-    // updated in the licence and missed in the policy.
+  it('hardcodes no address of its own', () => {
+    // It reads the shared constant instead. A second copy is how the licence
+    // ends up pointing at a mailbox nobody reads.
     const emails = new Set(page.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? [])
-    expect(emails.size, `expected one contact address, found ${[...emails].join(', ')}`).toBe(1)
-    expect(page).toMatch(/const CONTACT_EMAIL = /)
+    expect(emails.size, `expected no literal address here, found ${[...emails].join(', ')}`).toBe(0)
+    expect(page).toMatch(/SUPPORT_EMAIL/)
+  })
+})
+
+describe('the contact address has exactly one home', () => {
+  it('is defined once, in src/config/contact.ts', () => {
+    expect(read('../../config/contact.ts')).toMatch(/export const SUPPORT_EMAIL = '[^']+@[^']+'/)
+  })
+
+  it('is not copied anywhere else in src/', () => {
+    // The address appears on the public legal pages AND on the in-app support
+    // line. Two literals drift: one gets updated, the other keeps pointing
+    // somewhere dead, and nobody finds out until a message goes unanswered.
+    // Test fixtures are exempt — a made-up company address in a document
+    // test is not a contact route anyone will follow.
+    const cmd = 'git grep -lIE "[a-zA-Z0-9._+-]+@tntpollination\\.com" -- src ":(exclude)*.test.*"'
+    // git grep exits 1 when it finds nothing, which execSync raises. That is
+    // the PASSING case here, so it must not read as an error.
+    let found = ''
+    try {
+      found = execSync(cmd, { cwd: resolve(__dirname, '../../..'), encoding: 'utf8' })
+    } catch (e) {
+      if ((e as { status?: number }).status !== 1) throw e
+    }
+    const strays = found.split('\n').filter((f) => f && f !== 'src/config/contact.ts')
+
+    expect(strays, `the address should only live in src/config/contact.ts, also found in: ${strays.join(', ')}`)
+      .toEqual([])
   })
 })

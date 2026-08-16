@@ -23,13 +23,10 @@
  */
 import { Link } from 'react-router-dom'
 import { Logo } from '@/components/ui'
+import { SUPPORT_EMAIL } from '@/config/contact'
 
-/**
- * Where privacy requests go. CONFIRM THIS BEFORE SUBMITTING TO INTUIT — a
- * reviewer may mail it, and a policy whose contact address bounces is a defect
- * in the policy. One edit here changes both documents.
- */
-const CONTACT_EMAIL = 'tyler.torrie@tntpollination.com'
+/** Where privacy requests go. Shared with the in-app support line — see the module. */
+const CONTACT_EMAIL = SUPPORT_EMAIL
 
 /** Shown on both pages so a reader can tell whether they have the current text. */
 const LAST_UPDATED = '14 August 2026'

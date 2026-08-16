@@ -11,7 +11,8 @@ import { useSearchParams } from 'react-router-dom'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { Badge, Button, EmptyState, Select } from '@/components/ui'
-import { AlertTriangle, CheckCircle2, Link2, RefreshCw, Unlink } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Link2, Mail, RefreshCw, Unlink } from 'lucide-react'
+import { SUPPORT_EMAIL } from '@/config/contact'
 import { SalesChrome } from './SalesChrome'
 
 /** The `qbo_status` view — connection state and config, never the tokens. */
@@ -417,6 +418,28 @@ export default function QuickBooksHome() {
                 </table>
               </div>
             )}
+
+            {/*
+              Support contact, deliberately HERE rather than in a help menu:
+              this is where someone is standing when a push fails, and the
+              error text beside it already carries Intuit's intuit_tid — the
+              first thing their support asks for. Asking for help should not
+              require navigating away from the evidence.
+            */}
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-muted">
+              <Mail size={13} className="mt-0.5 shrink-0" />
+              <span>
+                Something wrong with a sync? Send the row above, including any{' '}
+                <code className="tabular-nums">intuit_tid</code>, to{' '}
+                <a
+                  href={`mailto:${SUPPORT_EMAIL}?subject=TNT%20Operations%20%E2%80%94%20QuickBooks%20sync`}
+                  className="text-brand hover:underline"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+                .
+              </span>
+            </p>
           </div>
         </div>
       )}

@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
 import { LoginScreen } from './LoginScreen'
+import { MfaChallenge } from './MfaChallenge'
+import { MFA_OFF, readMfaState, type MfaState } from './mfa'
 import { PendingApproval } from './PendingApproval'
 import { SetPassword } from './SetPassword'
 import { arrivedNeedingPassword, initialAuthType } from './authLink'
@@ -259,6 +261,8 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<User[]>([])
   // Set once, from the emailed link that opened the app (see authLink.ts).
   const [needsPassword, setNeedsPassword] = useState<boolean>(() => arrivedNeedingPassword())
+  // Only ever true for someone who chose to enrol a second factor. See mfa.ts.
+  const [mfa, setMfa] = useState<MfaState>(MFA_OFF)
 
   useEffect(() => {
     let cancelled = false
@@ -268,9 +272,17 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         setUser(null)
         setUsers([])
+        setMfa(MFA_OFF)
         setStatus('signed-out')
         return
       }
+
+      // Read the assurance level before anything is rendered. Enrolled users
+      // hold a real session at this point — the password was accepted — so
+      // without this the app would flash into view behind the challenge.
+      const level = await readMfaState(sb)
+      if (cancelled) return
+      setMfa(level)
       const authEmail = session.user.email ?? ''
       const { data, error } = await sb
         .from('profiles')
@@ -445,6 +457,12 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     )
   }
   if (!value) return <LoginScreen />
+  // Enrolled in two-factor, password accepted, code not yet given. Gated ahead
+  // of everything else: an aal1 session is unproven, and the database's own
+  // policies treat it that way, so nothing behind this should render.
+  if (mfa.challengeRequired) {
+    return <MfaChallenge onVerified={() => setMfa({ enrolled: true, challengeRequired: false })} onSignOut={value.signOut} />
+  }
   // Arrived from an invite / reset email: signed in, but no usable password yet.
   // Gate the app until they choose one, or they could never sign back in.
   if (needsPassword) {

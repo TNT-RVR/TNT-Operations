@@ -31,6 +31,7 @@ import {
 import type { CompanyDetails } from '@/data/types'
 import { MAX_SIGNATURE_BYTES, checkSignatureImage } from '@/domain/signature'
 import { AvatarPicker } from './AvatarPicker'
+import { MfaCard } from './MfaCard'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 const ALL_ROLES: Role[] = [...ASSIGNABLE_ROLES, 'pending']
@@ -467,6 +468,8 @@ export function AccountTab() {
             />
           </label>
         </div>
+
+        <MfaCard />
 
         <SignatureCard />
 

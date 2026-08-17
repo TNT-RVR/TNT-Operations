@@ -142,6 +142,24 @@ const NAV: NavItem[] = [
   { to: '/grants', label: 'Grants', icon: Banknote, module: 'grants' },
 ]
 
+/**
+ * Users & Settings. Kept out of NAV because the sidebar pins it to the bottom,
+ * separated from the sections — but it is a destination like any other, so both
+ * navigations build from it rather than the desktop one hardcoding it inline.
+ * Defined here so there is one of it.
+ */
+export const USERS_ITEM: NavItem = {
+  to: '/users',
+  label: 'Users & Settings',
+  icon: SlidersHorizontal,
+  module: 'users',
+}
+
+/** Every destination a role can reach, desktop and mobile alike. */
+export function reachableNav(can: (module: Module) => boolean): NavItem[] {
+  return [...NAV.filter((n) => can(n.module)), ...(can('users') ? [USERS_ITEM] : [])]
+}
+
 function NotifBell() {
   const { notifications } = useData()
   const unread = notifications.filter((n) => !n.readAt).length
@@ -223,8 +241,17 @@ export default function Layout() {
   const currentLabel = NAV.find((n) => n.to === pathname)?.label
   /** The section the current route sits under, for the mobile subsection strip. */
   const activeSection = items.find((n) => n.to !== '/' && pathname.startsWith(n.to))
-  const mobilePrimary = items.filter((n) => n.mobilePrimary)
-  const mobileMore = items.filter((n) => !n.mobilePrimary)
+  /**
+   * Everything reachable, INCLUDING the pinned Users entry.
+   *
+   * Users & Settings used to be rendered straight into the desktop sidebar and
+   * was absent from NAV, so it never reached either mobile list — on a phone
+   * there was no route to it at all. Both navigations now derive from this one
+   * list, which is what makes that impossible rather than merely fixed.
+   */
+  const reachable = reachableNav((m) => s.can(m, 'view'))
+  const mobilePrimary = reachable.filter((n) => n.mobilePrimary)
+  const mobileMore = reachable.filter((n) => !n.mobilePrimary)
   const [moreOpen, setMoreOpen] = useState(false)
   /**
    * Sidebar hidden, remembered across sessions.
@@ -317,7 +344,7 @@ export default function Layout() {
               users access shouldn't see a permanent door to a locked room. */}
           {s.can('users') && (
             <div className="mt-2 shrink-0 border-t border-subtle pt-2">
-              <NavItemLink item={{ to: '/users', label: 'Users & Settings', icon: SlidersHorizontal, module: 'users' }} />
+              <NavItemLink item={USERS_ITEM} />
             </div>
           )}
         </nav>

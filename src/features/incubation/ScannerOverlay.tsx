@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Check, AlertTriangle, Info, Flashlight, FlashlightOff, Keyboard } from 'lucide-react'
+import { boostForQr } from '@/domain/qrBoost'
+
+/**
+ * How often the contrast-boosted pass runs, in ms.
+ *
+ * Four times a second. Fast enough that a steady hand reads almost at once,
+ * slow enough to leave the main decoder and the UI their share of a phone
+ * that is also holding a camera open.
+ */
+const BOOST_INTERVAL_MS = 250
 
 /** Result of handling a scan, shown over the camera and then faded out. */
 export interface ScanFeedback {
@@ -68,6 +78,8 @@ export function ScannerOverlay({
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scannerRef = useRef<any>(null)
+  /** Interval id for the contrast-boosted decode pass. See where it starts. */
+  const boostTimerRef = useRef<number | null>(null)
   const lastDecodeRef = useRef<number>(Date.now())
   const readerId = useRef(`scanner-${Math.random().toString(36).slice(2, 9)}`).current
   // Held in a ref so restarting the camera never depends on the handler identity.
@@ -75,6 +87,12 @@ export function ScannerOverlay({
   onScanRef.current = onScan
 
   const stop = useCallback(async () => {
+    // Kill the boosted pass FIRST. It reads from the video element, and letting
+    // it tick while the track is being torn down throws on a dead surface.
+    if (boostTimerRef.current !== null) {
+      clearInterval(boostTimerRef.current)
+      boostTimerRef.current = null
+    }
     const inst = scannerRef.current
     scannerRef.current = null
     if (inst) {
@@ -243,6 +261,42 @@ export function ScannerOverlay({
         // Every rung failed — report the last real error rather than a shrug.
         if (!started) throw lastErr ?? new Error('No camera could be started.')
         scannerRef.current = started
+
+        /**
+         * A SECOND decoder, running on contrast-boosted frames.
+         *
+         * html5-qrcode hands the camera image to its decoder untouched, and
+         * TNT's block labels are printed in brand honey — including the finder
+         * patterns, which is what a decoder locates before it reads anything.
+         * By luminance that ink is only ~26% darker than the label stock, and
+         * below threshold the symbol is not found at all. A whole crew could
+         * not scan a single label.
+         *
+         * So each frame is also pushed through `boostForQr` (blue channel plus
+         * a percentile stretch — see the module) and offered to jsQR. The two
+         * run in parallel rather than one replacing the other: the native
+         * detector is faster and better on ordinary black labels, and this
+         * catches what it cannot see. Whichever reads first wins.
+         */
+        const video = document.querySelector<HTMLVideoElement>(`#${readerId} video`)
+        if (video) {
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d', { willReadFrequently: true })
+          const jsQR = (await import('jsqr')).default
+
+          boostTimerRef.current = window.setInterval(() => {
+            if (!ctx || video.readyState < 2 || video.videoWidth === 0) return
+            // Half resolution: a QR needs far less than 1080p to decode, and
+            // this runs several times a second on a phone.
+            const w = (canvas.width = Math.round(video.videoWidth / 2))
+            const h = (canvas.height = Math.round(video.videoHeight / 2))
+            ctx.drawImage(video, 0, 0, w, h)
+            const frame = ctx.getImageData(0, 0, w, h)
+            const boosted = boostForQr(frame.data, w, h)
+            const hit = jsQR(boosted, w, h, { inversionAttempts: 'dontInvert' })
+            if (hit?.data) onDecode(hit.data)
+          }, BOOST_INTERVAL_MS)
+        }
 
         // Shop lighting is a common reason a label won't read, so offer the
         // torch when the camera has one.

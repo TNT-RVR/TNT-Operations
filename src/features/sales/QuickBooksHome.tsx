@@ -7,13 +7,13 @@
  * later, so the app refuses rather than picking for you.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { Badge, Button, EmptyState, Select } from '@/components/ui'
 import { AlertTriangle, CheckCircle2, Link2, Mail, RefreshCw, Unlink } from 'lucide-react'
 import { SUPPORT_EMAIL } from '@/config/contact'
-import { SalesChrome } from './SalesChrome'
+import { SettingsChrome } from '@/features/users/SettingsChrome'
 
 /** The `qbo_status` view — connection state and config, never the tokens. */
 interface QboStatus {
@@ -211,14 +211,23 @@ export default function QuickBooksHome() {
     : []
 
   return (
-    <SalesChrome
-      title="QuickBooks"
-      subtitle="Push invoices, estimates, customers and products to QuickBooks Online"
-    >
+    <SettingsChrome>
       {loading ? (
         <p className="text-sm text-muted">Loading…</p>
       ) : (
         <div className="max-w-3xl space-y-4">
+          {/* This page hangs off Integrations rather than being a tab of its
+              own, so it says where it is and how to get back. */}
+          <div>
+            <Link to="/users/integrations" className="text-xs text-muted hover:text-primary">
+              ← Integrations
+            </Link>
+            <h2 className="mt-1 font-display text-xl font-semibold text-primary">QuickBooks Online</h2>
+            <p className="text-sm text-muted">
+              Push invoices, estimates, customers and products; pull payment status back.
+            </p>
+          </div>
+
           {error && (
             <div className="rounded border border-danger/40 bg-[color:var(--danger-bg)] p-3 text-sm text-danger">
               {error}
@@ -502,7 +511,7 @@ export default function QuickBooksHome() {
           </div>
         </div>
       )}
-    </SalesChrome>
+    </SettingsChrome>
   )
 }
 

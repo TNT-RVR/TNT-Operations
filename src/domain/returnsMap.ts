@@ -27,6 +27,15 @@ export interface SamplePoint {
   value: number
   /** For labelling the point on the map. */
   label?: string
+  /**
+   * The placement this came from, when it came from one.
+   *
+   * Absent on imported spreadsheet rows — those are coordinates and a number
+   * with no record behind them. Carrying it lets a click on the map open the
+   * real block rather than re-deriving one by matching coordinates back, which
+   * is guesswork the moment two blocks share a fix.
+   */
+  placementId?: string
 }
 
 export interface IdwOptions {

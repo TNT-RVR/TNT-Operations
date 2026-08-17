@@ -61,6 +61,17 @@ export default function ReturnsMap() {
   const [cellM, setCellM] = useState(10)
   const [power, setPower] = useState(2)
   const [showPoints, setShowPoints] = useState(true)
+  /**
+   * The point whose details are open.
+   *
+   * Held as an ID plus a fallback, not as an object: the placement it points at
+   * is re-read from `blockPlacements` on every render, so the panel follows a
+   * weigh-in that lands while it is open instead of showing a stale copy.
+   * Imported spreadsheet rows have no placement, hence the fallback.
+   */
+  const [picked, setPicked] = useState<{ placementId?: string; label?: string; value?: number; note?: string } | null>(
+    null,
+  )
   /** Drop points the GPS clearly got wrong before interpolating. */
   const [cleanGps, setCleanGps] = useState(true)
   const [strictness, setStrictness] = useState(5)
@@ -144,6 +155,7 @@ export default function ReturnsMap() {
           lng: p.lng!,
           label: blocks.find((b) => b.id === p.blockId)?.label,
           stage: blockStage(p),
+          placementId: p.id,
         })),
     [blockPlacements, blocks, fieldId, isAll, activeSeason],
   )
@@ -165,8 +177,12 @@ export default function ReturnsMap() {
   )
 
   useEffect(() => {
-    if (!fieldId && selectableFields.length) setFieldId(selectableFields[0].id)
-  }, [selectableFields, fieldId])
+    // ALL fields, not the first one on the list. Opening on a single arbitrary
+    // field showed a fraction of the season and looked like most of the data
+    // was missing — and which field you landed on depended on sort order,
+    // which is not a decision anyone made.
+    if (!fieldId && selectableFields.length) setFieldId(ALL_FIELDS)
+  }, [selectableFields, fieldId, ALL_FIELDS])
 
   const field = isAll ? undefined : fields.find((f) => f.id === fieldId)
 
@@ -195,6 +211,7 @@ export default function ReturnsMap() {
         lng: p.lng!,
         value,
         label: blocks.find((b) => b.id === p.blockId)?.label,
+        placementId: p.id,
       }))
   }, [blockPlacements, blocks, fieldId, isAll, activeSeason])
 
@@ -475,6 +492,8 @@ export default function ReturnsMap() {
             `width:10px;height:10px;border-radius:9999px;background:${MARKER_PENDING};` +
             `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
           el.title = `${p.label ?? 'Block'} — ${STAGE_LABEL[p.stage]}, awaiting weights`
+          el.style.cursor = 'pointer'
+          el.onclick = () => setPicked({ placementId: p.placementId, label: p.label, note: 'Awaiting weights' })
           markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map))
         }
       }
@@ -491,6 +510,8 @@ export default function ReturnsMap() {
               `width:10px;height:10px;border-radius:9999px;background:${MARKER_FILL};` +
               `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
             el.title = `${s.label ?? 'Block'}: ${s.value.toFixed(1)} lbs`
+            el.style.cursor = 'pointer'
+            el.onclick = () => setPicked({ placementId: s.placementId, label: s.label, value: s.value })
             markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map))
           }
         }
@@ -541,6 +562,14 @@ export default function ReturnsMap() {
             `width:10px;height:10px;border-radius:9999px;background:${MARKER_BAD};` +
             `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6);opacity:.85`
           el.title = `Excluded — ${f.sample.label ?? 'block'}, ${Math.round(f.distM)} m away (${f.reason})`
+          el.style.cursor = 'pointer'
+          el.onclick = () =>
+            setPicked({
+              placementId: f.sample.placementId,
+              label: f.sample.label,
+              value: f.sample.value,
+              note: `Excluded from the surface — ${Math.round(f.distM)} m from the others (${f.reason})`,
+            })
           markersRef.current.push(
             new maplibregl.Marker({ element: el }).setLngLat([f.sample.lng, f.sample.lat]).addTo(map),
           )
@@ -551,6 +580,8 @@ export default function ReturnsMap() {
             `width:10px;height:10px;border-radius:9999px;background:${MARKER_FILL};` +
             `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
           el.title = `${s.label ?? 'Block'}: ${s.value.toFixed(1)} lbs`
+          el.style.cursor = 'pointer'
+          el.onclick = () => setPicked({ placementId: s.placementId, label: s.label, value: s.value })
           markersRef.current.push(new maplibregl.Marker({ element: el }).setLngLat([s.lng, s.lat]).addTo(map))
         }
       }
@@ -850,8 +881,13 @@ export default function ReturnsMap() {
           </EmptyState>
         )}
 
-        <div className={`overflow-hidden rounded-lg border border-default ${grid || outline || active.length || awaitingWeights.length ? '' : 'hidden'}`}>
+        <div
+          className={`relative overflow-hidden rounded-lg border border-default ${grid || outline || active.length || awaitingWeights.length ? '' : 'hidden'}`}
+        >
           <div ref={mapEl} className="h-[60vh] w-full" />
+          {/* Anchored over the map rather than opened as a modal: the point you
+              clicked stays visible, which is most of the reason for clicking. */}
+          {picked && <PointDetail picked={picked} onClose={() => setPicked(null)} />}
         </div>
 
         {grid && stats && (
@@ -976,6 +1012,85 @@ export default function ReturnsMap() {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Details for the point that was clicked.
+ *
+ * Re-reads the placement from the seam on every render rather than closing over
+ * a copy, so a weigh-in recorded while the panel is open shows up in it.
+ */
+function PointDetail({
+  picked,
+  onClose,
+}: {
+  picked: { placementId?: string; label?: string; value?: number; note?: string }
+  onClose: () => void
+}) {
+  const { blockPlacements, blocks, fields } = useData()
+  const p = picked.placementId ? blockPlacements.find((x) => x.id === picked.placementId) : undefined
+  const block = p ? blocks.find((b) => b.id === p.blockId) : undefined
+  const field = p?.fieldId ? fields.find((f) => f.id === p.fieldId) : undefined
+  const ret = p ? beeReturnLbs(p) : (picked.value ?? null)
+
+  const when = (iso: string | null | undefined) =>
+    iso
+      ? new Date(iso).toLocaleString('en-CA', {
+          timeZone: 'America/Edmonton',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null
+
+  const rows: Array<[string, string]> = []
+  if (field) rows.push(['Field', field.name])
+  else if (p && !p.fieldId) rows.push(['Field', 'none — outside every boundary'])
+  if (p) rows.push(['Season', String(p.season)])
+  if (p?.grossWeightLbs != null) rows.push(['Gross', `${p.grossWeightLbs.toFixed(1)} lbs`])
+  if (p?.strippedWeightLbs != null) rows.push(['Stripped', `${p.strippedWeightLbs.toFixed(1)} lbs`])
+  if (ret != null) rows.push(['Return', `${ret.toFixed(1)} lbs`])
+  const placed = when(p?.placedAt)
+  if (placed) rows.push(['Placed', `${placed}${p?.placedBy ? ` · ${p.placedBy}` : ''}`])
+  const retrieved = when(p?.retrievedAt)
+  if (retrieved) rows.push(['Retrieved', `${retrieved}${p?.retrievedBy ? ` · ${p.retrievedBy}` : ''}`])
+  const stripped = when(p?.strippedAt)
+  if (stripped) rows.push(['Stripped at', `${stripped}${p?.strippedBy ? ` · ${p.strippedBy}` : ''}`])
+  if (p?.lat != null && p?.lng != null) rows.push(['Position', `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`])
+
+  return (
+    <div className="absolute bottom-3 left-3 z-10 max-h-[52vh] w-72 overflow-y-auto rounded-lg border border-default bg-surface p-3 shadow-lg">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <div className="font-semibold text-primary">{block?.label ?? picked.label ?? 'Block'}</div>
+          {p && <div className="text-xs text-muted">{STAGE_LABEL[blockStage(p)]}</div>}
+        </div>
+        <button className="rounded p-1 text-faint hover:text-primary" onClick={onClose} aria-label="Close details">
+          <X size={15} />
+        </button>
+      </div>
+
+      {picked.note && <p className="mb-2 text-xs text-warn">{picked.note}</p>}
+
+      {rows.length === 0 ? (
+        // An imported spreadsheet row: coordinates and a number, no record.
+        <p className="text-xs text-muted">
+          {picked.value != null ? `${picked.value.toFixed(1)} lbs` : 'No further detail'} — imported point, not a
+          recorded block.
+        </p>
+      ) : (
+        <dl className="space-y-1 text-xs">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-3">
+              <dt className="shrink-0 text-muted">{k}</dt>
+              <dd className="text-right tabular-nums text-secondary">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   )
 }

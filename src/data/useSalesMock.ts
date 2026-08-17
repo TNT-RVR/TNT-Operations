@@ -11,6 +11,7 @@
  */
 import { useCallback, useMemo, useState } from 'react'
 import type { SalesResult, SalesSlice } from './context'
+import { seasonOf, type BeePurchase } from '@/domain/beePurchases'
 import type {
   InventoryLevel,
   ItemSpecRow,
@@ -64,6 +65,22 @@ export function useSalesMock(): SalesSlice {
   const [shipments, setShipments] = useState<Shipment[]>([])
   const [inventory, setInventory] = useState<InventoryLevel[]>(() => seedInventory(SEED_PRODUCTS))
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+
+  /**
+   * Three seasons of purchases, including one line with NO stated volume —
+   * the case the totals have to surface rather than swallow. Without it the
+   * mock would never exercise the interesting path.
+   */
+  const [beePurchases, setBeePurchases] = useState<BeePurchase[]>([
+    { id: 'bp1', source: 'manual', qboId: null, date: '2024-02-12', vendor: 'Prairie Bee Co.',
+      description: 'Leafcutter bees 400 gal', gallons: 400, amount: 15200, currency: 'CAD', season: 2024, notes: '' },
+    { id: 'bp2', source: 'manual', qboId: null, date: '2025-01-20', vendor: 'Prairie Bee Co.',
+      description: 'Leafcutter bees 450 gal', gallons: 450, amount: 18450, currency: 'CAD', season: 2025, notes: '' },
+    { id: 'bp3', source: 'quickbooks', qboId: 'Bill:9001:1', date: '2025-12-18', vendor: 'Northern Pollination',
+      description: 'Leafcutter bees 300 gal', gallons: 300, amount: 13200, currency: 'CAD', season: 2026, notes: '' },
+    { id: 'bp4', source: 'quickbooks', qboId: 'Bill:9014:1', date: '2026-03-04', vendor: 'Prairie Bee Co.',
+      description: 'Bee larvae — deposit', gallons: null, amount: 5000, currency: 'CAD', season: 2026, notes: '' },
+  ])
 
   /**
    * Apply a signed change to a product's stock and journal it.
@@ -337,6 +354,43 @@ export function useSalesMock(): SalesSlice {
     return { ok: true }
   }, [])
 
+  const addBeePurchase = useCallback(async (input: Partial<BeePurchase>) => {
+    const id = nextId('bp')
+    const date = input.date ?? new Date().toISOString().slice(0, 10)
+    setBeePurchases((prev) =>
+      [
+        {
+          id,
+          source: 'manual' as const,
+          qboId: null,
+          date,
+          vendor: input.vendor ?? '',
+          description: input.description ?? '',
+          gallons: input.gallons ?? null,
+          amount: input.amount ?? 0,
+          currency: input.currency ?? 'CAD',
+          season: input.season ?? seasonOf(date),
+          notes: input.notes ?? '',
+        },
+        ...prev,
+      ].sort((a, b) => b.date.localeCompare(a.date)),
+    )
+    return { ok: true, id }
+  }, [])
+
+  const saveBeePurchase = useCallback(async (id: string, patch: Partial<BeePurchase>): Promise<SalesResult> => {
+    setBeePurchases((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)))
+    return { ok: true }
+  }, [])
+
+  const deleteBeePurchase = useCallback(async (id: string): Promise<SalesResult> => {
+    setBeePurchases((prev) => prev.filter((b) => b.id !== id))
+    return { ok: true }
+  }, [])
+
+  /** No QuickBooks in mock mode — say so rather than pretending it worked. */
+  const syncBeePurchases = useCallback(async () => ({ ok: false, error: 'QuickBooks is not available on mock data.' }), [])
+
   return useMemo<SalesSlice>(
     () => ({
       products,
@@ -350,6 +404,11 @@ export function useSalesMock(): SalesSlice {
       salesLoading: false,
       // Mock holds everything already — nothing to fetch.
       loadSales: async () => {},
+      beePurchases,
+      addBeePurchase,
+      saveBeePurchase,
+      deleteBeePurchase,
+      syncBeePurchases,
       saveProduct,
       saveSalesCustomer,
       addSalesCustomer,
@@ -371,6 +430,11 @@ export function useSalesMock(): SalesSlice {
       shipments,
       inventory,
       stockMovements,
+      beePurchases,
+      addBeePurchase,
+      saveBeePurchase,
+      deleteBeePurchase,
+      syncBeePurchases,
       saveProduct,
       saveSalesCustomer,
       addSalesCustomer,

@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { BeePurchase } from '@/domain/beePurchases'
 import type { CrewTask } from '@/domain/supplies'
 import type {
   Block,
@@ -501,6 +502,25 @@ export interface SalesSlice {
   salesLoading: boolean
   /** Fetch the whole sales slice once. Idempotent. */
   loadSales: () => Promise<void>
+
+  /**
+   * Bee larvae purchases, newest first. QuickBooks-synced rows and hand-typed
+   * history in one list — see `src/domain/beePurchases.ts` for why they share
+   * a shape, and why `gallons` may be null but is never 0.
+   */
+  beePurchases: BeePurchase[]
+  addBeePurchase: (input: Partial<BeePurchase>) => Promise<{ ok: boolean; id?: string; error?: string }>
+  saveBeePurchase: (id: string, patch: Partial<BeePurchase>) => Promise<SalesResult>
+  deleteBeePurchase: (id: string) => Promise<SalesResult>
+  /** Pull a season from QuickBooks now, rather than waiting for the weekly run. */
+  syncBeePurchases: (season?: number) => Promise<{
+    ok: boolean
+    error?: string
+    lines?: number
+    gallons?: number
+    amount?: number
+    linesWithoutGallons?: number
+  }>
 
   saveProduct: (id: string, patch: Partial<Product>) => Promise<SalesResult>
   saveSalesCustomer: (id: string, patch: Partial<SalesCustomer>) => Promise<SalesResult>

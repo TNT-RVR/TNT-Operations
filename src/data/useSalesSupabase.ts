@@ -15,6 +15,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { SalesResult, SalesSlice } from './context'
+import { seasonOf, type BeePurchase } from '@/domain/beePurchases'
 import type {
   InventoryLevel,
   ItemSpecRow,
@@ -271,6 +272,7 @@ export function useSalesSupabase(): SalesSlice {
   const [products, setProducts] = useState<Product[]>([])
   const [itemSpecs, setItemSpecs] = useState<ItemSpecRow[]>([])
   const [salesCustomers, setSalesCustomers] = useState<SalesCustomer[]>([])
+  const [beePurchases, setBeePurchases] = useState<BeePurchase[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([])
   const [shipments, setShipments] = useState<Shipment[]>([])
@@ -280,6 +282,29 @@ export function useSalesSupabase(): SalesSlice {
 
   /** One-shot guard — every Sales tab calls loadSales() on mount. */
   const promiseRef = useRef<Promise<void> | null>(null)
+
+/**
+ * A bee-purchase row.
+ *
+ * `gallons` stays NULL when the description stated none — never 0. Cost per
+ * gallon divides money by gallons, so a zero would keep the dollars and drop
+ * the volume, quietly inflating the price of every other gallon.
+ */
+function toBeePurchase(r: Row): BeePurchase {
+  return {
+    id: r.id as string,
+    source: (r.source as 'quickbooks' | 'manual') ?? 'manual',
+    qboId: (r.qbo_id as string | null) ?? null,
+    date: (r.purchase_date as string) ?? '',
+    vendor: (r.vendor as string) ?? '',
+    description: (r.description as string) ?? '',
+    gallons: r.gallons === null || r.gallons === undefined ? null : Number(r.gallons),
+    amount: Number(r.amount ?? 0),
+    currency: (r.currency as string) ?? 'CAD',
+    season: Number(r.season ?? seasonOf((r.purchase_date as string) ?? '')),
+    notes: (r.notes as string) ?? '',
+  }
+}
 
   const loadSales = useCallback((): Promise<void> => {
     if (promiseRef.current) return promiseRef.current
@@ -326,6 +351,15 @@ export function useSalesSupabase(): SalesSlice {
       setShipments(((ship.data as Row[]) ?? []).map(toShipment))
       setInventory(((inv.data as Row[]) ?? []).map(toInventory))
       setStockMovements(((mv.data as Row[]) ?? []).map(toMovement))
+
+      // Fetched on its own, and its failure tolerated, so that an unapplied
+      // 0035 costs you the bee view rather than the entire Sales section.
+      const bees = await sb.from('bee_purchases').select('*').order('purchase_date', { ascending: false })
+      if (bees.error) {
+        console.error('[data] bee_purchases:', bees.error.message, '— has migration 0035_bee_purchases.sql been applied?')
+      } else {
+        setBeePurchases(((bees.data as Row[]) ?? []).map(toBeePurchase))
+      }
       setSalesLoading(false)
     })()
 
@@ -700,6 +734,94 @@ export function useSalesSupabase(): SalesSlice {
     return { ok: true }
   }, [])
 
+  const refreshBees = useCallback(async () => {
+    if (!supabase) return
+    const r = await supabase.from('bee_purchases').select('*').order('purchase_date', { ascending: false })
+    if (!r.error) setBeePurchases(((r.data as Row[]) ?? []).map(toBeePurchase))
+  }, [])
+
+  const addBeePurchase = useCallback(
+    async (input: Partial<BeePurchase>) => {
+      if (!supabase) return { ok: false, error: 'Not connected' }
+      const date = input.date ?? new Date().toISOString().slice(0, 10)
+      const { data, error } = await supabase
+        .from('bee_purchases')
+        .insert({
+          // Hand-entered history. The sync only ever touches 'quickbooks' rows,
+          // so nothing here is at risk of being overwritten next Monday.
+          source: 'manual',
+          purchase_date: date,
+          vendor: input.vendor ?? '',
+          description: input.description ?? '',
+          gallons: input.gallons ?? null,
+          amount: input.amount ?? 0,
+          currency: input.currency ?? 'CAD',
+          season: input.season ?? seasonOf(date),
+          notes: input.notes ?? '',
+        })
+        .select('id')
+        .single()
+      if (error) return { ok: false, error: error.message }
+      await refreshBees()
+      return { ok: true, id: (data as { id: string }).id }
+    },
+    [refreshBees],
+  )
+
+  const saveBeePurchase = useCallback(
+    async (id: string, patch: Partial<BeePurchase>): Promise<SalesResult> => {
+      if (!supabase) return { ok: false, error: 'Not connected' }
+      const row: Record<string, unknown> = {}
+      if (patch.date !== undefined) row.purchase_date = patch.date
+      if (patch.vendor !== undefined) row.vendor = patch.vendor
+      if (patch.description !== undefined) row.description = patch.description
+      if (patch.gallons !== undefined) row.gallons = patch.gallons
+      if (patch.amount !== undefined) row.amount = patch.amount
+      if (patch.currency !== undefined) row.currency = patch.currency
+      if (patch.season !== undefined) row.season = patch.season
+      if (patch.notes !== undefined) row.notes = patch.notes
+      const { error } = await supabase.from('bee_purchases').update(row).eq('id', id)
+      if (error) return { ok: false, error: error.message }
+      await refreshBees()
+      return { ok: true }
+    },
+    [refreshBees],
+  )
+
+  const deleteBeePurchase = useCallback(
+    async (id: string): Promise<SalesResult> => {
+      if (!supabase) return { ok: false, error: 'Not connected' }
+      const { error } = await supabase.from('bee_purchases').delete().eq('id', id)
+      if (error) return { ok: false, error: error.message }
+      await refreshBees()
+      return { ok: true }
+    },
+    [refreshBees],
+  )
+
+  const syncBeePurchases = useCallback(
+    async (season?: number) => {
+      if (!supabase) return { ok: false, error: 'Not connected' }
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) return { ok: false, error: 'Sign in again' }
+      try {
+        const res = await fetch('/.netlify/functions/qbo-purchases', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ season }),
+        })
+        const out = await res.json().catch(() => ({}))
+        if (!res.ok) return { ok: false, error: out.error ?? `Sync failed (${res.status})` }
+        await refreshBees()
+        return { ok: true, ...out }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'Sync failed' }
+      }
+    },
+    [refreshBees],
+  )
+
   return useMemo<SalesSlice>(
     () => ({
       products,
@@ -712,6 +834,11 @@ export function useSalesSupabase(): SalesSlice {
       stockMovements,
       salesLoading,
       loadSales,
+      beePurchases,
+      addBeePurchase,
+      saveBeePurchase,
+      deleteBeePurchase,
+      syncBeePurchases,
       saveProduct,
       saveSalesCustomer,
       addSalesCustomer,
@@ -727,6 +854,7 @@ export function useSalesSupabase(): SalesSlice {
     [
       products, itemSpecs, salesCustomers, suppliers, salesOrders, shipments, inventory,
       stockMovements, salesLoading, loadSales, saveProduct, saveSalesCustomer, addSalesCustomer,
+      beePurchases, addBeePurchase, saveBeePurchase, deleteBeePurchase, syncBeePurchases,
       createOrder, saveOrder, deleteOrder, convertEstimateToInvoice, markShipped, adjustStock,
       setReorderPoint, saveItemSpec,
     ],

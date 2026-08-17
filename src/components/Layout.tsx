@@ -121,6 +121,7 @@ const NAV: NavItem[] = [
       { to: '/sales/inventory', label: 'Inventory' },
       { to: '/sales/products', label: 'Products' },
       { to: '/sales/customers', label: 'Customers' },
+      { to: '/sales/bees', label: 'Bee purchases' },
       { to: '/sales/quickbooks', label: 'QuickBooks' },
     ],
   },

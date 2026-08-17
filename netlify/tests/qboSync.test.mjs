@@ -13,8 +13,9 @@ import { MAPPING_FIELDS } from '../functions/qbo-sync.mjs'
  * exact contents are pinned here rather than merely spot-checked.
  */
 describe('MAPPING_FIELDS', () => {
-  it('is exactly the four operator choices', () => {
+  it('is exactly the operator choices, and nothing else', () => {
     expect([...MAPPING_FIELDS].sort()).toEqual([
+      'bee_expense_account_id',
       'default_tax_code_id',
       'exempt_tax_code_id',
       'income_account_id',

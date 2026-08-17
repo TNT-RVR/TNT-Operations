@@ -339,16 +339,23 @@ async function readOptions(conn) {
     }
   }
 
-  const [taxes, accounts, items] = await Promise.all([
+  const [taxes, accounts, items, expenses] = await Promise.all([
     ask('select Id, Name, Description from TaxCode maxresults 100'),
     ask("select Id, Name, AccountType from Account where AccountType = 'Income' maxresults 100"),
     ask("select Id, Name, Type from Item where Type = 'Service' maxresults 100"),
+    // For the bee-purchase account. Cost of Goods Sold as well as Expense:
+    // stock bought for resale is commonly posted to COGS, and which one a
+    // bookkeeper chose is not something this app should assume.
+    ask(
+      "select Id, Name, AccountType from Account where AccountType in ('Expense', 'Cost of Goods Sold') maxresults 200",
+    ),
   ])
 
   return {
     taxCodes: taxes?.QueryResponse?.TaxCode ?? [],
     incomeAccounts: accounts?.QueryResponse?.Account ?? [],
     serviceItems: items?.QueryResponse?.Item ?? [],
+    expenseAccounts: expenses?.QueryResponse?.Account ?? [],
     // One message is enough — three copies of the same 403 is noise.
     optionsError: errors[0] ?? '',
   }
@@ -367,6 +374,10 @@ export const MAPPING_FIELDS = new Set([
   'shipping_item_id',
   'default_tax_code_id',
   'exempt_tax_code_id',
+  // Which expense account holds bee larvae purchases. The app will not guess:
+  // expense accounts are numerous and similarly named, and syncing the wrong
+  // one gives a cost-per-gallon that looks plausible and is wrong.
+  'bee_expense_account_id',
 ])
 
 /**

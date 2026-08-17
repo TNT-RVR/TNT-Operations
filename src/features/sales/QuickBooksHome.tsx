@@ -26,6 +26,7 @@ interface QboStatus {
   exempt_tax_code_id: string | null
   shipping_item_id: string | null
   income_account_id: string | null
+  bee_expense_account_id: string | null
   connected: boolean
   expiring_soon: boolean
   connected_at: string
@@ -46,6 +47,7 @@ interface Options {
   taxCodes: Array<{ Id: string; Name: string }>
   incomeAccounts: Array<{ Id: string; Name: string }>
   serviceItems: Array<{ Id: string; Name: string }>
+  expenseAccounts: Array<{ Id: string; Name: string }>
   /** Why the lists are empty, when QuickBooks refused rather than returned none. */
   optionsError?: string
 }
@@ -362,6 +364,19 @@ export default function QuickBooksHome() {
                     >
                       <option value="">— select —</option>
                       {options.incomeAccounts.map((a) => (
+                        <option key={a.Id} value={a.Id}>{a.Name}</option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="block">
+                    <span className="label">Bee purchase account (expenses)</span>
+                    <Select
+                      value={status.bee_expense_account_id ?? ''}
+                      disabled={!isAdmin}
+                      onChange={(e) => void saveMapping('bee_expense_account_id', e.target.value)}
+                    >
+                      <option value="">— select —</option>
+                      {(options.expenseAccounts ?? []).map((a) => (
                         <option key={a.Id} value={a.Id}>{a.Name}</option>
                       ))}
                     </Select>

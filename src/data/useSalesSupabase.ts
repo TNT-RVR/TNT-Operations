@@ -806,7 +806,9 @@ function toBeePurchase(r: Row): BeePurchase {
       const token = data.session?.access_token
       if (!token) return { ok: false, error: 'Sign in again' }
       try {
-        const res = await fetch('/.netlify/functions/qbo-purchases', {
+        // NOT qbo-purchases: that one carries the weekly schedule, and Netlify
+        // answers 403 to any HTTP request for a scheduled function.
+        const res = await fetch('/.netlify/functions/qbo-purchases-now', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ season }),

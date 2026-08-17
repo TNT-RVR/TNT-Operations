@@ -1,8 +1,14 @@
 /**
  * Pull bee-larvae purchases out of QuickBooks, weekly.
  *
- *   scheduled, Mondays 15:00 UTC       → sync the current buying season
- *   POST { season?: number }           → sync one season on demand (editors)
+ *   scheduled, Mondays 15:00 UTC → sync the current buying season
+ *
+ * There is NO manual door here. Netlify refuses direct HTTP invocation of any
+ * function declaring a `schedule` — it answers 403 by design — so a "sync now"
+ * button pointed at this URL cannot work, however well it is authenticated.
+ * `qbo-purchases-now.mjs` is that door: no schedule, imports `syncSeason` from
+ * here, and returns the result so the button can report it. Same rule and same
+ * shape as poll-govee/poll-now.
  *
  * ── Why both Purchase and Bill ───────────────────────────────────────────────
  *
@@ -28,7 +34,7 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 /** Season a date belongs to. Mirrors `seasonOf` in src/domain/beePurchases.ts. */
-function seasonOf(isoDate) {
+export function seasonOf(isoDate) {
   const [y, m] = String(isoDate).split('-').map(Number)
   return m >= 6 ? y + 1 : y
 }
@@ -92,7 +98,7 @@ async function linesForAccount(conn, accountId, from, to) {
   return out
 }
 
-async function syncSeason(conn, season) {
+export async function syncSeason(conn, season) {
   if (!conn.bee_expense_account_id) {
     throw new Error('No bee purchase account chosen — set it in the QuickBooks settings first.')
   }
@@ -131,44 +137,15 @@ async function syncSeason(conn, season) {
   }
 }
 
-/** Editors only, verified server-side — the browser cannot assert its own role. */
-async function requireEditor(req) {
-  const { url, key } = env()
-  const jwt = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
-  if (!jwt) return { error: 'Sign in first', status: 401 }
-  const me = await fetch(`${url}/auth/v1/user`, { headers: { apikey: key, Authorization: `Bearer ${jwt}` } })
-    .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null)
-  if (!me?.id) return { error: 'Your session is invalid — sign in again', status: 401 }
-  const prof = await fetch(`${url}/rest/v1/profiles?id=eq.${me.id}&select=role`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}` },
-  })
-    .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null)
-  if (!['admin', 'developer', 'operator'].includes(prof?.[0]?.role)) return { error: 'Not allowed', status: 403 }
-  return { userId: me.id }
-}
-
 export default async (req) => {
   const { missing } = env()
   if (missing.length) return json({ error: `Not configured. Missing: ${missing.join(', ')}` }, 501)
-
-  // A POST is a person asking; anything else is the schedule.
-  const byHand = req.method === 'POST'
-  if (byHand) {
-    const auth = await requireEditor(req)
-    if (auth.error) return json({ error: auth.error }, auth.status)
-  }
 
   const conn = await getConnection()
   if (!conn) return json({ error: `QuickBooks is not connected (${activeEnvironment()})` }, 409)
   if (conn.disconnected_at) return json({ error: 'QuickBooks is disconnected — reconnect it' }, 409)
 
-  let season = seasonOf(new Date().toISOString().slice(0, 10))
-  if (byHand) {
-    const body = await req.json().catch(() => ({}))
-    if (Number.isFinite(Number(body?.season))) season = Number(body.season)
-  }
+  const season = seasonOf(new Date().toISOString().slice(0, 10))
 
   try {
     const result = await syncSeason(conn, season)

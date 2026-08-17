@@ -84,7 +84,16 @@ alter table public.qbo_connection
 
 -- Surface it through the status view, which is how the settings screen reads
 -- configuration. Tokens stay invisible; see 0017.
-create or replace view public.qbo_status
+--
+-- DROP first, not `create or replace`. Replace can only APPEND columns to a
+-- view — inserting one in the middle is renaming every column after it, and
+-- Postgres refuses with 42P16 ("cannot change name of view column"). Adding the
+-- new column at the end instead would work, but would leave the view's column
+-- order drifting from the table's for no reason. Nothing depends on this view
+-- except the app's own reads, and the grants are re-applied below.
+drop view if exists public.qbo_status;
+
+create view public.qbo_status
 with (security_invoker = false) as
 select
   realm_id,

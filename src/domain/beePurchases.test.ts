@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  activeSeason,
   bySeason,
   parseGallons,
   priceChange,
@@ -175,5 +176,33 @@ describe('priceChange', () => {
   it('says nothing when there is nothing to compare', () => {
     expect(priceChange([line({ season: 2026 })])).toBeNull()
     expect(priceChange([])).toBeNull()
+  })
+})
+
+describe('the June boundary, which has caused real confusion', () => {
+  it('names a season whose buying has NOT started, for half the year', () => {
+    // This is not a bug in seasonOf — it is the correct answer, and the trap.
+    // In August 2026 the "current" season is 2027, whose December has not
+    // arrived. A sync that reads only the current season finds an empty window
+    // and reports "0 lines", which looks like a broken integration.
+    expect(seasonOf('2026-08-17')).toBe(2027)
+    const { from, to } = seasonRange(2027)
+    expect(from).toBe('2026-06-01')
+    expect(to).toBe('2027-05-31')
+  })
+
+  it('the season with buying in it is the PREVIOUS one, June to November', () => {
+    // What the "Sync now" default has to pick, and what the weekly run has to
+    // cover in addition to the current one.
+    expect(activeSeason('2026-08-17')).toBe(2026) // August → last winter's run
+    expect(activeSeason('2026-11-30')).toBe(2026)
+    expect(activeSeason('2026-12-01')).toBe(2027) // buying starts
+    expect(activeSeason('2027-03-15')).toBe(2027)
+    expect(activeSeason('2027-05-31')).toBe(2027)
+  })
+
+  it('a December purchase lands in the season that ends the following May', () => {
+    const { from, to } = seasonRange(seasonOf('2025-12-18'))
+    expect(from <= '2025-12-18' && '2025-12-18' <= to).toBe(true)
   })
 })

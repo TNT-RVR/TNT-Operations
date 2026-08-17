@@ -11,8 +11,16 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import { Badge, Button, EmptyState, Input, Modal, Stat } from '@/components/ui'
-import { bySeason, priceChange, pricePerGallonSeries, seasonOf, totalsFor, type BeePurchase } from '@/domain/beePurchases'
+import { Badge, Button, EmptyState, Input, Modal, Select, Stat } from '@/components/ui'
+import {
+  activeSeason,
+  bySeason,
+  priceChange,
+  pricePerGallonSeries,
+  seasonOf,
+  totalsFor,
+  type BeePurchase,
+} from '@/domain/beePurchases'
 import { AXIS_PROPS, GRID_PROPS, TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE, seriesColor } from '@/features/analysis/chartTheme'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
 
@@ -25,6 +33,16 @@ export default function BeePurchases() {
 
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState('')
+  /**
+   * Which season to pull.
+   *
+   * Defaults to the season with buying in it, NOT the calendar-current one. A
+   * season is named for the year it ends in, so from June to November
+   * `seasonOf(today)` names a season whose December has not arrived — pulling
+   * it reads an empty window and reports "0 lines", which looks like a broken
+   * integration rather than an empty one.
+   */
+  const [pullSeason, setPullSeason] = useState(() => activeSeason(new Date().toISOString().slice(0, 10)))
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
@@ -38,12 +56,18 @@ export default function BeePurchases() {
     setBusy('sync')
     setError('')
     setMsg('')
-    const r = await syncBeePurchases()
+    const r = await syncBeePurchases(pullSeason)
     setBusy('')
     if (!r.ok) return setError(r.error ?? 'Could not sync.')
+    const n = r.lines ?? 0
     setMsg(
-      `Synced ${r.lines ?? 0} line${r.lines === 1 ? '' : 's'}` +
-        (r.linesWithoutGallons ? ` — ${r.linesWithoutGallons} with no gallons in the description.` : '.'),
+      n === 0
+        ? // Naming the season is the whole point: "Synced 0 lines" gave no clue
+          // that the window being read was one with no buying in it yet.
+          `Season ${pullSeason} (June ${pullSeason - 1} – May ${pullSeason}) had no lines in that QuickBooks account. ` +
+          `Check the account mapping, or pick a different season.`
+        : `Season ${pullSeason}: synced ${n} line${n === 1 ? '' : 's'}` +
+          (r.linesWithoutGallons ? ` — ${r.linesWithoutGallons} with no gallons in the description.` : '.'),
     )
   }
 
@@ -54,6 +78,20 @@ export default function BeePurchases() {
       actions={
         canEdit ? (
           <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-2 text-xs text-muted">
+              Season
+              <Select
+                className="w-24"
+                value={String(pullSeason)}
+                onChange={(e) => setPullSeason(Number(e.target.value))}
+              >
+                {Array.from({ length: 8 }, (_, i) => seasonOf(new Date().toISOString().slice(0, 10)) - i).map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </Select>
+            </label>
             <Button variant="ghost" onClick={sync} disabled={!!busy}>
               <RefreshCw size={16} /> {busy === 'sync' ? 'Syncing…' : 'Sync now'}
             </Button>

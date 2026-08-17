@@ -145,19 +145,46 @@ export default async (req) => {
   if (!conn) return json({ error: `QuickBooks is not connected (${activeEnvironment()})` }, 409)
   if (conn.disconnected_at) return json({ error: 'QuickBooks is disconnected — reconnect it' }, 409)
 
-  const season = seasonOf(new Date().toISOString().slice(0, 10))
+  /*
+   * TWO seasons, not one.
+   *
+   * Buying runs December to May, and a season is named for the year it ends
+   * in — so from June to November the "current" season is one whose buying has
+   * not begun. A run in August syncing only the current season reads an empty
+   * window and reports 0 lines every week, which is exactly what it did.
+   *
+   * Worse, it would never look at the season that just finished again, so a
+   * bill entered late — and they are, after the season, when the invoices land
+   * — would never be picked up at all.
+   *
+   * Syncing the previous season too costs one extra query a week and closes
+   * both holes. Upserting on the QuickBooks line id makes re-reading a settled
+   * season free of consequence.
+   */
+  const today = new Date().toISOString().slice(0, 10)
+  const month = Number(today.slice(5, 7))
+  // Mirrors `activeSeason` in src/domain/beePurchases.ts. December is ≥ 6 but
+  // STARTS a season, so the dead window is June THROUGH November, not "from
+  // June" — getting that wrong points the sync a whole year off.
+  const named = seasonOf(today)
+  const active = month >= 6 && month <= 11 ? named - 1 : named
+  // The active season, and the one before it: late bills land after a season
+  // closes, and nothing would ever look at it again otherwise.
+  const seasons = [...new Set([active, active - 1])]
 
   try {
-    const result = await syncSeason(conn, season)
+    const results = []
+    for (const season of seasons) results.push(await syncSeason(conn, season))
+    const total = results.reduce((n, r) => n + r.lines, 0)
     await logSync({
       realmId: conn.realm_id,
       entityType: 'bee-purchases',
       action: 'read',
       ok: true,
-      message: `season ${result.season}: ${result.lines} lines, ${result.gallons} gal`,
+      message: results.map((r) => `season ${r.season}: ${r.lines} lines, ${r.gallons} gal`).join('; '),
     })
-    console.log('[qbo-purchases]', JSON.stringify(result))
-    return json({ ok: true, ...result }, 200)
+    console.log('[qbo-purchases]', JSON.stringify(results))
+    return json({ ok: true, seasons: results, lines: total }, 200)
   } catch (e) {
     await logSync({
       realmId: conn.realm_id,

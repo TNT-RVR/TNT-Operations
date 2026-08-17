@@ -92,6 +92,25 @@ export function seasonOf(isoDate: string): number {
   return m >= 6 ? y + 1 : y
 }
 
+/**
+ * The season that currently has buying in it.
+ *
+ * Distinct from `seasonOf(today)`, and the difference matters for half the
+ * year. Buying runs December to May, so between JUNE and NOVEMBER the season
+ * named by today's date is one whose December has not arrived — reading it
+ * finds an empty window and reports "0 lines", which reads as a broken
+ * integration rather than an empty one.
+ *
+ * December is the trap inside the trap: month 12 is ≥ 6, but it is the START of
+ * a season, not the dead months after one. The window is June THROUGH November,
+ * not "from June".
+ */
+export function activeSeason(isoDate: string): number {
+  const month = Number(String(isoDate).slice(5, 7))
+  const named = seasonOf(isoDate)
+  return month >= 6 && month <= 11 ? named - 1 : named
+}
+
 /** First and last date that fall in a season, inclusive. */
 export function seasonRange(season: number): { from: string; to: string } {
   return { from: `${season - 1}-06-01`, to: `${season}-05-31` }

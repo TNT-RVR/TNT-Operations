@@ -169,22 +169,25 @@ export default function QuickBooksHome() {
     await load()
   }
 
+  /**
+   * Save one mapping, through the function that holds the service role.
+   *
+   * NOT a direct supabase.from('qbo_connection').update(): that table is
+   * deny-all by design because it holds the OAuth tokens, and the update did
+   * not fail — PostgREST reported success having matched zero rows. Combined
+   * with an optimistic local update, every choice looked saved and was gone on
+   * the next page load.
+   *
+   * So the state shown afterwards is RE-READ rather than assumed. If a write
+   * ever silently does nothing again, the select visibly snaps back instead of
+   * lying until you navigate away.
+   */
   const saveMapping = async (field: keyof QboStatus, value: string) => {
-    if (!supabase || !status) return
-    // Writes go through the view's base table via the functions elsewhere, but
-    // these four are plain config and the admin can set them directly.
-    const { error: e } = await supabase
-      .from('qbo_connection')
-      .update({ [field]: value || null })
-      .eq('realm_id', status.realm_id)
-    if (e) {
-      setError(
-        `${e.message} — the connection row is service-role only by design; ` +
-          'set these from an admin account or add a targeted policy.',
-      )
-      return
-    }
-    setStatus({ ...status, [field]: value || null })
+    if (!status) return
+    setError('')
+    const r = await callFn('qbo-sync', { action: 'set-mapping', field, value })
+    if (!r.ok) return setError(r.error ?? 'Could not save that mapping.')
+    await load()
   }
 
   const run = async (action: string, label: string) => {

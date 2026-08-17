@@ -354,6 +354,41 @@ async function readOptions(conn) {
   }
 }
 
+/**
+ * The four operator choices, and the ONLY columns this endpoint may write.
+ *
+ * A whitelist rather than a filter: qbo_connection also holds the access and
+ * refresh tokens, the realm and the environment. Passing a caller-supplied
+ * column name straight through would let any editor rewrite a credential or
+ * repoint the connection at another company.
+ */
+export const MAPPING_FIELDS = new Set([
+  'income_account_id',
+  'shipping_item_id',
+  'default_tax_code_id',
+  'exempt_tax_code_id',
+])
+
+/**
+ * Save one mapping.
+ *
+ * This has to run here, with the service role. `qbo_connection` has RLS on with
+ * no policy at all — deny everything, including admins — because it holds the
+ * OAuth tokens. The settings screen used to UPDATE it directly from the
+ * browser, which does not error: PostgREST reports success having matched zero
+ * rows, so the value appeared to save and was gone on the next page load.
+ */
+async function setMapping(conn, field, value) {
+  if (!MAPPING_FIELDS.has(field)) throw new Error(`"${field}" is not a mapping field`)
+  await db().write(
+    'PATCH',
+    `qbo_connection?realm_id=eq.${encodeURIComponent(conn.realm_id)}`,
+    { [field]: value || null },
+    'return=minimal',
+  )
+  return { field, value: value || null }
+}
+
 export default async (req) => {
   const { missing } = env()
   if (missing.length) return json({ error: `Not configured. Missing: ${missing.join(', ')}` }, 501)
@@ -391,6 +426,9 @@ export default async (req) => {
         break
       case 'refresh-config':
         result = await refreshConfig(conn)
+        break
+      case 'set-mapping':
+        result = await setMapping(conn, body?.field, body?.value)
         break
       case 'options':
         result = await readOptions(conn)

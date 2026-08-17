@@ -32,8 +32,25 @@ import {
   getConnection,
 } from './lib/gcal.mjs'
 
-/** Hourly. Milestones move in days, so anything faster is wasted quota. */
-export const config = { schedule: '17 * * * *' }
+/**
+ * NOT SCHEDULED, deliberately.
+ *
+ * This ran hourly ('17 * * * *') against `gcal_connection` — a table migration
+ * 0024 creates and which was never applied. `enabledConnections()` therefore
+ * threw, outside any try, so the function 500ed every hour of every day. A
+ * failed scheduled function is silent: nothing alerts, and the only trace is in
+ * Netlify's logs.
+ *
+ * The two-way sync also has no UI — Settings offers the read-only ICS feed
+ * (`calendar-feed`, which works and is unaffected) and no way to connect a
+ * Google account at all. So the schedule was burning a slot for a feature
+ * nobody could reach.
+ *
+ * The function still works when POSTed to, so finishing the feature means
+ * applying 0024, building the connect flow, and restoring this line:
+ *
+ *   export const config = { schedule: '17 * * * *' }
+ */
 
 const json = (body, status) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -177,7 +194,16 @@ export default async (req) => {
     }
   }
 
-  const conns = await enabledConnections()
+  // Tolerated rather than thrown: if 0024 has not been applied this table does
+  // not exist, and an unhandled throw here is what made the old schedule fail
+  // silently every hour instead of saying anything useful.
+  let conns = []
+  try {
+    conns = await enabledConnections()
+  } catch (e) {
+    console.warn('[gcal-sync] could not read connections:', e.message)
+    return json({ ok: false, error: `Google Calendar is not set up: ${e.message}` }, 501)
+  }
   const results = []
   for (const conn of conns) {
     try {

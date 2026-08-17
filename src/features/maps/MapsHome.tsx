@@ -223,6 +223,8 @@ export default function MapsHome() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   /** Number / tray-count labels drawn beside each planned pin. */
   const labelMarkersRef = useRef<maplibregl.Marker[]>([])
+  /** The parcel name drawn by an LLD search — see the lookup effect. */
+  const lldLabelRef = useRef<maplibregl.Marker[]>([])
   /** Planter pass numbers at each headland. */
   const passLabelMarkersRef = useRef<maplibregl.Marker[]>([])
   /** The distance readout at the midpoint of a measurement. */
@@ -388,20 +390,31 @@ export default function MapsHome() {
           'line-dasharray': [2, 1.5],
         },
       })
-      map.addLayer({
-        id: 'lld-lookup-label',
-        type: 'symbol',
-        source: 'lld-lookup',
-        filter: ['==', ['get', 'kind'], 'section'],
-        layout: {
-          'text-field': ['get', 'label'],
-          'text-size': 13,
-          'text-offset': [0, -0.6],
-          'text-anchor': 'bottom',
-        },
-        paint: { 'text-color': '#FEB836', 'text-halo-color': '#000000', 'text-halo-width': 1.4 },
-      })
     }
+
+    /*
+     * The parcel name, as a DOM marker rather than a symbol layer.
+     *
+     * SATELLITE_STYLE has no `glyphs` URL, and MapLibre cannot render
+     * `text-field` without one — it does not throw, it draws nothing. So the
+     * label this search exists to show was invisible from the day it was
+     * written. Every other label on this map is a DOM marker for the same
+     * reason; this was the last one left behind.
+     */
+    lldLabelRef.current.forEach((m) => m.remove())
+    lldLabelRef.current = []
+    const centre = lldLookup.section.bounds
+    const el = document.createElement('div')
+    el.textContent = lldLookup.label
+    el.style.cssText =
+      'font-size:13px;line-height:1;white-space:nowrap;color:#FEB836;font-weight:700;' +
+      'text-shadow:0 0 3px #000,0 0 2px #000,0 1px 2px rgba(0,0,0,.9);' +
+      'pointer-events:none'
+    lldLabelRef.current.push(
+      new maplibregl.Marker({ element: el })
+        .setLngLat([(centre.west + centre.east) / 2, centre.north])
+        .addTo(map),
+    )
 
     const b = lldLookup.section.bounds
     map.fitBounds(

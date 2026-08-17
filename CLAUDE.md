@@ -77,7 +77,7 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   don't collide. Never DROP/ALTER the old app's tables (crews/scans/fields/…).
 
 ## Migration status (porting the two Python apps)
-_Last reviewed 2026-08-03._
+_Last reviewed 2026-08-17._
 
 - [x] Phase 1 — scaffold, auth/roles, data seam, section shells. (The original
       light honey/green design system was REPLACED by the dark-first, token-driven
@@ -380,7 +380,7 @@ _Last reviewed 2026-08-03._
 ## Dev
 - `npm run dev` — runs on mock data, no backend needed.
 - `npm run typecheck && npm test && npm run build` — keep this green before pushing.
-  (393 tests green as of 2026-08-05.)
+  (1300 tests green as of 2026-08-17.)
 - `npm test` — Vitest: domain math (`tentGrid`, `geo`, `incubation`, `cost`,
   `crewRoute`, `shelterOverrides`, `fieldWarnings`, `grants`, `stats`,
   `weather`, `analysisImport`, `analysisRelations`), row mappers, the
@@ -388,9 +388,22 @@ _Last reviewed 2026-08-03._
 - `npm run lint:tokens` — fails on raw hex outside the token layer (see Hard rules).
 
 ## Known gaps / next up
-- **Perf:** `SupabaseProvider` hydrates a lot on mount (~16k sensor readings and
-  ~4.6k trays, the latter paged past PostgREST's 1000-row cap). Needs real
-  pagination/windowing before it feels right on the live site.
+- ~~**Perf:** `SupabaseProvider` hydrates ~16k readings and ~4.6k trays on
+  mount~~ — FIXED, and the note was stale enough to send someone optimising
+  finished work. Readings are fetched PER INCUBATOR at `limit 20` (a single
+  global "recent" query only covers whichever incubators logged last, so every
+  card would not get its latest reading); trays load lazily via `loadTrays()`,
+  guarded by a promise ref, and only from screens that need them.
+- **Google Calendar two-way sync is half-built:** migration `0024` is NOT
+  applied (`gcal_connection` / `gcal_synced_events` do not exist), and there is
+  no UI to connect an account. `gcal-sync` was scheduled hourly against those
+  tables and 500ed every hour in silence; its schedule is now REMOVED and the
+  function returns 501 rather than throwing. The read-only ICS feed
+  (`calendar-feed`) is a different thing, is applied, and works.
+- **react-router has two moderate advisories** that need a v7 major upgrade.
+  The issue is SSR hydration (`deserializeErrors()`) and this app is
+  client-only with no SSR, so the real exposure is nil — deliberately deferred
+  rather than forced.
 - The `alerts` table (from the old app) is populated but not surfaced in the UI —
   distinct from the new `app_notifications` system.
 - VOC subsystem (`voc_runs` / `voc_readings` / `voc_alert_events`) has data and

@@ -69,21 +69,19 @@ describe('map layer registration order', () => {
  * is how the shelter pin numbers looked like a feature nobody had built.
  *
  * Text is therefore drawn as DOM markers instead (see the pin labels in
- * MapsHome, and the field names in Field Mode). This test does not ban the
- * pattern outright, because one layer still uses it and is correspondingly
- * invisible — the parcel name on an LLD search. It pins that list so another
- * cannot be added by accident.
+ * MapsHome, and the field names in Field Mode). The last exception — the parcel
+ * name on an LLD search, invisible from the day it was written — is now a
+ * marker too, so the pattern is banned outright: any text layer here renders
+ * nothing, and a test that merely tolerated a list of them would let the next
+ * one through.
  */
 describe('text layers need glyphs, which this style has none of', () => {
-  /** Layers with a text-field that are known to render nothing today. */
-  const KNOWN_DEAD = ['lld-lookup-label']
-
   it('the style still declares no glyphs — the reason for all this', () => {
     const style = readFileSync(resolve(__dirname, 'basemap.ts'), 'utf8')
     expect(style).not.toMatch(/\bglyphs\s*:/)
   })
 
-  it('no NEW text layer has been added', () => {
+  it('no text layer exists at all', () => {
     const src = readFileSync(resolve(__dirname, 'MapsHome.tsx'), 'utf8')
     const withText: string[] = []
     for (const m of src.matchAll(/addLayer\(\s*\{([\s\S]{0,700}?)\}\s*\)/g)) {
@@ -91,7 +89,7 @@ describe('text layers need glyphs, which this style has none of', () => {
       if (!/'text-field'/.test(body)) continue
       withText.push(/id:\s*'([^']+)'/.exec(body)?.[1] ?? '(unnamed)')
     }
-    // Adding to this list means shipping something invisible. Draw a marker.
-    expect(withText.sort()).toEqual([...KNOWN_DEAD].sort())
+    // A text layer here renders NOTHING. Draw a DOM marker instead.
+    expect(withText, `these would be invisible: ${withText.join(', ')}`).toEqual([])
   })
 })

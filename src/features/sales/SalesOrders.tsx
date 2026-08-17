@@ -14,6 +14,10 @@ import { BookUp, FileText, Package, Plus, Trash2, Truck } from 'lucide-react'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
 import { lineFromProduct, useOrderComputed } from './useOrderPricing'
 import { DocumentsModal } from './SalesDocuments'
+import { NewCustomerModal } from './NewCustomerModal'
+
+/** Sentinel value for the "add new customer" option — never a real customer id. */
+const NEW_CUSTOMER = '__new_customer__'
 import { callQboFn } from './QuickBooksHome'
 
 const STATUS_TONE: Record<string, 'neutral' | 'green' | 'amber' | 'red'> = {
@@ -131,6 +135,7 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
   const [addSku, setAddSku] = useState('')
   const [addQty, setAddQty] = useState('1')
   const [busy, setBusy] = useState('')
+  const [addingCustomer, setAddingCustomer] = useState(false)
 
   const patch = (p: Partial<SalesOrder>) => void saveOrder(order.id, p)
   const setLines = (lines: SalesOrderLine[]) => void saveOrder(order.id, {}, lines)
@@ -181,7 +186,13 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
             <span className="label">Customer</span>
             <Select
               value={order.customerId ?? ''}
-              onChange={(e) => patch({ customerId: e.target.value || null })}
+              onChange={(e) => {
+                // The sentinel is an action, not a value — opening the modal
+                // without patching leaves the select showing whatever was
+                // chosen before, so cancelling changes nothing.
+                if (e.target.value === NEW_CUSTOMER) return setAddingCustomer(true)
+                patch({ customerId: e.target.value || null })
+              }}
               disabled={!canEdit}
             >
               <option value="">— select —</option>
@@ -190,6 +201,7 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
                   {c.company || c.contactName} {c.country !== 'CA' ? `(${c.country})` : ''}
                 </option>
               ))}
+              {canEdit && <option value={NEW_CUSTOMER}>+ Add new customer…</option>}
             </Select>
           </label>
           <label className="block">
@@ -374,6 +386,19 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
       </div>
 
       {showDocs && <DocumentsModal order={order} computed={computed} onClose={() => setShowDocs(false)} />}
+
+      {addingCustomer && (
+        <NewCustomerModal
+          onClose={() => setAddingCustomer(false)}
+          onCreated={(id) => {
+            // Select it immediately, from the id the create returned. Looking
+            // the new row up in `salesCustomers` instead would read the array
+            // captured by this render, which does not have it yet.
+            patch({ customerId: id })
+            setAddingCustomer(false)
+          }}
+        />
+      )}
     </Modal>
   )
 }
@@ -439,7 +464,9 @@ function ChargesEditor({
         <div className="flex flex-wrap items-end gap-2">
           <label className="block min-w-40 flex-1">
             <span className="label">Charge</span>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Freight to border" />
+            {/* Not "Freight to border": most invoices never cross one. The
+                CI1-box-23 flag below still detects freight from the wording. */}
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Freight" />
           </label>
           <label className="block w-32">
             <span className="label">Amount</span>

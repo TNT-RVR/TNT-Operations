@@ -15,6 +15,7 @@ import type { Product, ProductPart, SalesCustomer } from '@/data/types'
 import { priceUnit, pricingWarnings } from '@/domain/pricing'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
 import { toProductSpec } from './useOrderPricing'
+import { NewCustomerModal } from './NewCustomerModal'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Products
@@ -464,10 +465,11 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function CustomersHome() {
-  const { salesCustomers, addSalesCustomer, saveSalesCustomer } = useData()
+  const { salesCustomers, saveSalesCustomer } = useData()
   const s = useSession()
   const canEdit = s.can('sales', 'edit')
   const [open, setOpen] = useState<SalesCustomer | null>(null)
+  const [adding, setAdding] = useState(false)
 
   return (
     <SalesChrome
@@ -475,12 +477,11 @@ export function CustomersHome() {
       subtitle="Who you sell to. A US address needs an EIN before its paperwork will clear."
       actions={
         canEdit ? (
-          <Button
-            onClick={async () => {
-              const r = await addSalesCustomer({ company: 'New customer' })
-              if (r.ok && r.id) setOpen(salesCustomers.find((c) => c.id === r.id) ?? null)
-            }}
-          >
+          // Was: create a row called "New customer", then look it up in
+          // `salesCustomers` — an array captured before the create, so the
+          // lookup missed and the editor silently did not open, leaving the
+          // junk row behind. The shared modal collects first and saves once.
+          <Button onClick={() => setAdding(true)}>
             <Plus size={16} /> Add customer
           </Button>
         ) : undefined
@@ -523,6 +524,8 @@ export function CustomersHome() {
           </table>
         </div>
       )}
+
+      {adding && <NewCustomerModal onClose={() => setAdding(false)} onCreated={() => setAdding(false)} />}
 
       {open && (
         <Modal title={open.company || open.contactName} onClose={() => setOpen(null)}>

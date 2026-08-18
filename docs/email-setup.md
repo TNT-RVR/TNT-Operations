@@ -16,21 +16,29 @@ built-in sender, with their default templates. Two consequences:
 After this runbook: mail from your own domain, DKIM-signed, carrying the mark,
 with a rate limit you set.
 
-_Time: about an hour, most of it waiting on DNS. Cost: $0 at TNT's volume._
+_Time: about 45 minutes, most of it waiting on DNS. Cost: $0 at TNT's volume._
 
 ---
 
 ## What was decided, and why
 
-**Send from a subdomain — `mail.tntpollination.com`, not the root.** The root
-domain carries your real correspondence with growers. Keeping the app's
-automated mail on its own subdomain means its sending reputation is separate,
-and the SPF record on the root (your Workspace mail) is never touched. This is
-the standard split, and it is much easier to do now than to unpick later.
+**SendGrid as the provider — because DNS for `tntpollination.com` is at Wix.**
+Wix cannot create MX records on a subdomain. Resend was the first choice and had
+to be abandoned for exactly that: it requires an MX record on a return-path
+subdomain for bounce processing, so its domain verification can never complete
+while Wix holds DNS. SendGrid's default **Automated Security** setup uses three
+CNAME records and no MX at all, which fits inside Wix's limits.
 
-**Resend as the provider.** Free tier is 3,000 messages/month, 100/day — TNT
-sends a few dozen a year. Postmark or SES would work equally well; Resend is
-the fastest to stand up and gives SMTP credentials Supabase can use directly.
+Do not re-try Resend without first moving DNS somewhere else. Postmark (DKIM
+TXT + return-path CNAME) is the other option that works on Wix, and is worth
+paying for if deliverability ever becomes a problem.
+
+**Authenticate the root domain, not a `mail.` subdomain.** With Automated
+Security, SendGrid delegates SPF and DKIM through CNAMEs pointing at their
+infrastructure — **nothing is added to the root's SPF TXT record**, so there is
+no conflict with the Workspace SPF already there. That was the whole reason for
+the subdomain plan, and CNAME delegation removes it. You get to send as
+`noreply@tntpollination.com`, which reads better than `noreply@mail.…`.
 
 **The templates are dark.** They match the app rather than the generic white
 email, and solid `bgcolor` on tables is one of the few things every client
@@ -39,51 +47,50 @@ for why the markup looks the way it does.
 
 ---
 
-## 1. Sending domain (~20 min, plus DNS propagation)
+## 1. Authenticate the domain (~20 min, plus DNS propagation)
 
-1. Create an account at **resend.com** and add the domain (Domains → Add Domain).
-   The form has more on it than you need:
+1. Create a **SendGrid** account (sendgrid.com — it is a Twilio product). The
+   free tier is 100 emails/day, against TNT's few dozen a year. Expect an
+   account-verification step before it will send.
+2. **Settings → Sender Authentication → Authenticate Your Domain.**
+   - DNS host: **Other Host (Not Listed)** — Wix is not in their list.
+   - Would you like to brand the links for this domain? **No.** (See the click
+     tracking note below.)
+   - Domain: **`tntpollination.com`**
+   - Leave **Automated Security** ON. That is what makes this three CNAMEs
+     instead of two TXT records and an MX — the MX being the thing Wix cannot do.
+3. SendGrid shows **three CNAME records**, of the shape:
 
-   | Field | Value | Why |
-   | --- | --- | --- |
-   | Name | `mail.tntpollination.com` | The **sending subdomain goes here**, not the root. |
-   | Region | North Virginia (us-east-1) | Default; fine. |
-   | Custom Return-Path | `send` | Default; leave it. |
-   | Enable click tracking | **off** | See below. |
-   | Enable open tracking | off | Default. |
-   | Tracking Subdomain | leave empty | Only used by tracking, which is off. |
+   | Host | Points to |
+   | --- | --- |
+   | `em####.tntpollination.com` | `u#####.wl###.sendgrid.net` |
+   | `s1._domainkey.tntpollination.com` | `s1.domainkey.u#####.wl###.sendgrid.net` |
+   | `s2._domainkey.tntpollination.com` | `s2.domainkey.u#####.wl###.sendgrid.net` |
 
-   **Turn click tracking OFF.** It rewrites every link so it passes through a
-   Resend tracking domain first. On marketing mail that is the point; on auth
-   mail it is actively harmful — corporate spam filters and link scanners
-   pre-visit URLs they find, and these links are **single-use**, so a scanner
-   can burn someone's invite or reset before they ever click it. The rewritten
-   hostname also makes a legitimate sign-in link look like phishing.
+   The numbers are yours — copy the exact values from the screen.
+4. In **Wix → Domains → Advanced → Edit DNS records**, add all three as **CNAME**
+   records. Wix supports CNAMEs on subdomains; it is only MX on a subdomain it
+   refuses.
+5. Back in SendGrid, click **Verify**. If it fails, wait — Wix can take an hour
+   to publish — and try again before changing anything.
+6. **Settings → Tracking → turn Click Tracking OFF** (and Open Tracking off).
+   This matters more than it looks: click tracking rewrites every link to pass
+   through SendGrid first, and corporate spam filters and link scanners
+   pre-visit URLs they find in mail. These links are **single-use**, so a
+   scanner can burn someone's invite or password reset before they ever click
+   it. The rewritten hostname also makes a legitimate sign-in link look like
+   phishing.
+7. **Settings → API Keys → Create API Key.** Restricted Access with **Mail
+   Send** only — nothing here needs more. It is shown once; put it somewhere
+   safe. It is the SMTP password in step 2.
+8. Optional but worth it: add a **DMARC** record if the domain has none — TXT at
+   `_dmarc.tntpollination.com`, value
+   `v=DMARC1; p=none; rua=mailto:tyler.torrie@tntpollination.com`. `p=none` only
+   monitors; it cannot cause mail to be rejected. If Workspace already put a
+   DMARC record there, leave it alone.
 
-   With tracking off, the Tracking Subdomain field is unused — clearing it
-   clears the validation error.
-
-   > **Why the subdomain rather than `tntpollination.com` itself:** a domain may
-   > only carry ONE SPF TXT record. The root already has one for Workspace, and
-   > adding a second silently breaks both — they would have to be merged into a
-   > single record with both includes. Sending from `mail.` keeps the two
-   > entirely separate, and keeps automated mail's reputation off the domain you
-   > write to growers from.
-
-2. Resend shows three or four DNS records. Add them **exactly as shown** at
-   whoever hosts DNS for `tntpollination.com`. They will be, in shape:
-   - an **MX** record on the sending subdomain (bounce handling),
-   - a **TXT** SPF record on the sending subdomain,
-   - a **TXT** DKIM record at `resend._domainkey.…`.
-3. Add a **DMARC** record if there isn't one — TXT at `_dmarc.tntpollination.com`,
-   value `v=DMARC1; p=none; rua=mailto:tyler.torrie@tntpollination.com`.
-   `p=none` only monitors; it cannot cause mail to be rejected.
-4. Wait for Resend to show the domain **Verified** (usually minutes).
-5. Create an **API key** (Full access). It is the SMTP password in step 2 and is
-   shown once — put it somewhere safe.
-
-> **Do not touch the MX record on the root domain.** That is Workspace mail. The
-> records above all live on the `mail.` subdomain or on `_dmarc`.
+> **Do not touch the MX records on the root domain.** Those are Workspace mail.
+> Everything above is CNAMEs on subdomains, plus one optional `_dmarc` TXT.
 
 ---
 
@@ -94,16 +101,19 @@ enable custom SMTP:
 
 | Field | Value |
 | --- | --- |
-| Host | `smtp.resend.com` |
+| Host | `smtp.sendgrid.net` |
 | Port | `587` |
-| Username | `resend` |
-| Password | the Resend API key from step 1 |
-| Sender email | `noreply@mail.tntpollination.com` |
+| Username | `apikey` |
+| Password | the SendGrid API key from step 1 |
+| Sender email | `noreply@tntpollination.com` |
 | Sender name | `TNT Pollination` |
+
+**The username is the literal word `apikey`** — not your account name, not the
+key. That trips up nearly everyone once.
 
 Save, then go to **Authentication → Rate Limits** and raise **"Rate limit for
 sending emails"** — it is throttled hard for the built-in sender and has no
-reason to be now. 100/hour is plenty.
+reason to be now. 100/hour is plenty, and stays under the free tier's 100/day.
 
 > **There is no Reply-To field in Supabase's SMTP settings.** Replies to
 > `noreply@…` go nowhere, which is why every template's footer carries
@@ -144,7 +154,7 @@ Editing the HTML directly works until the next rebuild overwrites it.
 ## 4. Verify
 
 1. On the Users screen, use the link button next to your own row. The mail
-   should arrive from `noreply@mail.tntpollination.com`, dark, with the mark.
+   should arrive from `noreply@tntpollination.com`, dark, with the mark.
 2. In Gmail: **⋮ → Show original**. You want **SPF: PASS**, **DKIM: PASS**,
    **DMARC: PASS**.
 3. Check it did not land in junk — from a Gmail account and, if you can, an
@@ -163,7 +173,7 @@ A branded mail whose button points at `tntoperations.netlify.app` undercuts the
 whole exercise. When you're ready:
 
 1. Netlify → Domain management → add `app.tntpollination.com`, add the CNAME it
-   asks for, and **set it as the primary domain**.
+   asks for (Wix does CNAMEs fine), and **set it as the primary domain**.
 2. Supabase → Authentication → URL Configuration: set **Site URL** to
    `https://app.tntpollination.com` and add it to **Redirect URLs**.
 3. Rebuild the templates against the new origin so the logo loads from it, and
@@ -184,21 +194,26 @@ you're going to move, moving before that review saves doing it twice.
 **"Supabase email rate limit hit"** in the app — SMTP is not configured yet, or
 the rate limit in step 2 was never raised.
 
+**SendGrid rejects the login** — the SMTP username must be the literal string
+`apikey`, and the password the key itself (starts `SG.`).
+
+**Domain won't verify** — check the CNAMEs resolve before touching them:
+`nslookup -type=cname s1._domainkey.tntpollination.com`. Wix sometimes appends
+the domain to a host you already typed in full; if the record shows up as
+`s1._domainkey.tntpollination.com.tntpollination.com`, that is the cause.
+
 **Mail arrives but the link 404s or bounces to the wrong host** — Site URL /
 Redirect URLs in Supabase don't match where the app actually lives.
 
-**DKIM fails** — the DKIM TXT record is usually wrapped or truncated on paste.
-Re-copy it from Resend in one piece.
-
-**Nothing arrives at all** — check Resend's Logs tab first. A message that never
-reached Resend is a Supabase SMTP misconfiguration; one that reached Resend and
-bounced is a recipient or DNS problem.
+**Nothing arrives at all** — check SendGrid's **Activity Feed** first. A message
+that never reached SendGrid is a Supabase SMTP misconfiguration; one that
+reached SendGrid and bounced is a recipient or DNS problem.
 
 ---
 
 ## What this unlocks
 
 `app_notification_prefs` has an `email` toggle with no sender behind it — the
-"Email reports" gap in `CLAUDE.md`. Once Resend exists, that key is also what a
+"Email reports" gap in `CLAUDE.md`. Once SMTP exists, that key is also what a
 Netlify function would use to send digests, so the notification system can
 finally honour the switch it already shows.

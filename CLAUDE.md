@@ -300,6 +300,10 @@ _Last reviewed 2026-08-17._
         `public/email/logo.png` — but custom SMTP is NOT configured yet, so
         they are unused and mail still goes out on Supabase's shared sender at
         a couple of messages an hour. Runbook: `docs/email-setup.md`.
+        Sender is **SendGrid**, not Resend: DNS for `tntpollination.com` is at
+        Wix, which cannot make an MX record on a subdomain, and Resend requires
+        one for its return path. SendGrid's Automated Security authenticates
+        with three CNAMEs and no MX. Don't re-try Resend without moving DNS.
 - [x] Phase 7 — data import (done):
       - Full incubation schema in the shared project (`0003_incubation_full.sql`):
         batches, samples, trays, rich inspections, alerts, settings + VOC; 0001's

@@ -83,11 +83,21 @@ for why the markup looks the way it does.
 7. **Settings → API Keys → Create API Key.** Restricted Access with **Mail
    Send** only — nothing here needs more. It is shown once; put it somewhere
    safe. It is the SMTP password in step 2.
-8. Optional but worth it: add a **DMARC** record if the domain has none — TXT at
-   `_dmarc.tntpollination.com`, value
+8. Add a **DMARC** record if the domain has none — TXT, host `_dmarc`, value
    `v=DMARC1; p=none; rua=mailto:tyler.torrie@tntpollination.com`. `p=none` only
-   monitors; it cannot cause mail to be rejected. If Workspace already put a
-   DMARC record there, leave it alone.
+   monitors; it cannot cause mail to be rejected. Gmail and Yahoo both expect a
+   DMARC record from any domain sending them mail, so this is about whether
+   invites arrive, not about strictness. DMARC inherits down subdomains — one
+   record at `_dmarc` covers `_dmarc.em####` too, whatever SendGrid's checker
+   says. If Workspace already put a DMARC record there, leave it alone.
+
+> **Do not set up Link Branding.** It is a second entry under Sender
+> Authentication, offered right after domain authentication, and it wants two
+> more CNAMEs (`url####` and a numeric one). Its only purpose is branding the
+> rewritten links that click tracking produces — and click tracking is off, for
+> the reasons in step 6. If it was switched on by accident, the verifier
+> complains about those two records forever; delete the Link Branding entry
+> rather than adding them. Only **Domain Authentication** has to say Verified.
 
 > **Do not touch the MX records on the root domain.** Those are Workspace mail.
 > Everything above is CNAMEs on subdomains, plus one optional `_dmarc` TXT.
@@ -196,6 +206,10 @@ the rate limit in step 2 was never raised.
 
 **SendGrid rejects the login** — the SMTP username must be the literal string
 `apikey`, and the password the key itself (starts `SG.`).
+
+**"Expected CNAME record for url####/######## to match sendgrid.net"** — those
+are Link Branding records, not domain authentication. Delete the Link Branding
+entry; see the note in step 1.
 
 **Domain won't verify** — check the CNAMEs resolve before touching them:
 `nslookup -type=cname s1._domainkey.tntpollination.com`. Wix sometimes appends

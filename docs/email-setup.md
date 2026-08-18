@@ -204,8 +204,21 @@ you're going to move, moving before that review saves doing it twice.
 **"Supabase email rate limit hit"** in the app — SMTP is not configured yet, or
 the rate limit in step 2 was never raised.
 
-**SendGrid rejects the login** — the SMTP username must be the literal string
-`apikey`, and the password the key itself (starts `SG.`).
+**`535 "Authentication failed: Bad username / password"`** (seen in Supabase →
+Logs → Auth Logs) — SMTP credentials refused. Three causes, all producing the
+same 535:
+
+- the username is not the literal string `apikey` (it is never your account
+  name or the key itself);
+- the key is missing the **Mail Send** scope. A Restricted Access key with
+  nothing enabled fails at *authentication*, not with a permissions error —
+  SMTP auth requires `mail.send`, so an unscoped key looks exactly like a wrong
+  password;
+- the key is truncated or carries whitespace. It starts `SG.`, runs ~69
+  characters, and is shown in full only once.
+
+Quickest resolution is a fresh **Full Access** key, username re-typed by hand,
+then tighten to Restricted + Mail Send once it is known to work.
 
 **"Expected CNAME record for url####/######## to match sendgrid.net"** — those
 are Link Branding records, not domain authentication. Delete the Link Branding

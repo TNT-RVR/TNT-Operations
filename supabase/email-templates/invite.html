@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="supported-color-schemes" content="dark light">
+<title>You've been added to TNT Operations</title>
+<style>
+  /* Progressive enhancement only - every rule that matters is also inline. */
+  @media (max-width:620px) {
+    .wrap { width:100% !important; }
+    .pad { padding:24px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#050506;">
+<!-- Inbox preview line; never rendered in the body. -->
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0;">Set your password and sign in to TNT Operations.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#050506" style="background:#050506;">
+  <tr>
+    <td align="center" style="padding:32px 12px;">
+      <table role="presentation" class="wrap" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+
+        <!-- Masthead -->
+        <tr>
+          <td align="left" style="padding:0 0 20px 0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding-right:12px;" valign="middle">
+                  <img src="https://tntoperations.netlify.app/email/logo.png" width="44" height="44" alt=""
+                       style="display:block;width:44px;height:44px;border:0;border-radius:8px;">
+                </td>
+                <td valign="middle" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;font-weight:700;
+                    letter-spacing:.14em;text-transform:uppercase;color:#ECECEF;">
+                  TNT&nbsp;Pollination
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Card -->
+        <tr>
+          <td class="pad" bgcolor="#111114" style="background:#111114;border:1px solid #202027;
+              border-radius:12px;padding:36px;">
+            <h1 style="margin:0 0 14px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:22px;line-height:1.3;
+                font-weight:700;color:#ECECEF;">You&rsquo;ve been added to TNT Operations</h1>
+            <p style="margin:0px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.65;color:#CFCFD6;">TNT Operations is where we plan shelter placement, track incubation and record field work. Your account is ready &mdash; this link sets your password and signs you in.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 0 0;">
+              <tr>
+                <td bgcolor="#FEB836" style="background:#FEB836;border-radius:8px;">
+                  <a href="{{ .ConfirmationURL }}"
+                     style="display:inline-block;padding:13px 26px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;
+                            font-weight:700;color:#050506;text-decoration:none;border-radius:8px;">Set your password</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:26px 0 0 0;padding:14px;background:#050506;border:1px solid #202027;
+                border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;
+                color:#7C7C8A;word-break:break-all;">
+              Or paste this into your browser:<br>
+              <span style="color:#CFCFD6;">{{ .ConfirmationURL }}</span>
+            </p>
+            <p style="margin:22px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.65;color:#7C7C8A;">The link can be used once and expires in 24 hours. If it has already expired, ask an administrator to send another from Users &amp; Settings.</p>
+            <p style="margin:22px 0 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.65;color:#7C7C8A;">If you weren&rsquo;t expecting this, ignore it &mdash; nothing happens until you open the link.</p>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:22px 4px 0 4px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#7C7C8A;">
+            TNT Pollination - leafcutter bee pollination.<br>
+            Questions: <a href="mailto:tyler.torrie@tntpollination.com" style="color:#CFCFD6;text-decoration:underline;">tyler.torrie@tntpollination.com</a>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

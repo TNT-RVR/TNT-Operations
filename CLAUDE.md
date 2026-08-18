@@ -293,6 +293,13 @@ _Last reviewed 2026-08-17._
         `SensorSource` enum value / seed row; nothing ingests it yet.
       - [ ] **Email reports** — not built. The notification prefs grid has an
         `email` toggle, but there is no sender (no SMTP/Resend wiring).
+      - [~] **Branded auth email** — the app never sends mail itself; Supabase
+        does (invites, resets, the Users-screen "link to the app"). The six
+        templates are written and version-controlled — `scripts/build_email_templates.py`
+        generates `supabase/email-templates/*.html` from one shell, plus
+        `public/email/logo.png` — but custom SMTP is NOT configured yet, so
+        they are unused and mail still goes out on Supabase's shared sender at
+        a couple of messages an hour. Runbook: `docs/email-setup.md`.
 - [x] Phase 7 — data import (done):
       - Full incubation schema in the shared project (`0003_incubation_full.sql`):
         batches, samples, trays, rich inspections, alerts, settings + VOC; 0001's

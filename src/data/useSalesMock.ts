@@ -73,13 +73,13 @@ export function useSalesMock(): SalesSlice {
    */
   const [beePurchases, setBeePurchases] = useState<BeePurchase[]>([
     { id: 'bp1', source: 'manual', qboId: null, date: '2024-02-12', vendor: 'Prairie Bee Co.',
-      description: 'Leafcutter bees 400 gal', gallons: 400, amount: 15200, currency: 'CAD', season: 2024, notes: '' },
+      description: 'Leafcutter bees 400 gal', gallons: 400, amount: 15200, currency: 'CAD', season: 2024, notes: '', excludedAt: null },
     { id: 'bp2', source: 'manual', qboId: null, date: '2025-01-20', vendor: 'Prairie Bee Co.',
-      description: 'Leafcutter bees 450 gal', gallons: 450, amount: 18450, currency: 'CAD', season: 2025, notes: '' },
+      description: 'Leafcutter bees 450 gal', gallons: 450, amount: 18450, currency: 'CAD', season: 2025, notes: '', excludedAt: null },
     { id: 'bp3', source: 'quickbooks', qboId: 'Bill:9001:1', date: '2025-12-18', vendor: 'Northern Pollination',
-      description: 'Leafcutter bees 300 gal', gallons: 300, amount: 13200, currency: 'CAD', season: 2026, notes: '' },
+      description: 'Leafcutter bees 300 gal', gallons: 300, amount: 13200, currency: 'CAD', season: 2026, notes: '', excludedAt: null },
     { id: 'bp4', source: 'quickbooks', qboId: 'Bill:9014:1', date: '2026-03-04', vendor: 'Prairie Bee Co.',
-      description: 'Bee larvae — deposit', gallons: null, amount: 5000, currency: 'CAD', season: 2026, notes: '' },
+      description: 'Bee larvae — deposit', gallons: null, amount: 5000, currency: 'CAD', season: 2026, notes: '', excludedAt: null },
   ])
 
   /**
@@ -298,6 +298,7 @@ export function useSalesMock(): SalesSlice {
           netWeightLbs: input.netWeightLbs ?? null,
           grossWeightLbs: input.grossWeightLbs ?? null,
           notes: input.notes ?? '',
+          excludedAt: null,
         },
         ...prev,
       ])
@@ -371,6 +372,7 @@ export function useSalesMock(): SalesSlice {
           currency: input.currency ?? 'CAD',
           season: input.season ?? seasonOf(date),
           notes: input.notes ?? '',
+          excludedAt: null,
         },
         ...prev,
       ].sort((a, b) => b.date.localeCompare(a.date)),

@@ -6,7 +6,9 @@ import {
   priceChange,
   pricePerGallonSeries,
   seasonOf,
+  gallonsFromUnitPrice,
   seasonRange,
+  unitPriceOf,
   totalsFor,
   type BeePurchase,
 } from './beePurchases'
@@ -23,6 +25,7 @@ const line = (over: Partial<BeePurchase> = {}): BeePurchase => ({
   currency: 'CAD',
   season: 2026,
   notes: '',
+  excludedAt: null,
   ...over,
 })
 
@@ -204,5 +207,56 @@ describe('the June boundary, which has caused real confusion', () => {
   it('a December purchase lands in the season that ends the following May', () => {
     const { from, to } = seasonRange(seasonOf('2025-12-18'))
     expect(from <= '2025-12-18' && '2025-12-18' <= to).toBe(true)
+  })
+})
+
+describe('editing the unit price', () => {
+  it('back-solves the gallons, leaving the money alone', () => {
+    // $13,200 at $44/gal must be 300 gal. The amount reconciles against
+    // QuickBooks and is never what a typed unit price is allowed to change.
+    expect(gallonsFromUnitPrice(13200, 44)).toBe(300)
+  })
+
+  it('round-trips: type a price, read the same price back', () => {
+    const amount = 5000
+    const typed = 41.5
+    const gallons = gallonsFromUnitPrice(amount, typed)
+    expect(gallons).not.toBeNull()
+    expect(unitPriceOf({ amount, gallons })).toBeCloseTo(typed, 10)
+  })
+
+  it('refuses a price that would invent a nonsense volume', () => {
+    // Zero or negative gives an infinite or negative volume. Leaving the line
+    // marked unknown is far better than writing one of those.
+    expect(gallonsFromUnitPrice(5000, 0)).toBeNull()
+    expect(gallonsFromUnitPrice(5000, -12)).toBeNull()
+    expect(gallonsFromUnitPrice(0, 44)).toBeNull()
+    expect(gallonsFromUnitPrice(5000, Number.NaN)).toBeNull()
+    expect(gallonsFromUnitPrice(Number.POSITIVE_INFINITY, 44)).toBeNull()
+  })
+
+  it('unitPriceOf says nothing when the volume is unknown or zero', () => {
+    expect(unitPriceOf({ amount: 5000, gallons: null })).toBeNull()
+    expect(unitPriceOf({ amount: 5000, gallons: 0 })).toBeNull()
+    expect(unitPriceOf({ amount: 13200, gallons: 300 })).toBe(44)
+  })
+
+  it('a typed price makes an unknown line count toward the season', () => {
+    // The point of the feature: a deposit line with no stated volume was
+    // inflating $/gal for everything else. Naming its price fixes the average.
+    const before = totalsFor([
+      line({ id: 'a', gallons: 200, amount: 10000 }),
+      line({ id: 'b', gallons: null, amount: 5000 }),
+    ])
+    expect(before.costPerGallon).toBe(75)
+    expect(before.unknownGallonLines).toBe(1)
+
+    const after = totalsFor([
+      line({ id: 'a', gallons: 200, amount: 10000 }),
+      line({ id: 'b', gallons: gallonsFromUnitPrice(5000, 50), amount: 5000 }),
+    ])
+    expect(after.gallons).toBe(300)
+    expect(after.costPerGallon).toBe(50)
+    expect(after.unknownGallonLines).toBe(0)
   })
 })

@@ -6,7 +6,7 @@
  * rule (December to May straddles the new year) and for why a line with no
  * stated volume is reported rather than counted as zero.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AlertTriangle, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useData } from '@/data/context'
@@ -15,10 +15,13 @@ import { Badge, Button, EmptyState, Input, Modal, Select, Stat } from '@/compone
 import {
   activeSeason,
   bySeason,
+  gallonsFromUnitPrice,
   priceChange,
   pricePerGallonSeries,
   seasonOf,
   totalsFor,
+  unitPriceOf,
+  visible,
   type BeePurchase,
 } from '@/domain/beePurchases'
 import { AXIS_PROPS, GRID_PROPS, TOOLTIP_LABEL_STYLE, TOOLTIP_STYLE, seriesColor } from '@/features/analysis/chartTheme'
@@ -43,14 +46,47 @@ export default function BeePurchases() {
    * integration rather than an empty one.
    */
   const [pullSeason, setPullSeason] = useState(() => activeSeason(new Date().toISOString().slice(0, 10)))
+  const [showExcluded, setShowExcluded] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
-  const seasons = useMemo(() => bySeason(beePurchases), [beePurchases])
-  const all = useMemo(() => totalsFor(beePurchases), [beePurchases])
-  const series = useMemo(() => pricePerGallonSeries(beePurchases), [beePurchases])
-  const change = useMemo(() => priceChange(beePurchases), [beePurchases])
+  // Every figure on this page is computed from the VISIBLE rows. Excluded ones
+  // stay in the list so they can be seen and put back, but count for nothing.
+  const shown = useMemo(() => visible(beePurchases), [beePurchases])
+  const excluded = useMemo(() => beePurchases.filter((p) => p.excludedAt), [beePurchases])
+  const seasons = useMemo(() => bySeason(shown), [shown])
+  const all = useMemo(() => totalsFor(shown), [shown])
+  const series = useMemo(() => pricePerGallonSeries(shown), [shown])
+  const change = useMemo(() => priceChange(shown), [shown])
   const latest = seasons[0]
+
+  /**
+   * Remove a row from the app.
+   *
+   * A hand-typed row is deleted outright — nothing recreates it. A synced row
+   * is EXCLUDED instead, because deleting it would work only until Monday: the
+   * weekly upsert would put it back on its own, days later, with no trace of
+   * what happened. Neither path touches QuickBooks.
+   */
+  const remove = async (p: BeePurchase) => {
+    setError('')
+    setMsg('')
+    const r =
+      p.source === 'manual'
+        ? await deleteBeePurchase(p.id)
+        : await saveBeePurchase(p.id, { excludedAt: new Date().toISOString() })
+    if (!r.ok) return setError(r.error ?? 'Could not remove that row.')
+    setMsg(
+      p.source === 'manual'
+        ? 'Row deleted.'
+        : 'Removed from the app. The bill is untouched in QuickBooks, and the weekly sync will leave it out.',
+    )
+  }
+
+  const restore = async (p: BeePurchase) => {
+    const r = await saveBeePurchase(p.id, { excludedAt: null })
+    if (!r.ok) setError(r.error ?? 'Could not restore that row.')
+  }
 
   const sync = async () => {
     setBusy('sync')
@@ -105,7 +141,7 @@ export default function BeePurchases() {
       {error && <div className="mb-3 rounded border border-danger/40 p-3 text-sm text-danger">{error}</div>}
       {msg && !error && <div className="mb-3 rounded border border-brand/40 bg-brand/10 p-3 text-sm text-primary">{msg}</div>}
 
-      {beePurchases.length === 0 ? (
+      {shown.length === 0 && excluded.length === 0 ? (
         <EmptyState>
           No purchases recorded yet. Sync from QuickBooks, or add previous seasons by hand.
         </EmptyState>
@@ -197,13 +233,56 @@ export default function BeePurchases() {
                   </thead>
                   <tbody>
                     {season.purchases.map((p) => (
-                      <Row key={p.id} p={p} canEdit={canEdit} onSave={saveBeePurchase} onDelete={deleteBeePurchase} />
+                      <Row key={p.id} p={p} canEdit={canEdit} onSave={saveBeePurchase} onRemove={remove} />
                     ))}
                   </tbody>
                 </table>
               </div>
             </div>
           ))}
+          {/*
+            Nothing vanishes silently. An excluded row is still a real
+            transaction in the books, so it stays listed — out of every total,
+            and one click from coming back.
+          */}
+          {excluded.length > 0 && (
+            <div>
+              <button
+                className="text-xs text-muted hover:text-primary"
+                onClick={() => setShowExcluded((v) => !v)}
+              >
+                {showExcluded ? 'Hide' : 'Show'} {excluded.length} removed row{excluded.length === 1 ? '' : 's'}
+              </button>
+              {showExcluded && (
+                <div className="card mt-2 p-0">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {excluded.map((p) => (
+                        <tr key={p.id} className="border-t border-subtle first:border-t-0">
+                          <td className="px-3 py-2 tabular-nums text-muted">{p.date}</td>
+                          <td className="px-3 py-2 text-muted">{p.vendor || '—'}</td>
+                          <td className="px-3 py-2 text-xs text-faint">{p.description || '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted">
+                            {money(p.amount, p.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {canEdit && (
+                              <Button variant="ghost" onClick={() => void restore(p)}>
+                                Restore
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="border-t border-subtle px-3 py-2 text-xs text-muted">
+                    These are left out of every figure above. They are unchanged in QuickBooks.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -225,15 +304,29 @@ function Row({
   p,
   canEdit,
   onSave,
-  onDelete,
+  onRemove,
 }: {
   p: BeePurchase
   canEdit: boolean
   onSave: (id: string, patch: Partial<BeePurchase>) => Promise<{ ok: boolean; error?: string }>
-  onDelete: (id: string) => Promise<{ ok: boolean; error?: string }>
+  onRemove: (p: BeePurchase) => Promise<void>
 }) {
   const [gallons, setGallons] = useState(p.gallons === null ? '' : String(p.gallons))
-  const perGal = p.gallons && p.gallons > 0 ? p.amount / p.gallons : null
+  const perGal = unitPriceOf(p)
+  /**
+   * The unit price, editable.
+   *
+   * Two ways into the same fact: state the gallons, or state what a gallon
+   * cost. Whichever you type, the OTHER is derived and the amount is left
+   * alone — it is real money that reconciles against QuickBooks.
+   */
+  const [price, setPrice] = useState(perGal === null ? '' : perGal.toFixed(2))
+
+  // Follow the row when the other field changes it, or a sync rewrites it.
+  useEffect(() => {
+    setGallons(p.gallons === null ? '' : String(p.gallons))
+    setPrice(perGal === null ? '' : perGal.toFixed(2))
+  }, [p.gallons, perGal])
 
   return (
     <tr className="border-t border-subtle">
@@ -265,12 +358,46 @@ function Row({
         )}
       </td>
       <td className="px-3 py-2 text-right tabular-nums text-primary">{money(p.amount, p.currency)}</td>
-      <td className="px-3 py-2 text-right tabular-nums text-secondary">
-        {perGal === null ? <span className="text-warn">—</span> : money(perGal, p.currency)}
+      <td className="px-3 py-2 text-right">
+        {canEdit ? (
+          <Input
+            className="w-24 text-right tabular-nums"
+            value={price}
+            inputMode="decimal"
+            placeholder="—"
+            title="What a gallon cost. Typing this sets the gallons; the amount is left alone."
+            onChange={(e) => setPrice(e.target.value)}
+            onBlur={() => {
+              const typed = price.trim()
+              // Cleared: the volume goes back to unknown rather than to zero.
+              if (typed === '') {
+                if (p.gallons !== null) void onSave(p.id, { gallons: null })
+                return
+              }
+              const next = gallonsFromUnitPrice(p.amount, Number(typed))
+              // Refused (zero, negative, unparseable): snap back rather than
+              // write a nonsense volume derived from it.
+              if (next === null) return setPrice(perGal === null ? '' : perGal.toFixed(2))
+              if (next !== p.gallons) void onSave(p.id, { gallons: next })
+            }}
+          />
+        ) : (
+          <span className="tabular-nums text-secondary">
+            {perGal === null ? <span className="text-warn">—</span> : money(perGal, p.currency)}
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 text-right">
-        {canEdit && p.source === 'manual' && (
-          <button className="rounded p-1 text-faint hover:text-danger" onClick={() => void onDelete(p.id)}>
+        {canEdit && (
+          <button
+            className="rounded p-1 text-faint hover:text-danger"
+            title={
+              p.source === 'manual'
+                ? 'Delete this row. You typed it, so nothing will bring it back.'
+                : 'Remove from the app. The bill stays in QuickBooks, and the weekly sync will not bring it back.'
+            }
+            onClick={() => void onRemove(p)}
+          >
             <Trash2 size={14} />
           </button>
         )}

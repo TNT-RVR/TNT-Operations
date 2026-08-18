@@ -34,6 +34,19 @@ export interface BeePurchase {
   /** Buying season this belongs to — see `seasonOf`. Overridable by hand. */
   season: number
   notes: string
+  /**
+   * Set = removed from the app's totals, NOT from QuickBooks.
+   *
+   * A synced row cannot simply be deleted: the weekly upsert would put it back
+   * days later on its own. Excluding it keeps the line current while leaving it
+   * out of every figure. The underlying bill in QuickBooks is untouched.
+   */
+  excludedAt: string | null
+}
+
+/** The rows that count. Everything downstream of this ignores exclusions. */
+export function visible(purchases: BeePurchase[]): BeePurchase[] {
+  return purchases.filter((p) => !p.excludedAt)
 }
 
 // ── Reading gallons out of a description ─────────────────────────────────────
@@ -114,6 +127,31 @@ export function activeSeason(isoDate: string): number {
 /** First and last date that fall in a season, inclusive. */
 export function seasonRange(season: number): { from: string; to: string } {
   return { from: `${season - 1}-06-01`, to: `${season}-05-31` }
+}
+
+/**
+ * Volume implied by a unit price, for a line whose description never stated one.
+ *
+ * Editing "$ / gal" on a row sets the GALLONS, not the amount. The amount came
+ * from QuickBooks and is real money that reconciles against the books — it is
+ * the one number here that must never be edited to make an average look right.
+ * The volume is the part that was only ever a note in a description, so that is
+ * the part a unit price is allowed to determine.
+ *
+ * Null unless both inputs are positive and finite: a zero or negative price
+ * gives a nonsensical volume, and silently writing one would be worse than
+ * leaving the line marked unknown.
+ */
+export function gallonsFromUnitPrice(amount: number, pricePerGallon: number): number | null {
+  if (!Number.isFinite(amount) || !Number.isFinite(pricePerGallon)) return null
+  if (amount <= 0 || pricePerGallon <= 0) return null
+  return amount / pricePerGallon
+}
+
+/** What one line cost per gallon, or null when its volume is unknown. */
+export function unitPriceOf(purchase: Pick<BeePurchase, 'amount' | 'gallons'>): number | null {
+  if (purchase.gallons === null || purchase.gallons <= 0) return null
+  return purchase.amount / purchase.gallons
 }
 
 // ── Totals ───────────────────────────────────────────────────────────────────

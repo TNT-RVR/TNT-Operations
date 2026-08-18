@@ -303,6 +303,7 @@ function toBeePurchase(r: Row): BeePurchase {
     currency: (r.currency as string) ?? 'CAD',
     season: Number(r.season ?? seasonOf((r.purchase_date as string) ?? '')),
     notes: (r.notes as string) ?? '',
+    excludedAt: (r.excluded_at as string | null) ?? null,
   }
 }
 
@@ -780,6 +781,9 @@ function toBeePurchase(r: Row): BeePurchase {
       if (patch.currency !== undefined) row.currency = patch.currency
       if (patch.season !== undefined) row.season = patch.season
       if (patch.notes !== undefined) row.notes = patch.notes
+      // Excluding is a normal patch, so the sync — which never writes this
+      // column — leaves it alone on every future run.
+      if (patch.excludedAt !== undefined) row.excluded_at = patch.excludedAt
       const { error } = await supabase.from('bee_purchases').update(row).eq('id', id)
       if (error) return { ok: false, error: error.message }
       await refreshBees()

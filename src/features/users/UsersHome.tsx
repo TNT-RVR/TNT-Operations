@@ -71,8 +71,24 @@ export default function UsersHome() {
   const archive = async (id: string) => {
     setBusy(id)
     const r = await archiveUser(id)
+    // The roster is active-only, so it has to be re-read for them to leave it.
+    if (r.ok) await s.refreshUsers()
     setBusy('')
     setNote(r.ok ? 'Archived. Restore them any time under Archive.' : (r.error ?? 'Could not archive'))
+  }
+
+  /**
+   * Delete destroys the login itself, and there is no undo — a mis-click here
+   * used to be silent, and (because it only removed the profile) left an
+   * account that blocked re-inviting the same address. Ask first, then say
+   * what happened.
+   */
+  const remove = async (u: { id: string; name: string; email: string }) => {
+    if (!window.confirm(`Delete ${u.name || u.email} permanently? Their login is destroyed and cannot be restored — use Archive to keep their history.`)) return
+    setBusy(u.id)
+    const r = await s.deleteUser(u.id)
+    setBusy('')
+    setNote(r.ok ? `${u.email} deleted. That address can be invited again.` : (r.error ?? 'Could not delete'))
   }
 
   const startEdit = (id: string, name: string) => {
@@ -216,7 +232,7 @@ export default function UsersHome() {
                                   <IconButton label="Archive" onClick={() => void archive(u.id)}>
                                     <Archive size={15} />
                                   </IconButton>
-                                  <IconButton label="Delete" onClick={() => s.deleteUser(u.id)}>
+                                  <IconButton label="Delete" onClick={() => void remove(u)}>
                                     <Trash2 size={15} />
                                   </IconButton>
                                 </>

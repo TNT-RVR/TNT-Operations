@@ -405,6 +405,9 @@ export function ArchiveTab() {
                           onClick={async () => {
                             const r = await restoreUser(u.id)
                             if (!r.ok) setError(r.error ?? 'Could not restore')
+                            // The Users roster is active-only; re-read it so
+                            // they are back in the list, not just out of this one.
+                            else await s.refreshUsers()
                           }}
                         >
                           <ArchiveRestore size={15} /> Restore

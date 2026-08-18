@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { supabase, isSupabaseConfigured } from '@/data/supabaseClient'
 import { LoginScreen } from './LoginScreen'
 import { MfaChallenge } from './MfaChallenge'
@@ -128,9 +128,20 @@ export interface SessionValue {
    * migration 0001, not by this signature.
    */
   updateUserAvatar: (userId: string, avatar: string | null) => Promise<{ ok: boolean; error?: string }>
-  /** Admins remove a user's profile (revokes access; they re-appear as pending
-   *  if they sign in again). Cannot remove yourself. */
-  deleteUser: (userId: string) => void
+  /**
+   * Admins destroy an account permanently — the login in `auth.users`, not
+   * just the profile row. Deleting the profile alone left a working password
+   * behind and an invisible account that refused every future invite to that
+   * address, so this goes through the `delete-user` function (service key).
+   * Cannot remove yourself. Archive is the non-destructive exit.
+   */
+  deleteUser: (userId: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Re-read the roster. The Users screen shows only ACTIVE profiles, so
+   * restoring someone from the Archive tab — which happens on the data seam,
+   * not this one — needs a way to put them back in the list without a reload.
+   */
+  refreshUsers: () => Promise<void>
   /**
    * Admins email an invite. The invitee arrives with the role chosen here, so
    * they skip the pending queue (see migration 0011). Server-side only — it
@@ -195,10 +206,12 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
         setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, avatar } : u)))
         return { ok: true }
       },
-      deleteUser: (uid) => {
-        if (uid === user.id) return
+      deleteUser: async (uid) => {
+        if (uid === user.id) return { ok: false, error: 'You cannot delete your own account.' }
         setUsers((prev) => prev.filter((u) => u.id !== uid))
+        return { ok: true }
       },
+      refreshUsers: async () => {},
       // Mock: no email to send — drop the invitee straight into the roster.
       changePassword: async () => ({
         ok: false,
@@ -264,6 +277,23 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   // Only ever true for someone who chose to enrol a second factor. See mfa.ts.
   const [mfa, setMfa] = useState<MfaState>(MFA_OFF)
 
+  /**
+   * The roster behind the Users screen: ACTIVE profiles only.
+   *
+   * Archived people are excluded here rather than filtered in the screen —
+   * they have their own tab, and appearing in both made "archived" look like
+   * it had not taken effect. `restoreUser` calls back through `refreshUsers`
+   * to put them back.
+   */
+  const loadRoster = useCallback(async () => {
+    const { data } = await sb
+      .from('profiles')
+      .select('*')
+      .is('archived_at', null)
+      .order('email', { ascending: true })
+    setUsers(((data as ProfileRow[]) ?? []).map((r) => mapProfile(r, r.email)))
+  }, [sb])
+
   useEffect(() => {
     let cancelled = false
 
@@ -302,8 +332,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       // Admins/devs manage users, so hydrate the full roster for the Users screen;
       // everyone else can only see themselves (RLS enforces this too).
       if (u.role === 'admin' || u.role === 'developer') {
-        const { data: all } = await sb.from('profiles').select('*').order('email', { ascending: true })
-        if (!cancelled) setUsers(((all as ProfileRow[]) ?? []).map((r) => mapProfile(r, r.email)))
+        await loadRoster()
       } else {
         setUsers([u])
       }
@@ -320,7 +349,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       cancelled = true
       sub.subscription.unsubscribe()
     }
-  }, [sb])
+  }, [sb, loadRoster])
 
   const value = useMemo<SessionValue | null>(() => {
     if (!user) return null
@@ -427,22 +456,29 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: e instanceof Error ? e.message : 'Could not create the device' }
         }
       },
-      deleteUser: (userId) => {
-        if (userId === user.id) return // never remove yourself
-        sb.from('profiles')
-          .delete()
-          .eq('id', userId)
-          .then(({ error }) => {
-            if (error) {
-              console.error('[auth] deleteUser:', error.message)
-              return
-            }
-            setUsers((prev) => prev.filter((u) => u.id !== userId))
+      deleteUser: async (userId) => {
+        if (userId === user.id) return { ok: false, error: 'You cannot delete your own account.' }
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/delete-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ id: userId }),
           })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Delete failed (${res.status})` }
+          setUsers((prev) => prev.filter((u) => u.id !== userId))
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Delete failed' }
+        }
       },
+      refreshUsers: loadRoster,
       authMode: 'supabase',
     }
-  }, [user, users, sb])
+  }, [user, users, sb, loadRoster])
 
   if (status === 'loading') {
     return (

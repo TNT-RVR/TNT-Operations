@@ -29,7 +29,7 @@ import { useEffect, useState } from 'react'
 import { ASSIGNABLE_ROLES, type OrphanLogin, type Role, useSession } from '@/auth/session'
 import { useData } from '@/data/context'
 import { Avatar, Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
-import { Archive, Mail, Pencil, Plus, Send, Tablet, Trash2, TriangleAlert, UserPlus } from 'lucide-react'
+import { Archive, ExternalLink, Mail, Pencil, Plus, Send, Tablet, Trash2, TriangleAlert, UserPlus } from 'lucide-react'
 import { AvatarPicker } from './AvatarPicker'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
@@ -126,6 +126,18 @@ export default function UsersHome() {
     const r = await s.deleteUser(u.id)
     setBusy('')
     setNote(r.ok ? `${u.email} deleted. That address can be invited again.` : (r.error ?? 'Could not delete'))
+  }
+
+  /**
+   * "Where is the app again?" — the question that actually gets asked, months
+   * after the invite mail it was answered in. Sends a magic link: the address
+   * and a way in, in one click. Devices have no mailbox, so the row hides it.
+   */
+  const appLink = async (u: { id: string; email: string }) => {
+    setBusy(u.id)
+    const r = await s.sendAppLink(u.id)
+    setBusy('')
+    setNote(r.ok ? `Sent ${u.email} a link to the app. It signs them in, and expires after an hour.` : (r.error ?? 'Could not send the link'))
   }
 
   const startEdit = (id: string, name: string) => {
@@ -293,6 +305,15 @@ export default function UsersHome() {
                               <IconButton label="Edit name" onClick={() => startEdit(u.id, u.name)}>
                                 <Pencil size={15} />
                               </IconButton>
+                              {u.role !== 'device' && (
+                                <IconButton
+                                  label="Email them a link to the app"
+                                  disabled={busy === u.id}
+                                  onClick={() => void appLink(u)}
+                                >
+                                  <ExternalLink size={15} />
+                                </IconButton>
+                              )}
                               {!isYou && (
                                 <>
                                   <IconButton label="Archive" onClick={() => void archive(u.id)}>
@@ -314,8 +335,9 @@ export default function UsersHome() {
             </div>
           )}
           <p className="mt-2 text-xs text-faint">
-            Edit sets their name. Archive hides them and signs them out — restore any time under Archive. Delete
-            removes their login permanently. You can't archive or delete yourself.
+            Edit sets their name. The link button emails them the app's address — it signs them in, so it answers
+            "where is it?" and "I'm locked out" at once. Archive hides them and signs them out — restore any time
+            under Archive. Delete removes their login permanently. You can't archive or delete yourself.
           </p>
         </section>
       </div>

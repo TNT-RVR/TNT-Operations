@@ -94,13 +94,14 @@ export function Button({
   )
 }
 
-export function IconButton({ label, children, onClick, className = '' }: { label: string; children: ReactNode; onClick?: () => void; className?: string }) {
+export function IconButton({ label, children, onClick, disabled = false, className = '' }: { label: string; children: ReactNode; onClick?: () => void; disabled?: boolean; className?: string }) {
   return (
     <button
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`inline-grid h-9 w-9 place-items-center rounded-sm text-secondary outline-none transition hover:bg-[color:var(--hover-wash)] hover:text-primary focus-visible:ring-2 focus-visible:ring-brand ${className}`}
+      disabled={disabled}
+      className={`inline-grid h-9 w-9 place-items-center rounded-sm text-secondary outline-none transition hover:bg-[color:var(--hover-wash)] hover:text-primary focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-50 ${className}`}
     >
       {children}
     </button>

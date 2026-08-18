@@ -180,6 +180,13 @@ export interface SessionValue {
   /** Give an orphaned login the profile it is missing, at the chosen role. */
   adoptOrphanLogin: (input: { id: string; role: Role; name: string }) => Promise<{ ok: boolean; error?: string }>
   /**
+   * Email someone a link back to the app — for "where do I find it again?",
+   * which is asked far more often than anything about passwords. It is a magic
+   * link, so it both carries the address and signs them in. Device accounts
+   * have no mailbox and are refused server-side.
+   */
+  sendAppLink: (userId: string) => Promise<{ ok: boolean; error?: string }>
+  /**
    * Admins create a DEVICE account — a shared iPad — from a username and
    * password, with no email involved.
    *
@@ -247,6 +254,7 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
       // never disagree — there is nothing to be orphaned from.
       listOrphanLogins: async () => ({ ok: true, logins: [] }),
       adoptOrphanLogin: async () => ({ ok: true }),
+      sendAppLink: async () => ({ ok: false, error: 'Mock mode has no mailer — this sends for real in the app.' }),
       // Mock: no email to send — drop the invitee straight into the roster.
       changePassword: async () => ({
         ok: false,
@@ -553,6 +561,23 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
           return { ok: true }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'Could not restore' }
+        }
+      },
+      sendAppLink: async (userId) => {
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/send-app-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ id: userId }),
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Could not send the link (${res.status})` }
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Could not send the link' }
         }
       },
       authMode: 'supabase',

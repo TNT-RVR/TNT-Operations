@@ -34,6 +34,25 @@ export interface User {
   avatar?: string | null
 }
 
+/**
+ * What an invite actually did. An address that already has a login cannot be
+ * invited again, so for someone who never signed in the server sends a
+ * set-password link instead — a different mail, and the admin should be told
+ * which one went out.
+ */
+export type InviteMode = 'invite' | 'recovery'
+
+/** A login with no profile: it can sign in, but the app cannot see it. */
+export interface OrphanLogin {
+  id: string
+  email: string
+  name: string
+  /** The role its inviter chose, still on the auth user's metadata. */
+  invitedRole: Role | null
+  createdAt: string | null
+  lastSignInAt: string | null
+}
+
 /** Role → what it can do. `edit` implies `view`. */
 export const MATRIX: Record<Role, Partial<Record<Module, Action>>> = {
   // Full access — highest grant wins.
@@ -147,7 +166,19 @@ export interface SessionValue {
    * they skip the pending queue (see migration 0011). Server-side only — it
    * needs the service key — so this posts to the invite-user function.
    */
-  inviteUser: (input: { email: string; name: string; role: Role }) => Promise<{ ok: boolean; error?: string }>
+  inviteUser: (input: {
+    email: string
+    name: string
+    role: Role
+  }) => Promise<{ ok: boolean; error?: string; mode?: InviteMode }>
+  /**
+   * Logins in `auth.users` with no row in `profiles` — accounts that can sign
+   * in but that the app cannot see. Admin-only, and server-side: the auth
+   * schema is not reachable through PostgREST. Empty in mock mode.
+   */
+  listOrphanLogins: () => Promise<{ ok: boolean; error?: string; logins: OrphanLogin[] }>
+  /** Give an orphaned login the profile it is missing, at the chosen role. */
+  adoptOrphanLogin: (input: { id: string; role: Role; name: string }) => Promise<{ ok: boolean; error?: string }>
   /**
    * Admins create a DEVICE account — a shared iPad — from a username and
    * password, with no email involved.
@@ -212,6 +243,10 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
         return { ok: true }
       },
       refreshUsers: async () => {},
+      // Mock mode has one table of users and no auth schema, so the two can
+      // never disagree — there is nothing to be orphaned from.
+      listOrphanLogins: async () => ({ ok: true, logins: [] }),
+      adoptOrphanLogin: async () => ({ ok: true }),
       // Mock: no email to send — drop the invitee straight into the roster.
       changePassword: async () => ({
         ok: false,
@@ -222,7 +257,7 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
           return { ok: false, error: 'That email already has an account.' }
         }
         setUsers((prev) => [...prev, { id: `u_${Date.now()}`, name: name || email, email, role }])
-        return { ok: true }
+        return { ok: true, mode: 'invite' as InviteMode }
       },
       createDeviceUser: async ({ username, password, name }) => {
         const slug = username.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -276,6 +311,14 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const [needsPassword, setNeedsPassword] = useState<boolean>(() => arrivedNeedingPassword())
   // Only ever true for someone who chose to enrol a second factor. See mfa.ts.
   const [mfa, setMfa] = useState<MfaState>(MFA_OFF)
+  /**
+   * Signed in, but `profiles` has no row for them — distinct from a real
+   * `pending` role. Both end at the same gate, and they used to be told the
+   * same thing: that an admin would approve them. For a missing profile that
+   * is false and unfixable by waiting — the admin cannot see them to approve.
+   * The gate has to say something different, and true.
+   */
+  const [noProfile, setNoProfile] = useState(false)
 
   /**
    * The roster behind the Users screen: ACTIVE profiles only.
@@ -323,10 +366,11 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
 
       // The signup trigger creates the profile; if we race it, fall back to a
       // minimal viewer so the app still renders (an admin sets the real role).
-      const u: User =
-        error || !data
-          ? { id: session.user.id, name: authEmail, email: authEmail, role: 'pending' }
-          : mapProfile(data as ProfileRow, authEmail)
+      const missing = Boolean(error || !data)
+      const u: User = missing
+        ? { id: session.user.id, name: authEmail, email: authEmail, role: 'pending' }
+        : mapProfile(data as ProfileRow, authEmail)
+      setNoProfile(missing)
       setUser(u)
 
       // Admins/devs manage users, so hydrate the full roster for the Users screen;
@@ -427,7 +471,7 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
               ? prev
               : [...prev, { id: `invited_${email}`, name: name || email, email, role }],
           )
-          return { ok: true }
+          return { ok: true, mode: out.mode === 'recovery' ? 'recovery' : 'invite' }
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'Invite failed' }
         }
@@ -476,6 +520,41 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
         }
       },
       refreshUsers: loadRoster,
+      listOrphanLogins: async () => {
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.', logins: [] }
+        try {
+          const res = await fetch('/.netlify/functions/orphan-logins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: '{}',
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Check failed (${res.status})`, logins: [] }
+          return { ok: true, logins: (out.logins ?? []) as OrphanLogin[] }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Check failed', logins: [] }
+        }
+      },
+      adoptOrphanLogin: async ({ id, role, name }) => {
+        const { data } = await sb.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/orphan-logins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ adopt: { id, role, name } }),
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Could not restore (${res.status})` }
+          await loadRoster()
+          return { ok: true }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Could not restore' }
+        }
+      },
       authMode: 'supabase',
     }
   }, [user, users, sb, loadRoster])
@@ -506,7 +585,14 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   }
   // Signed in but not yet approved → awaiting-approval gate (no app, no data).
   if (value.user.role === 'pending') {
-    return <PendingApproval name={value.user.name || value.user.email} onSignOut={value.signOut} />
+    return (
+      <PendingApproval
+        name={value.user.name || value.user.email}
+        email={value.user.email}
+        noProfile={noProfile}
+        onSignOut={value.signOut}
+      />
+    )
   }
   return <SessionCtx.Provider value={value}>{children}</SessionCtx.Provider>
 }

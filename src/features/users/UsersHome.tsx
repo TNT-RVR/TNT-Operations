@@ -9,6 +9,15 @@
  * anyone noticing. Splitting them out — with how long it's been and a resend
  * button — turns an invisible failure into an obvious one.
  *
+ * ── Why "Logins with no profile" exists ─────────────────────────────────────
+ *
+ * Everything on this screen reads `profiles`. An account can sign in without
+ * one — the profile-only delete used to cause it — and such a person is then
+ * invisible here while stuck on the approval gate, and cannot be re-invited
+ * because the login already exists. Nothing showed the account both halves of
+ * that stalemate were about. This panel does, and only appears when there is
+ * one to show.
+ *
  * ── Archive vs delete ────────────────────────────────────────────────────────
  *
  * Archive is the normal exit: they lose access and disappear from pickers, but
@@ -16,11 +25,11 @@
  * Delete destroys the login. Both are offered; archive is the one that isn't
  * destructive, so it comes first and reads as the default.
  */
-import { useState } from 'react'
-import { ASSIGNABLE_ROLES, type Role, useSession } from '@/auth/session'
+import { useEffect, useState } from 'react'
+import { ASSIGNABLE_ROLES, type OrphanLogin, type Role, useSession } from '@/auth/session'
 import { useData } from '@/data/context'
 import { Avatar, Badge, Button, EmptyState, IconButton, Input, Modal, Select } from '@/components/ui'
-import { Archive, Mail, Pencil, Plus, Send, Tablet, Trash2 } from 'lucide-react'
+import { Archive, Mail, Pencil, Plus, Send, Tablet, Trash2, TriangleAlert, UserPlus } from 'lucide-react'
 import { AvatarPicker } from './AvatarPicker'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
@@ -52,6 +61,31 @@ export default function UsersHome() {
   const waiting = s.users.filter((u) => neverSignedIn(u.id))
   const active = s.users.filter((u) => !neverSignedIn(u.id))
 
+  // Logins with no profile. Checked once, quietly: it needs a server function,
+  // so on mock data (or a dev server with no functions) it simply finds none.
+  const [orphans, setOrphans] = useState<OrphanLogin[]>([])
+  useEffect(() => {
+    if (!canEdit) return
+    let cancelled = false
+    void s.listOrphanLogins().then((r) => {
+      if (!cancelled && r.ok) setOrphans(r.logins)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit])
+
+  const adopt = async (o: OrphanLogin, role: Role) => {
+    setBusy(o.id)
+    const r = await s.adoptOrphanLogin({ id: o.id, role, name: o.name })
+    setBusy('')
+    if (r.ok) {
+      setOrphans((prev) => prev.filter((x) => x.id !== o.id))
+      setNote(`${o.email} restored as ${role}. They can sign in with their existing password.`)
+    } else setNote(r.error ?? 'Could not restore')
+  }
+
   const resend = async (u: { email: string; name: string; role: Role }) => {
     setBusy(u.email)
     setNote('')
@@ -59,12 +93,15 @@ export default function UsersHome() {
     setBusy('')
     // "Already registered" is the expected answer for a resend — the account
     // exists, it's the sign-in that hasn't happened. Say something useful.
+    // An address that already has a login cannot be re-invited, so the server
+    // sends a set-password link instead. Name the mail that actually went out —
+    // otherwise they go looking in their inbox for the wrong subject line.
     setNote(
       r.ok
-        ? `Invite re-sent to ${u.email}.`
-        : /already/i.test(r.error ?? '')
-          ? `${u.email} already has an account — send them a password-reset link instead.`
-          : (r.error ?? 'Could not resend.'),
+        ? r.mode === 'recovery'
+          ? `Sent ${u.email} a link to set their password. (The original invite can't be re-sent once the account exists.)`
+          : `Invite re-sent to ${u.email}.`
+        : (r.error ?? 'Could not resend.'),
     )
   }
 
@@ -119,6 +156,35 @@ export default function UsersHome() {
     >
       <div className="space-y-6">
         {note && <p className="rounded border border-subtle bg-overlay p-2 text-xs text-secondary">{note}</p>}
+
+        {/* ── Logins with no profile ── */}
+        {orphans.length > 0 && (
+          <section>
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-danger">
+              <TriangleAlert size={15} /> Logins with no profile · {orphans.length}
+            </h2>
+            <div className="rounded-lg border border-danger/40 bg-danger/10 p-3">
+              <p className="mb-3 text-xs text-secondary">
+                These accounts can sign in but have no TNT profile, so they see only an error screen and cannot be
+                invited again. Restore one to put it back on the roster — their password still works.
+              </p>
+              <ul className="space-y-2">
+                {orphans.map((o) => (
+                  <li key={o.id} className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-primary">{o.name || o.email}</div>
+                      <div className="text-xs text-muted">
+                        {o.email}
+                        {o.lastSignInAt ? ` · last signed in ${relativeDays(o.lastSignInAt)}` : ' · never signed in'}
+                      </div>
+                    </div>
+                    <RestoreLogin login={o} busy={busy === o.id} onRestore={(role) => void adopt(o, role)} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         {/* ── Waiting on setup ── */}
         {waiting.length > 0 && (
@@ -257,6 +323,37 @@ export default function UsersHome() {
       {inviting && <InviteDialog onClose={() => setInviting(false)} />}
       {addingDevice && <DeviceDialog onClose={() => setAddingDevice(false)} />}
     </SettingsChrome>
+  )
+}
+
+/**
+ * Role picker + Restore for one orphaned login. Defaults to the role its
+ * inviter chose, which is still on the auth user's metadata even though the
+ * profile that should have carried it never appeared.
+ */
+function RestoreLogin({
+  login,
+  busy,
+  onRestore,
+}: {
+  login: OrphanLogin
+  busy: boolean
+  onRestore: (role: Role) => void
+}) {
+  const [role, setRole] = useState<Role>(login.invitedRole ?? 'operator')
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={role} onChange={(e) => setRole(e.target.value as Role)} className="w-32">
+        {ASSIGNABLE_ROLES.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </Select>
+      <Button variant="ghost" disabled={busy} onClick={() => onRestore(role)}>
+        <UserPlus size={15} /> {busy ? 'Restoring…' : 'Restore'}
+      </Button>
+    </div>
   )
 }
 

@@ -300,6 +300,8 @@ _Last reviewed 2026-08-17._
         `public/email/logo.png` — but custom SMTP is NOT configured yet, so
         they are unused and mail still goes out on Supabase's shared sender at
         a couple of messages an hour. Runbook: `docs/email-setup.md`.
+        Templates are pushed with `npm run email:push` (Supabase Management
+        API, needs a personal access token in `.env.local`) rather than pasted.
         Sender is **SendGrid**, not Resend: DNS for `tntpollination.com` is at
         Wix, which cannot make an MX record on a subdomain, and Resend requires
         one for its return path. SendGrid's Automated Security authenticates

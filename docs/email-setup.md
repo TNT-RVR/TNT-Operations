@@ -155,9 +155,42 @@ re-send for anyone who never accepted their invite).
 placeholders.** They are how Supabase injects the link; a broken one produces a
 mail that looks perfect and does nothing.
 
-To change wording or colour, edit `scripts/build_email_templates.py`, run
-`python scripts/build_email_templates.py`, and re-paste whichever files changed.
-Editing the HTML directly works until the next rebuild overwrites it.
+To change wording or colour, edit `scripts/build_email_templates.py`, rebuild,
+and push — no pasting after the first time. Editing the generated HTML directly
+works until the next rebuild overwrites it.
+
+```
+npm run email:build
+npm run email:push
+```
+
+### Pushing without the dashboard
+
+`npm run email:push` sends all six templates and their subject lines through
+Supabase's Management API. It needs a **personal access token** —
+dashboard → Account → Access Tokens → Generate new token — in `.env.local`:
+
+```
+SUPABASE_ACCESS_TOKEN=sbp_...
+```
+
+`.env.local` is gitignored. Keep it that way, and never put this value in a
+`VITE_` variable or in Netlify.
+
+> **This token is the most dangerous secret in the repo.** Unlike the
+> service-role key it is not scoped to one project — it is the whole Supabase
+> **account**, which also holds the old beetent-maps app's data. Generate it
+> when you need it, revoke it from the same page when you don't.
+
+Two guards worth knowing about, both in `scripts/push-email-templates.mjs`:
+
+- Every file is checked for the placeholder its type needs
+  (`{{ .ConfirmationURL }}`, or `{{ .Token }}` for reauthentication) **before**
+  anything uploads. A template that lost its placeholder still renders as a
+  perfect email with a dead button, and the send would report success — so one
+  bad file aborts the whole push rather than half-updating the set.
+- `npm run email:push -- --dry-run` lists what would go where and sends
+  nothing. It needs no token.
 
 ---
 

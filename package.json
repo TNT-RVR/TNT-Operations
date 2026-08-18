@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint:tokens": "node scripts/check-tokens.mjs"
+    "lint:tokens": "node scripts/check-tokens.mjs",
+    "email:build": "python scripts/build_email_templates.py",
+    "email:push": "node scripts/push-email-templates.mjs"
   },
   "dependencies": {
     "@mapbox/shp-write": "^0.4.3",

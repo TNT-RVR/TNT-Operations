@@ -3,16 +3,21 @@ import { supabase } from '@/data/supabaseClient'
 import { BeeMark } from '@/components/BeeMark'
 
 /**
- * Sign-in / sign-up gate for `supabase` mode.
+ * Sign-in gate for `supabase` mode.
  *
- * New people can create an account here; they land in a "pending" state with no
- * access until an admin approves them in the Users screen (see PendingApproval).
- * On success the session provider takes over — this screen just triggers the auth
- * call and surfaces errors / the confirm-your-email notice.
+ * ── Invitation only ──────────────────────────────────────────────────────────
+ *
+ * There is no "create an account" here any more. Access is granted by an
+ * administrator sending an invite from Users & Settings, which carries the
+ * person's role in the auth metadata — so an invited user arrives with real
+ * permissions instead of landing in a pending queue nobody was told about.
+ *
+ * Removing the form is the smaller half of that. The enforcing half is
+ * "Allow new users to sign up" being OFF in the Supabase dashboard: without it
+ * anyone could still POST to /auth/v1/signup directly and create themselves an
+ * account. A hidden button is not a permission.
  */
 export function LoginScreen() {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
-  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -25,23 +30,17 @@ export function LoginScreen() {
     setBusy(true)
     setError(null)
     setNotice(null)
-
-    if (mode === 'signup') {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { name: name.trim() } },
-      })
-      if (error) setError(error.message)
-      else if (!data.session) {
-        // Email confirmation is on — no session yet.
-        setNotice('Account created. Check your email to confirm, then sign in.')
-        setMode('signin')
-      }
-      // If a session came back, the provider re-renders into the pending screen.
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError(error.message)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      // Supabase answers `invalid_credentials` for a wrong password, an unknown
+      // address AND an unconfirmed one — the same message every time, so that
+      // nobody can probe which accounts exist. Say what to do about it rather
+      // than repeating a message that cannot distinguish the three.
+      setError(
+        /invalid.*credential/i.test(error.message)
+          ? 'That email and password did not match. If you have never set a password, use "Forgot password" below.'
+          : error.message,
+      )
     }
     setBusy(false)
   }
@@ -69,8 +68,6 @@ export function LoginScreen() {
     else setNotice(`If an account exists for ${email.trim()}, a reset link is on its way.`)
   }
 
-  const isSignup = mode === 'signup'
-
   return (
     <div className="grid min-h-full place-items-center bg-base p-4">
       <div className="card w-full max-w-sm">
@@ -80,27 +77,11 @@ export function LoginScreen() {
           </span>
           <div>
             <div className="font-display font-bold tracking-tight text-primary">TNT Operations</div>
-            <div className="text-xs text-muted">{isSignup ? 'Create your account' : 'Sign in to continue'}</div>
+            <div className="text-xs text-muted">Sign in to continue</div>
           </div>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-3">
-          {isSignup && (
-            <div>
-              <label className="label" htmlFor="signup-name">
-                Name
-              </label>
-              <input
-                id="signup-name"
-                type="text"
-                autoComplete="name"
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-          )}
-
           <div>
             <label className="label" htmlFor="login-email">
               Email
@@ -123,7 +104,7 @@ export function LoginScreen() {
             <input
               id="login-password"
               type="password"
-              autoComplete={isSignup ? 'new-password' : 'current-password'}
+              autoComplete="current-password"
               required
               minLength={6}
               className="input"
@@ -151,37 +132,24 @@ export function LoginScreen() {
           )}
 
           <button type="submit" className="btn-primary w-full" disabled={busy}>
-            {busy ? 'Working…' : isSignup ? 'Create account' : 'Sign in'}
+            {busy ? 'Working…' : 'Sign in'}
           </button>
         </form>
 
-        {!isSignup && (
-          <button
-            type="button"
-            className="mt-3 w-full text-center text-xs text-muted hover:text-secondary hover:underline"
-            onClick={onForgotPassword}
-            disabled={busy}
-          >
-            Forgot password?
-          </button>
-        )}
-
         <button
-          className="mt-4 w-full text-center text-sm text-brand hover:underline"
-          onClick={() => {
-            setMode(isSignup ? 'signin' : 'signup')
-            setError(null)
-            setNotice(null)
-          }}
+          type="button"
+          className="mt-3 w-full text-center text-xs text-muted hover:text-secondary hover:underline"
+          onClick={onForgotPassword}
+          disabled={busy}
         >
-          {isSignup ? 'Have an account? Sign in' : 'Need access? Create an account'}
+          Forgot password?
         </button>
 
-        {isSignup && (
-          <p className="mt-3 text-xs text-muted">
-            New accounts start with no access until an administrator approves you.
-          </p>
-        )}
+        {/* Says how to get in, so a new person is not left guessing at a form
+            that no longer exists. */}
+        <p className="mt-4 border-t border-subtle pt-3 text-xs text-muted">
+          Access is by invitation. Ask an administrator to send you one from Users &amp; Settings.
+        </p>
       </div>
     </div>
   )

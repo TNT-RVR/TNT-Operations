@@ -348,8 +348,12 @@ _Last reviewed 2026-08-17._
         sheet keeps both in one cell distinguished by a blue fill, so the plan
         is destroyed the moment the work happens and "were we late" cannot be
         asked. Steps in `domain/fieldChecklist.ts`.
-        **Google Sheets two-way sync is BUILT** (`checklist-sheet-sync.mjs`
-        every 30 min + `checklist-sync-now.mjs` for the button, service-account
+        **Google Sheets two-way sync is BUILT**, and generalised: `sheet-sync.mjs`
+        (every 30 min, runs every REGISTERED sync) + `sheet-sync-now.mjs` (the
+        button, takes a sync name). A new sheet is an adapter in
+        `lib/<thing>Sync.mjs` registered in `lib/sheetSyncs.mjs` — one service
+        account serves all of them. A new season's tab is CREATED from last
+        year's header, and missing field rows are appended. Service-account
         auth, `0040` adds the agreement snapshot). App wins a true conflict, but
         only when BOTH sides moved since the last sync — the snapshot is what
         lets a sheet-only edit still flow in. A blue fill IS the "done" flag,

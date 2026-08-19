@@ -1301,10 +1301,11 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const token = data.session?.access_token
         if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
         try {
-          const res = await fetch('/.netlify/functions/checklist-sync-now', {
+          const res = await fetch('/.netlify/functions/sheet-sync-now', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ year }),
+            // The sync's registered name: one door serves every sheet TNT syncs.
+            body: JSON.stringify({ sync: 'checklist', year }),
           })
           const out = await res.json().catch(() => ({}))
           if (!res.ok) return { ok: false, error: out.error ?? `Sync failed (${res.status})` }

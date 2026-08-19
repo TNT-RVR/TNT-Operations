@@ -1,23 +1,20 @@
 /**
- * Run the checklist ↔ Google Sheet sync RIGHT NOW, on demand.
+ * Run one Google Sheet sync RIGHT NOW, on demand.
  *
- * The schedule in checklist-sheet-sync.mjs runs every half hour, which is fine
- * for keeping two systems roughly level and useless to someone who has just
- * typed a date into the sheet and wants to see it in the app.
+ * The schedule keeps things roughly level; this is for someone who has just
+ * typed into a sheet and wants it in the app. Takes the sync's registered name,
+ * so a newly registered sheet gets a working button with no change here.
  *
- * A separate file with NO schedule, because Netlify refuses direct HTTP
- * invocation of any scheduled function — it answers a bodiless 403 before the
- * request reaches our code, so a button pointed at the scheduled one could only
- * ever report "403" with no explanation. Same shape as poll-govee / poll-now.
+ * A separate file with NO schedule: Netlify answers a bodiless 403 to any HTTP
+ * call at a scheduled function, so a button pointed there could only ever report
+ * "403" with nothing to act on.
  *
- *   POST /.netlify/functions/checklist-sync-now   { "year": "2026" }
+ *   POST /.netlify/functions/sheet-sync-now   { "sync": "checklist", "year": "2026" }
  *   Authorization: Bearer <the caller's supabase access token>
- *
- * Env (server-side): as checklist-sheet-sync.mjs.
  */
-import { runChecklistSync } from './checklist-sheet-sync.mjs'
+import { getSync } from './lib/sheetSyncs.mjs'
 
-/** Roles that may edit tasks, and therefore may push marks into the sheet. */
+/** Roles that may edit tasks, and so may push rows into a shared spreadsheet. */
 const MAY_SYNC = new Set(['admin', 'developer', 'operator'])
 
 const json = (body, status = 200) =>
@@ -42,7 +39,10 @@ export default async (req) => {
   const year = String(body.year ?? new Date().getFullYear())
   if (!/^\d{4}$/.test(year)) return json({ error: 'Expected a four-digit season' }, 400)
 
-  // Who is calling? Checked with the service key so the browser cannot lie.
+  const sync = getSync(body.sync ?? 'checklist')
+  if (!sync) return json({ error: `No sync called "${body.sync}"` }, 404)
+  if (!process.env[sync.sheetIdEnv]) return json({ error: `Not configured (${sync.sheetIdEnv})` }, 501)
+
   const me = await fetch(`${SB_URL}/auth/v1/user`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${jwt}` },
   }).then((r) => (r.ok ? r.json() : null))
@@ -52,8 +52,16 @@ export default async (req) => {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
   }).then((r) => (r.ok ? r.json() : null))
   const role = Array.isArray(prof) ? prof[0]?.role : null
-  if (!MAY_SYNC.has(role)) return json({ error: 'You do not have permission to sync the checklist.' }, 403)
+  if (!MAY_SYNC.has(role)) return json({ error: 'You do not have permission to sync.' }, 403)
 
-  console.info(`[checklist-sync-now] ${me.id} asked for ${year}`)
-  return runChecklistSync(year)
+  try {
+    console.info(`[sheet-sync-now] ${me.id} asked for ${sync.name} ${year}`)
+    return json(await sync.run({ year }), 200)
+  } catch (e) {
+    const status = e?.status ?? 500
+    if (status === 403) {
+      return json({ error: 'The service account cannot open that sheet — share it with its email as an Editor.' }, 403)
+    }
+    return json({ error: e instanceof Error ? e.message : 'Sync failed' }, status)
+  }
 }

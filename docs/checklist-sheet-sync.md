@@ -1,4 +1,7 @@
-# Overall Checklist ↔ Google Sheet — setup runbook
+# Google Sheet sync — setup runbook
+
+_The Overall Checklist is the first sheet through this. Adding the next one is
+a small adapter, not another integration — see **Adding another sheet** below._
 
 The Overall Checklist (`/tasks/overall`) syncs both ways with the **"Checklist"**
 Google Sheet — the one TNT has kept since 2023, a tab per season. Edit a cell in
@@ -55,17 +58,17 @@ The sheet id is the long string in its URL between `/d/` and `/edit`.
 Paste the JSON whole — the code repairs the one thing dashboards reliably break
 (turning the private key's real newlines into the two characters `\` and `n`).
 
-## 4. Apply the migrations
+## 4. Apply the migrations — DONE 2026-08-19
 
-In the Supabase SQL editor, in order:
+`0039_field_checklist.sql` and `0040_field_checklist_sync.sql` are applied to the
+live project. Re-run either with `node scripts/run-sql.mjs <file>` if a rebuild
+is ever needed; both are idempotent.
 
-- `supabase/migrations/0039_field_checklist.sql` — the table
-- `supabase/migrations/0040_field_checklist_sync.sql` — the agreement snapshot
+## 5. Load the history you already have — DONE 2026-08-19
 
-## 5. Load the history you already have
-
-The first sync imports whatever is in the sheet, but only for tabs it syncs.
-To load every season at once from the file:
+**191 marks are imported** (2026: 40 done + 1 planned; 2025: 40; 2024: 74; 2023:
+33 notes) and all 14 of 2026's sheet names are linked to their mapped field. To
+redo it from a fresh export:
 
 ```
 python scripts/import_checklist.py "C:/Users/tyler/Downloads/Checklist (1).xlsx"
@@ -90,6 +93,43 @@ marks moved each way. Then:
 After that it runs itself, every 30 minutes.
 
 ---
+
+## A new season makes its own tab
+
+The first sync of a year the sheet has no tab for **creates it**, copying the
+most recent season's header row so the columns this sync does not own (Gallons,
+Structures, Image, Type) come along in your order. It lands at the far left,
+because these workbooks read newest-first and a 2027 tab appearing past 2023 is
+a tab nobody sees.
+
+Fields are added to it as they get marks — a field mapped after the season
+started, or one that never had a line, gets appended rather than being silently
+un-syncable.
+
+## Adding another sheet
+
+The plumbing is shared, so a new sheet is an **adapter**, not another
+integration. From `netlify/functions/lib/sheetSyncs.mjs`:
+
+1. Write `lib/<thing>Sync.mjs` exporting `{ name, label, sheetIdEnv, run({year}) }`.
+   `sheets.mjs` gives you the mechanics — grid with formatting, season tabs,
+   appends, values, fills. Copy `checklistSync.mjs`; it is ~150 lines and most
+   of that is this sheet's meaning, not machinery.
+2. Register it in `SYNCS`.
+3. Set its `sheetIdEnv` in Netlify and share that sheet with the **same service
+   account**. One robot, many sheets — there is nothing new to create per sheet.
+
+The half-hourly schedule picks it up automatically, and `sheet-sync-now` accepts
+its `name` with no change. A sync with no sheet id set is skipped rather than
+failing every half hour.
+
+**What a new adapter should keep**, because these are what made the first one
+survivable rather than a source of quiet data loss:
+
+- store the agreement snapshot, so "which side changed" is knowable;
+- find columns by header text, never by position;
+- never write a column you do not own, and never delete a row;
+- carry the formatting, if the sheet uses it to mean something.
 
 ## How it decides
 
@@ -121,8 +161,8 @@ one.
 - **Rows.** A field dropped from a season's map keeps its row in the sheet: the
   sheet is also TNT's history, and a row vanishing from a 2024 tab would be
   indistinguishable from a bug.
-- **Any sheet but the season tabs.** A tab whose name is not four digits is
-  skipped; a season with no tab is not an error, just nothing to do.
+- **Any tab but the season tabs.** A tab whose name is not four digits is never
+  read, written, or used as the header source for a new year.
 
 ## Troubleshooting
 

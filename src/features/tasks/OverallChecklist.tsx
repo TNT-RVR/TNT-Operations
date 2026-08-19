@@ -75,7 +75,7 @@ export default function OverallChecklist() {
     return [...ys].sort().reverse()
   }, [fields, thisYear])
 
-  const rows = useMemo(
+  const mapped = useMemo(
     () =>
       fields
         .filter((f) => String(f.geometry?.year ?? '').trim() === year)
@@ -110,13 +110,36 @@ export default function OverallChecklist() {
     for (const c of cells) if (c.shelterFieldId) byField.set(c.shelterFieldId, c.fieldName)
     return byField
   }, [cells])
-  const nameFor = (f: { id: string; name: string }) => filedAs.get(f.id) ?? f.name
+  /**
+   * The rows: this season's mapped fields, then any marks that belong to no
+   * mapped field.
+   *
+   * Without that second group a past season shows an empty grid — 2024 has 74
+   * completed steps recorded and no fields still stamped 2024 on the map, so
+   * every one of them would be invisible. The same happens to a 2026 name the
+   * import could not link. History that exists and cannot be seen is worse than
+   * history that was never imported, because nothing tells you it is there.
+   */
+  const rows = useMemo(() => {
+    const onMap = mapped.map((f) => ({
+      key: f.id,
+      label: f.name,
+      filed: filedAs.get(f.id) ?? f.name,
+      fieldId: f.id as string | null,
+      onMap: true,
+    }))
+    const covered = new Set(onMap.map((r) => r.filed))
+    const orphans = [...new Set(cells.map((c) => c.fieldName))]
+      .filter((n) => !covered.has(n))
+      .sort()
+      .map((n) => ({ key: `name:${n}`, label: n, filed: n, fieldId: null, onMap: false }))
+    return [...onMap, ...orphans]
+  }, [mapped, filedAs, cells])
 
   const byKey = useMemo(() => indexCells(cells as ChecklistCell[]), [cells])
   const progress = useMemo(
-    () => checklistProgress(cells as ChecklistCell[], rows.map(nameFor)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cells, rows, filedAs],
+    () => checklistProgress(cells as ChecklistCell[], rows.map((r) => r.filed)),
+    [cells, rows],
   )
 
   const save = async (
@@ -127,12 +150,12 @@ export default function OverallChecklist() {
     const key = cellKey(fieldName, step)
     setBusy(key)
     setError('')
-    const field = rows.find((f) => nameFor(f) === fieldName)
+    const row = rows.find((r) => r.filed === fieldName)
     const r = await saveChecklistCell({
       year,
       fieldName,
       step,
-      shelterFieldId: field?.id ?? null,
+      shelterFieldId: row?.fieldId ?? null,
       ...patch,
     })
     setBusy('')
@@ -183,7 +206,7 @@ export default function OverallChecklist() {
         {syncNote && <p className="text-xs text-secondary">{syncNote}</p>}
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile label="Fields" value={rows.length} hint={`${year} season`} />
+          <StatTile label="Fields" value={rows.length} hint={`${mapped.length} on the map`} />
           <StatTile label="Steps done" value={progress.done} hint={`of ${progress.total}`} tone="good" />
           <StatTile label="Planned" value={progress.planned} hint="dated, not yet done" />
           <StatTile label="Complete" value={`${progress.pct}%`} />
@@ -191,8 +214,7 @@ export default function OverallChecklist() {
 
         {rows.length === 0 ? (
           <EmptyState>
-            No fields carry a {year} season yet — the rows here come from the map, so add or stamp a field there
-            and it appears.
+            Nothing recorded for {year}, and no field carries that season on the map.
           </EmptyState>
         ) : (
           <div className="card overflow-x-auto p-0">
@@ -208,16 +230,19 @@ export default function OverallChecklist() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((f) => (
-                  <tr key={f.id} className="border-t border-subtle">
+                {rows.map((row) => (
+                  <tr key={row.key} className="border-t border-subtle">
                     <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-medium text-primary">
-                      {f.name}
-                      {nameFor(f) !== f.name && (
-                        <span className="block text-xs text-faint">filed as “{nameFor(f)}” in the sheet</span>
+                      {row.label}
+                      {row.onMap && row.filed !== row.label && (
+                        <span className="block text-xs text-faint">filed as “{row.filed}” in the sheet</span>
+                      )}
+                      {!row.onMap && (
+                        <span className="block text-xs text-faint">not on this season&rsquo;s map</span>
                       )}
                     </td>
                     {CHECKLIST_STEPS.map((s) => {
-                      const filed = nameFor(f)
+                      const filed = row.filed
                       const cell = byKey.get(cellKey(filed, s.key))
                       const state = cellState(cell)
                       const late = daysLate(cell)
@@ -229,7 +254,7 @@ export default function OverallChecklist() {
                               type="button"
                               disabled={!canEdit}
                               onClick={() => setEditing({ fieldName: filed, step: s.key })}
-                              title={cell?.note || `${f.name} — ${s.label}`}
+                              title={cell?.note || `${row.label} — ${s.label}`}
                               className={
                                 state === 'done'
                                   ? 'rounded-sm border border-info/50 bg-info/15 px-2 py-1 text-xs font-semibold text-info'
@@ -252,7 +277,7 @@ export default function OverallChecklist() {
                             {canEdit && state !== 'done' && (
                               <button
                                 type="button"
-                                aria-label={`Mark ${s.label} done for ${f.name}`}
+                                aria-label={`Mark ${s.label} done for ${row.label}`}
                                 title={`Mark done today`}
                                 disabled={busy === key}
                                 onClick={() => void save(filed, s.key, { completedDate: todayInTz() })}

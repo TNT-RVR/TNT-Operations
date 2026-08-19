@@ -430,6 +430,12 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * field per step per season, so ticking twice must update rather than
    * accumulate. Passing `null` for a date clears it.
    */
+  /**
+   * Run the Google Sheets sync for a season, now. The schedule already runs it
+   * every half hour; this is for when someone has just edited the sheet and
+   * does not want to wait. Returns how many marks moved each way.
+   */
+  syncChecklistSheet: (year: string) => Promise<{ ok: boolean; error?: string; toApp?: number; toSheet?: number }>
   saveChecklistCell: (input: {
     year: string
     fieldName: string

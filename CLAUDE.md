@@ -348,8 +348,15 @@ _Last reviewed 2026-08-17._
         sheet keeps both in one cell distinguished by a blue fill, so the plan
         is destroyed the moment the work happens and "were we late" cannot be
         asked. Steps in `domain/fieldChecklist.ts`.
-        Google Sheets two-way sync is REQUESTED but NOT BUILT — see
-        `docs/checklist-sheet-sync.md` for what it needs.
+        **Google Sheets two-way sync is BUILT** (`checklist-sheet-sync.mjs`
+        every 30 min + `checklist-sync-now.mjs` for the button, service-account
+        auth, `0040` adds the agreement snapshot). App wins a true conflict, but
+        only when BOTH sides moved since the last sync — the snapshot is what
+        lets a sheet-only edit still flow in. A blue fill IS the "done" flag,
+        read and written. Needs `GOOGLE_SERVICE_ACCOUNT` + `CHECKLIST_SHEET_ID`
+        in Netlify and the sheet shared with the service account, or it no-ops
+        with 501. Setup + how it decides:
+        `docs/checklist-sheet-sync.md`.
       - **Notifications** (`0006_notifications.sql`) — in-app alert system: bell
         with unread dot, list/mark-read/delete, per-type preferences
         (`app_notifications`, `app_notification_prefs`). Table is named

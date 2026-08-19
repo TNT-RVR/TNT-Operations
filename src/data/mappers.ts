@@ -756,6 +756,7 @@ export interface FieldChecklistRow {
   completed_date: string | null
   note: string | null
   updated_at: string
+  synced_at?: string | null
 }
 
 export function toFieldChecklistCell(r: FieldChecklistRow): FieldChecklistCell {
@@ -769,5 +770,6 @@ export function toFieldChecklistCell(r: FieldChecklistRow): FieldChecklistCell {
     completedDate: r.completed_date,
     note: r.note ?? '',
     updatedAt: r.updated_at,
+    syncedAt: r.synced_at ?? null,
   }
 }

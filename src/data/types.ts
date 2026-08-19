@@ -49,6 +49,8 @@ export interface FieldChecklistCell {
   /** Free text the sheet carries in the same cell ("Half- 7/16/2026"). */
   note: string
   updatedAt: string
+  /** When this mark last agreed with the Google Sheet; null = never synced. */
+  syncedAt: string | null
 }
 
 export type IncubatorStatus = 'active' | 'idle'

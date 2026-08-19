@@ -20,7 +20,7 @@
  * highlighted "done" with for three seasons, so it reads without explanation.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Check, CalendarClock, X } from 'lucide-react'
+import { Check, CalendarClock, RefreshCw, X } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { Badge, Button, EmptyState, Input, Modal, Select, StatTile } from '@/components/ui'
@@ -49,7 +49,8 @@ function shortDate(iso: string | null): string {
 }
 
 export default function OverallChecklist() {
-  const { fields, fieldChecklist, fieldChecklistLoading, loadFieldChecklist, saveChecklistCell } = useData()
+  const { fields, fieldChecklist, fieldChecklistLoading, loadFieldChecklist, saveChecklistCell, syncChecklistSheet } =
+    useData()
   const canEdit = useSession().can('tasks', 'edit')
 
   const thisYear = String(new Date().getFullYear())
@@ -57,6 +58,8 @@ export default function OverallChecklist() {
   const [editing, setEditing] = useState<{ fieldName: string; step: string } | null>(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncNote, setSyncNote] = useState('')
 
   useEffect(() => {
     void loadFieldChecklist(year)
@@ -81,6 +84,14 @@ export default function OverallChecklist() {
   )
 
   const cells = useMemo(() => fieldChecklist.filter((c) => c.year === year), [fieldChecklist, year])
+  /**
+   * When the sheet and the app last agreed, read off the rows themselves —
+   * there is no separate sync-state row to drift from what actually happened.
+   */
+  const lastSynced = useMemo(() => {
+    const stamps = cells.map((c) => c.syncedAt).filter(Boolean) as string[]
+    return stamps.length ? stamps.sort().at(-1)! : null
+  }, [cells])
   const byKey = useMemo(() => indexCells(cells as ChecklistCell[]), [cells])
   const progress = useMemo(
     () => checklistProgress(cells as ChecklistCell[], rows.map((f) => f.name)),
@@ -107,6 +118,21 @@ export default function OverallChecklist() {
     if (!r.ok) setError(r.error ?? 'Could not save')
   }
 
+  const runSync = async () => {
+    setSyncing(true)
+    setSyncNote('')
+    setError('')
+    const r = await syncChecklistSheet(year)
+    setSyncing(false)
+    if (r.ok) {
+      setSyncNote(
+        r.toApp || r.toSheet
+          ? `Synced — ${r.toApp ?? 0} in from the sheet, ${r.toSheet ?? 0} out to it.`
+          : 'Synced — already in step.',
+      )
+    } else setError(r.error ?? 'Sync failed')
+  }
+
   const current = editing ? byKey.get(cellKey(editing.fieldName, editing.step)) : undefined
 
   return (
@@ -114,17 +140,26 @@ export default function OverallChecklist() {
       title="Overall Checklist"
       subtitle="Every field this season, and what has been done to it"
       actions={
-        <Select value={year} onChange={(e) => setYear(e.target.value)} className="w-28">
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={year} onChange={(e) => setYear(e.target.value)} className="w-28">
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </Select>
+          {canEdit && (
+            <Button variant="ghost" disabled={syncing} onClick={() => void runSync()}>
+              <RefreshCw size={16} className={syncing ? 'animate-spin' : undefined} />
+              {syncing ? 'Syncing…' : 'Sync sheet'}
+            </Button>
+          )}
+        </div>
       }
     >
       <div className="space-y-4 p-4 md:p-6">
         {error && <p className="text-xs text-danger">{error}</p>}
+        {syncNote && <p className="text-xs text-secondary">{syncNote}</p>}
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Fields" value={rows.length} hint={`${year} season`} />
@@ -211,7 +246,12 @@ export default function OverallChecklist() {
         )}
 
         <p className="text-xs text-faint">
-          {fieldChecklistLoading ? 'Loading…' : 'Outlined = planned. Filled blue = done. +3d = days later than planned.'}
+          {fieldChecklistLoading
+            ? 'Loading…'
+            : 'Outlined = planned. Filled blue = done. +3d = days later than planned.'}
+          {lastSynced && !fieldChecklistLoading && (
+            <> · Google Sheet last agreed {new Date(lastSynced).toLocaleString('en-CA', { timeZone: 'America/Edmonton' })}</>
+          )}
         </p>
       </div>
 

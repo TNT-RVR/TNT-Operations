@@ -285,6 +285,29 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const notifRef = useRef<AppNotification[]>([])
   notifRef.current = notifications
 
+  /**
+   * Read one season's checklist marks into state.
+   *
+   * A named helper rather than a method on the context object, because two
+   * callers need it — the lazy loader and the sheet sync, which must re-read
+   * after pulling marks in. Reaching back into the memo for it would work by
+   * accident and break the first time the memo is restructured.
+   */
+  const readChecklistYear = useCallback(
+    async (year: string) => {
+      if (!supabase) return
+      const { data, error } = await supabase.from('field_checklist').select('*').eq('year', year)
+      if (error) {
+        console.error('[data] readChecklistYear:', error.message)
+        throw error
+      }
+      const rows = ((data as FieldChecklistRow[]) ?? []).map(toFieldChecklistCell)
+      setFieldChecklist((prev) => [...prev.filter((c) => c.year !== year), ...rows])
+    },
+    [],
+  )
+
+
   useEffect(() => {
     if (!supabase) return
     let cancelled = false
@@ -1262,19 +1285,37 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if (!supabase) return Promise.resolve()
         setFieldChecklistLoading(true)
         const run = (async () => {
-          const { data, error } = await supabase!.from('field_checklist').select('*').eq('year', year)
-          if (error) {
-            console.error('[data] loadFieldChecklist:', error.message)
+          try {
+            // Replaces this season's marks, keeping any other season held.
+            await readChecklistYear(year)
+          } catch {
             checklistPromiseRef.current.delete(year) // let it retry
-          } else {
-            const rows = ((data as FieldChecklistRow[]) ?? []).map(toFieldChecklistCell)
-            // Replace this season's marks, keep any other season already held.
-            setFieldChecklist((prev) => [...prev.filter((c) => c.year !== year), ...rows])
           }
           setFieldChecklistLoading(false)
         })()
         checklistPromiseRef.current.set(year, run)
         return run
+      },
+      syncChecklistSheet: async (year) => {
+        const { data } = await supabase!.auth.getSession()
+        const token = data.session?.access_token
+        if (!token) return { ok: false, error: 'Your session expired — sign in again.' }
+        try {
+          const res = await fetch('/.netlify/functions/checklist-sync-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ year }),
+          })
+          const out = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: out.error ?? `Sync failed (${res.status})` }
+          // The sync may have pulled marks in; re-read so the grid shows them
+          // without a refresh.
+          checklistPromiseRef.current.delete(year)
+          await readChecklistYear(year)
+          return { ok: true, toApp: out.toApp, toSheet: out.toSheet }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Sync failed' }
+        }
       },
       saveChecklistCell: async (input) => {
         if (!supabase) return { ok: false, error: 'No backend connection.' }
@@ -2010,6 +2051,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fieldAnalysisLoading,
       fieldChecklist,
       fieldChecklistLoading,
+      readChecklistYear,
       fieldWeather,
       blockSeasons,
       earlierInspectionsLoaded,

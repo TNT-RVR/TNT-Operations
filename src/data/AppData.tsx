@@ -710,6 +710,10 @@ function MockProvider({ children }: { children: ReactNode }) {
       fieldChecklist,
       fieldChecklistLoading: false,
       loadFieldChecklist: () => Promise.resolve(),
+      syncChecklistSheet: async () => ({
+        ok: false,
+        error: 'Mock mode has no backend — the sheet sync runs against the live data.',
+      }),
       saveChecklistCell: async (input) => {
         setFieldChecklist((prev) => {
           const i = prev.findIndex(
@@ -728,6 +732,7 @@ function MockProvider({ children }: { children: ReactNode }) {
                   completedDate: null,
                   note: '',
                   updatedAt: new Date().toISOString(),
+                  syncedAt: null,
                 }
           // Only the keys actually passed are touched: `undefined` means "leave
           // it alone", `null` means "clear it" — which is how a plan is cleared

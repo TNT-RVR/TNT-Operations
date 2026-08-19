@@ -170,7 +170,14 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
-  const [fieldAnalysisLoading, setFieldAnalysisLoading] = useState(false)
+  /**
+   * Starts TRUE: nothing has been fetched yet, and "no rows" and "not asked
+   * yet" look identical to a screen. Only the Analysis section reads this and
+   * every one of its tabs calls loadFieldAnalysis() on mount, so the first
+   * paint says "Loading season data…" rather than flashing "Not enough data"
+   * at someone whose data is on its way.
+   */
+  const [fieldAnalysisLoading, setFieldAnalysisLoading] = useState(true)
   const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
   /**
    * The signed-in Supabase user id, for stamping who completed what.
@@ -1243,7 +1250,12 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fieldAnalysisLoading,
       loadFieldAnalysis: () => {
         if (analysisPromiseRef.current) return analysisPromiseRef.current
-        if (!supabase) return Promise.resolve()
+        // No backend to ask: resolve the initial `true` above, or the section
+        // would sit on "Loading…" for ever.
+        if (!supabase) {
+          setFieldAnalysisLoading(false)
+          return Promise.resolve()
+        }
         setFieldAnalysisLoading(true)
         const run = (async () => {
           // ~157 rows today and growing by a season a year, so a single select
@@ -1924,6 +1936,21 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       sales,
       tasks,
       settings2,
+      // Lazily-loaded sets and the signed-in identity. These were MISSING, and
+      // a missing dep here does not stale one value — it freezes the whole
+      // context object, because every consumer reads the same memo. The
+      // Analysis section showed "Not enough data" until an unrelated fetch
+      // happened to change another dep and force a recompute; `userLabel`
+      // stamped `placed_by` on a block placement as null; `userId` made
+      // "Join crew" answer "Sign in first" to someone who was signed in.
+      // src/data/contextDeps.test.ts now fails if this list falls behind again.
+      fieldAnalysis,
+      fieldAnalysisLoading,
+      fieldWeather,
+      blockSeasons,
+      earlierInspectionsLoaded,
+      userId,
+      userLabel,
     ],
   )
 

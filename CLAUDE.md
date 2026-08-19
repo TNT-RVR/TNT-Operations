@@ -425,10 +425,9 @@ _Last reviewed 2026-08-17._
 - `xray_live_pct` may be stored as a fraction (0.86) or a percent (86); the
   Samples UI normalises (>1 ⇒ ÷100), but the true convention is unconfirmed.
   (`field_analysis` has no such ambiguity — percent columns are 0–100 by CHECK.)
-- **Analysis migration 0014 is written but NOT yet applied**, and the 157 real
-  rows are not imported. Run `0014_field_analysis.sql` in the Supabase SQL
-  editor, then `python scripts/import_field_analysis.py <Field_export.csv>` and
-  paste `scripts/field_analysis_import.sql`. `weather-fetch` also needs
+- ~~**Analysis migration 0014 is written but NOT yet applied**~~ — applied, and
+  the real rows ARE imported (confirmed 2026-08-19: the Analysis screens render
+  live data from `field_analysis`). `weather-fetch` still needs
   `SUPABASE_SERVICE_ROLE` in Netlify env, and `analysis-ai` needs
   `ANTHROPIC_API_KEY` (already set if grants-pull works).
 - `field_analysis.shelter_field_id` is never populated — the link to

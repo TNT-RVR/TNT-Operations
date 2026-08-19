@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  FieldChecklistCell,
   Block,
   BlockPlacement,
   Field,
@@ -149,6 +150,7 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [grants, setGrants] = useState<Grant[]>(seedGrants)
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
+  const [fieldChecklist, setFieldChecklist] = useState<FieldChecklistCell[]>([])
   const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
   const nowIso = () => new Date().toISOString()
   // Sales lives in its own hook — this file is long enough, and the slice has
@@ -703,6 +705,45 @@ function MockProvider({ children }: { children: ReactNode }) {
       },
 
       // ── Season analysis ─────────────────────────────────────────────────
+      // ── Overall Checklist ───────────────────────────────────────────────
+      // In memory, so the grid works on mock data with no backend.
+      fieldChecklist,
+      fieldChecklistLoading: false,
+      loadFieldChecklist: () => Promise.resolve(),
+      saveChecklistCell: async (input) => {
+        setFieldChecklist((prev) => {
+          const i = prev.findIndex(
+            (c) => c.year === input.year && c.fieldName === input.fieldName && c.step === input.step,
+          )
+          const base =
+            i >= 0
+              ? prev[i]
+              : {
+                  id: `fc_${Date.now()}_${input.step}`,
+                  year: input.year,
+                  fieldName: input.fieldName,
+                  step: input.step,
+                  shelterFieldId: input.shelterFieldId ?? null,
+                  plannedDate: null,
+                  completedDate: null,
+                  note: '',
+                  updatedAt: new Date().toISOString(),
+                }
+          // Only the keys actually passed are touched: `undefined` means "leave
+          // it alone", `null` means "clear it" — which is how a plan is cleared
+          // without disturbing the completion, and the other way round.
+          const next = {
+            ...base,
+            ...(input.plannedDate !== undefined ? { plannedDate: input.plannedDate } : {}),
+            ...(input.completedDate !== undefined ? { completedDate: input.completedDate } : {}),
+            ...(input.note !== undefined ? { note: input.note } : {}),
+            updatedAt: new Date().toISOString(),
+          }
+          return i >= 0 ? prev.map((c, j) => (j === i ? next : c)) : [...prev, next]
+        })
+        return { ok: true }
+      },
+
       fieldAnalysis,
       fieldAnalysisLoading: false,
       // Mock data is already in memory; nothing to fetch.
@@ -815,6 +856,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       grants,
       grantTasks,
       fieldAnalysis,
+      fieldChecklist,
+      modeEvents,
       fieldWeather,
       sales,
       tasks,

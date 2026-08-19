@@ -7,6 +7,7 @@
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
 import type {
+  FieldChecklistCell,
   Block,
   BlockPlacement,
   Field,
@@ -742,4 +743,31 @@ export function toFieldAnalysis(row: FieldAnalysisRow): FieldAnalysis {
     out[c] = numOrNull(row[c] as number | string | null | undefined)
   }
   return out as unknown as FieldAnalysis
+}
+
+/** `field_checklist` row → the seam type (migration 0039). */
+export interface FieldChecklistRow {
+  id: string
+  year: string
+  field_name: string
+  step: string
+  shelter_field_id: string | null
+  planned_date: string | null
+  completed_date: string | null
+  note: string | null
+  updated_at: string
+}
+
+export function toFieldChecklistCell(r: FieldChecklistRow): FieldChecklistCell {
+  return {
+    id: r.id,
+    year: String(r.year),
+    fieldName: r.field_name,
+    step: r.step,
+    shelterFieldId: r.shelter_field_id,
+    plannedDate: r.planned_date,
+    completedDate: r.completed_date,
+    note: r.note ?? '',
+    updatedAt: r.updated_at,
+  }
 }

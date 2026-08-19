@@ -15,6 +15,7 @@ import { CloudOff } from 'lucide-react'
 const TABS = [
   { to: '/tasks', label: 'Tasks', end: true },
   { to: '/tasks/checklists', label: 'Checklists' },
+  { to: '/tasks/overall', label: 'Overall Checklist' },
 ]
 
 export function TasksChrome({

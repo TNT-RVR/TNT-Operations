@@ -28,6 +28,29 @@ export interface Field {
   geometry?: FieldGeometry
 }
 
+/**
+ * One field × one season step on the Overall Checklist (migration 0039).
+ *
+ * Rows of the grid are NOT stored — they are the season's fields, live from
+ * `shelter_fields`. Only the marks live here, keyed by field NAME because the
+ * spreadsheet this replaces is name-keyed and carries names that were never
+ * mapped fields.
+ */
+export interface FieldChecklistCell {
+  id: string
+  year: string
+  fieldName: string
+  step: string
+  /** Set when the name matches a mapped field; null for a name-only row. */
+  shelterFieldId: string | null
+  /** ISO date (YYYY-MM-DD), or null. Both may be set: planned, then done. */
+  plannedDate: string | null
+  completedDate: string | null
+  /** Free text the sheet carries in the same cell ("Half- 7/16/2026"). */
+  note: string
+  updatedAt: string
+}
+
 export type IncubatorStatus = 'active' | 'idle'
 
 /** A leafcutter-bee incubator (Incubation section). */

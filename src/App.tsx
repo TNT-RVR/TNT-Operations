@@ -5,6 +5,7 @@ import { useSession, type Module } from '@/auth/session'
 import { NoAccess } from './components/ui'
 import TasksHome from './features/tasks/TasksHome'
 import ChecklistsHome from './features/tasks/ChecklistsHome'
+import OverallChecklist from './features/tasks/OverallChecklist'
 import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
 import { InventoryHome } from './features/sales/SalesInventory'
 import { CustomersHome, ProductsHome } from './features/sales/SalesCatalogue'
@@ -123,6 +124,7 @@ export default function App() {
         <Route path="blocks/map" element={<Protected module="blocks" denyRoles={['device']}><ReturnsMap /></Protected>} />
         <Route path="tasks" element={<Protected module="tasks"><TasksHome /></Protected>} />
         <Route path="tasks/checklists" element={<Protected module="tasks"><ChecklistsHome /></Protected>} />
+        <Route path="tasks/overall" element={<Protected module="tasks"><OverallChecklist /></Protected>} />
         <Route path="sales" element={<Protected module="sales"><EstimatesHome /></Protected>} />
         <Route path="sales/invoices" element={<Protected module="sales"><InvoicesHome /></Protected>} />
         <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />

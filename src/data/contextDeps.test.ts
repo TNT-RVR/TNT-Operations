@@ -21,18 +21,31 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const SOURCE = join(process.cwd(), 'src', 'data', 'SupabaseProvider.tsx')
+const PROVIDERS = [
+  { file: 'SupabaseProvider.tsx', memo: 'const value = useMemo<DataContextValue>(' },
+  // The mock provider has the same shape and the same trap: a checklist
+  // mark saved into state that the memo never re-reads looks like a button
+  // that does nothing. Caught here first, in mock mode, before the backend.
+  { file: 'AppData.tsx', memo: 'const value = useMemo<DataContextValue>(' },
+]
 
-describe('SupabaseProvider context value', () => {
+describe.each(PROVIDERS)('$file context value', ({ file, memo }) => {
   it('lists every state it reads in its dependency array', () => {
-    const src = readFileSync(SOURCE, 'utf8')
+    const src = readFileSync(join(process.cwd(), 'src', 'data', file), 'utf8')
 
     const stateNames = [...src.matchAll(/const \[(\w+), set\w+\] = useState/g)].map((m) => m[1])
     expect(stateNames.length).toBeGreaterThan(20) // the regex still matches something
 
-    const start = src.indexOf('const value = useMemo<DataContextValue>(')
+    const start = src.indexOf(memo)
     expect(start).toBeGreaterThan(-1)
-    const depsStart = src.lastIndexOf('    [', src.indexOf('  )\n\n  return <DataContext.Provider'))
+
+    // Newline-agnostic: these two files disagree about line endings, and an
+    // anchor written with \n matches neither in the CRLF one — which would
+    // read as "the memo has no deps array" rather than as a broken test.
+    const close = src.slice(start).search(/\r?\n {4}\],\r?\n {2}\)/)
+    expect(close).toBeGreaterThan(-1)
+    const depsEnd = start + close
+    const depsStart = src.lastIndexOf('    [', depsEnd)
     expect(depsStart).toBeGreaterThan(start)
 
     const body = src.slice(start, depsStart)
@@ -40,7 +53,6 @@ describe('SupabaseProvider context value', () => {
     // closing bracket — or leaving the comments in — lets a name mentioned in
     // prose count as a dependency, which is exactly how this check first
     // passed against a deps array it should have failed.
-    const depsEnd = src.indexOf('\n    ],', depsStart)
     expect(depsEnd).toBeGreaterThan(depsStart)
     const depsText = src.slice(depsStart, depsEnd).replace(/\/\/[^\n]*/g, '')
     const deps = new Set(depsText.match(/\w+/g) ?? [])

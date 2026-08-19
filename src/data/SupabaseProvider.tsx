@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  FieldChecklistCell,
   Block,
   BlockPlacement,
   Field,
@@ -41,6 +42,7 @@ interface WeatherCacheRow {
   daily: unknown
 }
 import {
+  toFieldChecklistCell,
   toBlock,
   toBlockPlacement,
   toField,
@@ -84,6 +86,7 @@ import {
   toFieldAnalysis,
   type FieldAnalysisRow,
 } from './mappers'
+import type { FieldChecklistRow } from './mappers'
 
 /**
  * Live Supabase backend. Implements the SAME `DataContextValue` seam as
@@ -170,6 +173,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [grants, setGrants] = useState<Grant[]>([])
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
+  const [fieldChecklist, setFieldChecklist] = useState<FieldChecklistCell[]>([])
+  const [fieldChecklistLoading, setFieldChecklistLoading] = useState(false)
   /**
    * Starts TRUE: nothing has been fetched yet, and "no rows" and "not asked
    * yet" look identical to a screen. Only the Analysis section reads this and
@@ -218,6 +223,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const blocksPromiseRef = useRef<Map<number, Promise<void>>>(new Map())
   /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
   const analysisPromiseRef = useRef<Promise<void> | null>(null)
+  /** One in-flight guard PER SEASON for the Overall Checklist, like blocks. */
+  const checklistPromiseRef = useRef<Map<string, Promise<void>>>(new Map())
   /**
    * Weather cache keys already fetched or in flight. Without this, six panels
    * mounting at once each start the same 157 lookups — which is precisely what
@@ -1246,6 +1253,61 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       },
 
       // ── Season analysis ───────────────────────────────────────────────────
+      // ── Overall Checklist ───────────────────────────────────────────────
+      fieldChecklist,
+      fieldChecklistLoading,
+      loadFieldChecklist: (year) => {
+        const inFlight = checklistPromiseRef.current.get(year)
+        if (inFlight) return inFlight
+        if (!supabase) return Promise.resolve()
+        setFieldChecklistLoading(true)
+        const run = (async () => {
+          const { data, error } = await supabase!.from('field_checklist').select('*').eq('year', year)
+          if (error) {
+            console.error('[data] loadFieldChecklist:', error.message)
+            checklistPromiseRef.current.delete(year) // let it retry
+          } else {
+            const rows = ((data as FieldChecklistRow[]) ?? []).map(toFieldChecklistCell)
+            // Replace this season's marks, keep any other season already held.
+            setFieldChecklist((prev) => [...prev.filter((c) => c.year !== year), ...rows])
+          }
+          setFieldChecklistLoading(false)
+        })()
+        checklistPromiseRef.current.set(year, run)
+        return run
+      },
+      saveChecklistCell: async (input) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Upsert on the natural key so ticking a cell twice updates the mark
+        // rather than adding a second one. Only the keys passed are sent —
+        // PostgREST would otherwise write nulls over the halves not being set.
+        const row: Record<string, unknown> = {
+          year: input.year,
+          field_name: input.fieldName,
+          step: input.step,
+        }
+        if (input.shelterFieldId !== undefined) row.shelter_field_id = input.shelterFieldId
+        if (input.plannedDate !== undefined) row.planned_date = input.plannedDate
+        if (input.completedDate !== undefined) row.completed_date = input.completedDate
+        if (input.note !== undefined) row.note = input.note
+
+        const { data, error } = await supabase
+          .from('field_checklist')
+          .upsert(row, { onConflict: 'year,field_name,step' })
+          .select()
+          .single()
+        if (error) {
+          console.error('[data] saveChecklistCell:', error.message)
+          return { ok: false, error: error.message }
+        }
+        const saved = toFieldChecklistCell(data as FieldChecklistRow)
+        setFieldChecklist((prev) => {
+          const i = prev.findIndex((c) => c.id === saved.id)
+          return i >= 0 ? prev.map((c, j) => (j === i ? saved : c)) : [...prev, saved]
+        })
+        return { ok: true }
+      },
+
       fieldAnalysis,
       fieldAnalysisLoading,
       loadFieldAnalysis: () => {
@@ -1946,6 +2008,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       // src/data/contextDeps.test.ts now fails if this list falls behind again.
       fieldAnalysis,
       fieldAnalysisLoading,
+      fieldChecklist,
+      fieldChecklistLoading,
       fieldWeather,
       blockSeasons,
       earlierInspectionsLoaded,

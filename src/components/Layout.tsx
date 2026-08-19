@@ -108,6 +108,7 @@ const NAV: NavItem[] = [
     children: [
       { to: '/tasks', label: 'Tasks', end: true },
       { to: '/tasks/checklists', label: 'Checklists' },
+      { to: '/tasks/overall', label: 'Overall Checklist' },
     ],
   },
   {

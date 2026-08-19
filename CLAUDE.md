@@ -338,6 +338,18 @@ _Last reviewed 2026-08-17._
         `cool_date` → `in_date`. `samples.import_date` is the import timestamp,
         NOT the season — never use it for year.
 - [x] Phase 8 — beyond the original port (new modules):
+      - **Overall Checklist** (`/tasks/overall`, `0039_field_checklist.sql`) —
+        the field × season-step grid ported from the "Checklist" spreadsheet
+        (one sheet per year since 2023). ROWS ARE NOT STORED: they are the
+        season's fields straight from `shelter_fields`, so the list cannot
+        drift from the map. Only marks are stored, keyed `(year, field_name,
+        step)` — name-keyed because the sheet is, and its older names were
+        never mapped fields. Planned and completed are SEPARATE dates: the
+        sheet keeps both in one cell distinguished by a blue fill, so the plan
+        is destroyed the moment the work happens and "were we late" cannot be
+        asked. Steps in `domain/fieldChecklist.ts`.
+        Google Sheets two-way sync is REQUESTED but NOT BUILT — see
+        `docs/checklist-sheet-sync.md` for what it needs.
       - **Notifications** (`0006_notifications.sql`) — in-app alert system: bell
         with unread dot, list/mark-read/delete, per-type preferences
         (`app_notifications`, `app_notification_prefs`). Table is named

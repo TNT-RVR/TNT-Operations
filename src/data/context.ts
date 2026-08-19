@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import type { BeePurchase } from '@/domain/beePurchases'
 import type { CrewTask } from '@/domain/supplies'
 import type {
+  FieldChecklistCell,
   Block,
   BlockPlacement,
   Field,
@@ -419,6 +420,25 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * One row per field per season, for after-harvest analysis. NOT loaded on
    * mount — only the Analysis section reads them. Call `loadFieldAnalysis()`.
    */
+  // ── Overall Checklist (field × season step) ──────────────────────────────
+  /** Marks for the loaded season. Loaded per year, like blocks. */
+  fieldChecklist: FieldChecklistCell[]
+  fieldChecklistLoading: boolean
+  loadFieldChecklist: (year: string) => Promise<void>
+  /**
+   * Set a cell. Upserts on (year, field_name, step): a mark is one row per
+   * field per step per season, so ticking twice must update rather than
+   * accumulate. Passing `null` for a date clears it.
+   */
+  saveChecklistCell: (input: {
+    year: string
+    fieldName: string
+    step: string
+    shelterFieldId?: string | null
+    plannedDate?: string | null
+    completedDate?: string | null
+    note?: string
+  }) => Promise<{ ok: boolean; error?: string }>
   fieldAnalysis: FieldAnalysis[]
   fieldAnalysisLoading: boolean
   /** Fetch every analysis row once. Idempotent — safe to call from any screen. */

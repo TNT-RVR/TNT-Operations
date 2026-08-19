@@ -92,10 +92,31 @@ export default function OverallChecklist() {
     const stamps = cells.map((c) => c.syncedAt).filter(Boolean) as string[]
     return stamps.length ? stamps.sort().at(-1)! : null
   }, [cells])
+  /**
+   * The name a field's marks are filed under.
+   *
+   * The spreadsheet names a field by company AND description ("Proven Seeds SE
+   * 14-9-15"); the map names it by the description alone and keeps the company
+   * separately. So an imported mark does not sit under the map's name — but the
+   * import linked it to the field, and that link is the authority here.
+   *
+   * Every read AND write for the row then uses the name the mark already
+   * carries. Writing under the map's name instead would create a second row for
+   * the same work, and the sheet would grow a duplicate line the next time it
+   * synced.
+   */
+  const filedAs = useMemo(() => {
+    const byField = new Map<string, string>()
+    for (const c of cells) if (c.shelterFieldId) byField.set(c.shelterFieldId, c.fieldName)
+    return byField
+  }, [cells])
+  const nameFor = (f: { id: string; name: string }) => filedAs.get(f.id) ?? f.name
+
   const byKey = useMemo(() => indexCells(cells as ChecklistCell[]), [cells])
   const progress = useMemo(
-    () => checklistProgress(cells as ChecklistCell[], rows.map((f) => f.name)),
-    [cells, rows],
+    () => checklistProgress(cells as ChecklistCell[], rows.map(nameFor)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cells, rows, filedAs],
   )
 
   const save = async (
@@ -106,7 +127,7 @@ export default function OverallChecklist() {
     const key = cellKey(fieldName, step)
     setBusy(key)
     setError('')
-    const field = rows.find((f) => f.name === fieldName)
+    const field = rows.find((f) => nameFor(f) === fieldName)
     const r = await saveChecklistCell({
       year,
       fieldName,
@@ -189,19 +210,25 @@ export default function OverallChecklist() {
               <tbody>
                 {rows.map((f) => (
                   <tr key={f.id} className="border-t border-subtle">
-                    <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-medium text-primary">{f.name}</td>
+                    <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-medium text-primary">
+                      {f.name}
+                      {nameFor(f) !== f.name && (
+                        <span className="block text-xs text-faint">filed as “{nameFor(f)}” in the sheet</span>
+                      )}
+                    </td>
                     {CHECKLIST_STEPS.map((s) => {
-                      const cell = byKey.get(cellKey(f.name, s.key))
+                      const filed = nameFor(f)
+                      const cell = byKey.get(cellKey(filed, s.key))
                       const state = cellState(cell)
                       const late = daysLate(cell)
-                      const key = cellKey(f.name, s.key)
+                      const key = cellKey(filed, s.key)
                       return (
                         <td key={s.key} className="px-2 py-1.5">
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
                               disabled={!canEdit}
-                              onClick={() => setEditing({ fieldName: f.name, step: s.key })}
+                              onClick={() => setEditing({ fieldName: filed, step: s.key })}
                               title={cell?.note || `${f.name} — ${s.label}`}
                               className={
                                 state === 'done'
@@ -228,7 +255,7 @@ export default function OverallChecklist() {
                                 aria-label={`Mark ${s.label} done for ${f.name}`}
                                 title={`Mark done today`}
                                 disabled={busy === key}
-                                onClick={() => void save(f.name, s.key, { completedDate: todayInTz() })}
+                                onClick={() => void save(filed, s.key, { completedDate: todayInTz() })}
                                 className="rounded-sm p-1 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-info disabled:opacity-50"
                               >
                                 <Check size={14} />

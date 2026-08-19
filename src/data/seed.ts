@@ -35,6 +35,9 @@ const demoFields: Field[] = [
     updatedAt: '2026-07-18T15:00:00Z',
     // 400 m radius centre-pivot, 8F/2M bays, 24 shelters. Synthetic demo geometry.
     geometry: {
+      // Stamps the demo fields as this season so the dashboard's field map
+      // has something to draw in mock mode, the way real imported fields do.
+      year: '2026',
       PP_Longitude: '-111.6',
       PP_Latitude: '49.83',
       Radius: '400',
@@ -76,6 +79,9 @@ const demoFields: Field[] = [
     updatedAt: '2026-07-19T18:30:00Z',
     // ~800 m square boundary, green-compliant (no shelters in the outside pass).
     geometry: {
+      // Stamps the demo fields as this season so the dashboard's field map
+      // has something to draw in mock mode, the way real imported fields do.
+      year: '2026',
       PP_Longitude: String(BOW_LON),
       PP_Latitude: String(BOW_LAT),
       boundary_polygon: [

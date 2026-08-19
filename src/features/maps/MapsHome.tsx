@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { circle as turfCircle, bbox as turfBbox } from '@turf/turf'
-import type { Feature, FeatureCollection, Polygon, Point, Position } from 'geojson'
+import { bbox as turfBbox } from '@turf/turf'
+import type { Feature, FeatureCollection, Point, Position } from 'geojson'
 import { PageHeader, Badge } from '@/components/ui'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
@@ -30,7 +30,7 @@ import {
 } from './layers'
 import { FieldEditor } from './FieldEditor'
 import { SATELLITE_STYLE } from './basemap'
-import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
+import { boundaryFeature, trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, type PinKind } from './overlays'
 import { boundaryFromFile, ringAcres } from './importBoundary'
 import { pathsFromFile, actualSheltersFromFile } from './importPaths'
 import {
@@ -129,23 +129,6 @@ const str = (v: unknown): string => (v === undefined || v === null ? '' : String
 const truthyVal = (v: unknown): boolean =>
   v === true || v === 1 || ['true', 'yes'].includes(String(v ?? '').trim().toLowerCase())
 
-function boundaryFeature(geom?: FieldGeometry): Feature<Polygon> | null {
-  if (!geom) return null
-  const poly = geom.boundary_polygon
-  if (Array.isArray(poly) && poly.length >= 3) {
-    const ring: Position[] = poly.map((p) => [num((p as unknown[])[1]), num((p as unknown[])[0])])
-    ring.push(ring[0])
-    return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
-  }
-  const r = num(geom.Radius)
-  const lon = num(geom.PP_Longitude)
-  const lat = num(geom.PP_Latitude)
-  if (r > 0 && Number.isFinite(lon) && Number.isFinite(lat)) {
-    return turfCircle([lon, lat], r / 1000, { steps: 128, units: 'kilometers' }) as Feature<Polygon>
-  }
-  return null
-}
-
 function pivotFeature(geom?: FieldGeometry): Feature<Point> | null {
   if (!geom) return null
   const lon = num(geom.PP_Longitude)
@@ -216,7 +199,14 @@ function defaultPivotGeometry([lng, lat]: [number, number]): FieldGeometry {
 export default function MapsHome() {
   const { fields, saveField } = useData()
   const canEdit = useSession().can('maps', 'edit')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  /**
+   * `?field=<id>` preselects a field, so the per-field page can hand someone
+   * straight to it. Read once, as the initial value rather than in an effect:
+   * as an effect it would fight every later selection made by clicking.
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('field'),
+  )
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<FieldGeometry | null>(null)
   const [draftName, setDraftName] = useState('')

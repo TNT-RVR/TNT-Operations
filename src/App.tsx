@@ -14,6 +14,7 @@ import { AccessTab, AccountTab, ArchiveTab, CompanyTab, IntegrationsTab } from '
 import Dashboard from './features/dashboard/Dashboard'
 import MapsHome from './features/maps/MapsHome'
 import CostsHome from './features/maps/CostsHome'
+import FieldInfo from './features/maps/FieldInfo'
 import ShelterPlacement from './features/field/ShelterPlacement'
 import TrayPlacement from './features/field/TrayPlacement'
 import CrewsView from './features/field/CrewsView'
@@ -101,6 +102,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
         <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
+        <Route path="maps/field/:id" element={<Protected module="maps"><FieldInfo /></Protected>} />
         <Route path="field" element={<Protected module="field"><ScheduleHome /></Protected>} />
         <Route path="field/order/:id" element={<Protected module="field"><WorkOrderDetail /></Protected>} />
         <Route path="field/shelters" element={<Protected module="field"><ShelterPlacement /></Protected>} />

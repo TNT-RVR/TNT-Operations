@@ -1,6 +1,6 @@
 import { circle as turfCircle } from '@turf/turf'
 import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'geojson'
-import type { FieldGeometry } from '@/data/types'
+import type { Field, FieldGeometry } from '@/data/types'
 
 /**
  * Pure geometry → GeoJSON helpers for the shelter-map OVERLAYS the old desktop
@@ -85,6 +85,46 @@ export function trackRings(geom: FieldGeometry): FeatureCollection<Polygon> {
     }
   }
   return { type: 'FeatureCollection', features: feats }
+}
+
+/**
+ * The field's outline, whichever way it was authored: a drawn/imported
+ * `boundary_polygon`, else the circle a pivot field implies from its centre and
+ * `Radius`. Lives here rather than in the map screen because the dashboard
+ * overview and the per-field page draw the same outline, and a second
+ * implementation is a second answer to "where does this field end".
+ */
+export function boundaryFeature(geom?: FieldGeometry): Feature<Polygon> | null {
+  if (!geom) return null
+  const poly = geom.boundary_polygon
+  if (Array.isArray(poly) && poly.length >= 3) {
+    const ring: Position[] = poly.map((p) => [num((p as unknown[])[1]), num((p as unknown[])[0])])
+    ring.push(ring[0])
+    return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
+  }
+  const r = num(geom.Radius)
+  const lon = num(geom.PP_Longitude)
+  const lat = num(geom.PP_Latitude)
+  if (r > 0 && Number.isFinite(lon) && Number.isFinite(lat)) {
+    return turfCircle([lon, lat], r / 1000, { steps: 128, units: 'kilometers' }) as Feature<Polygon>
+  }
+  return null
+}
+
+/**
+ * Several fields as one collection of outlines, each carrying the id the map
+ * needs to turn a click into a destination. Fields that cannot be drawn — no
+ * boundary and no pivot radius — are dropped rather than represented by an
+ * empty feature nobody could click.
+ */
+export function fieldOutlines(fields: Field[]): FeatureCollection<Polygon> {
+  const features: Feature<Polygon>[] = []
+  for (const f of fields) {
+    const shape = boundaryFeature(f.geometry)
+    if (!shape) continue
+    features.push({ ...shape, properties: { id: f.id, name: f.name, client: f.client } })
+  }
+  return { type: 'FeatureCollection', features }
 }
 
 /** Ring-list value (inner boundary, access road, wet zones) → filled polygons. */

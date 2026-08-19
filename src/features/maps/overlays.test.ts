@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays } from './overlays'
+import { trackRings, ringPolygons, cornerArms, overlayPins, hasOverlays, boundaryFeature, fieldOutlines } from './overlays'
 
 const PIVOT = { PP_Latitude: '49.86', PP_Longitude: '-111.52' }
 
@@ -68,5 +68,56 @@ describe('overlayPins & hasOverlays', () => {
     expect(hasOverlays({ parking_pin: [49.86, -111.52] })).toBe(true)
     expect(hasOverlays({ pivot_tracks: [], corner_arms: [] })).toBe(false)
     expect(hasOverlays(undefined)).toBe(false)
+  })
+})
+
+describe('boundaryFeature & fieldOutlines', () => {
+  const pivot = {
+    id: 'p1',
+    name: 'Grassy Lake NW',
+    client: 'Demo Seed Co.',
+    region: '',
+    shapeType: 'pivot' as const,
+    shelterCount: 24,
+    updatedAt: '2026-07-18T15:00:00Z',
+    geometry: { PP_Longitude: '-111.6', PP_Latitude: '49.83', Radius: '400' },
+  }
+  const drawn = {
+    ...pivot,
+    id: 'p2',
+    name: 'Bow Island Quarter',
+    shapeType: 'polygon' as const,
+    geometry: {
+      boundary_polygon: [
+        [49.8, -111.5],
+        [49.8, -111.4],
+        [49.9, -111.4],
+      ],
+    },
+  }
+
+  it('draws a pivot field from its centre and radius', () => {
+    const f = boundaryFeature(pivot.geometry)
+    expect(f?.geometry.type).toBe('Polygon')
+  })
+
+  it('closes a drawn ring and flips it to [lon,lat]', () => {
+    const ring = boundaryFeature(drawn.geometry)?.geometry.coordinates[0]
+    expect(ring?.[0]).toEqual([-111.5, 49.8])
+    expect(ring?.[0]).toEqual(ring?.[ring.length - 1])
+  })
+
+  it('has nothing to draw without a boundary or a radius', () => {
+    expect(boundaryFeature({ year: '2026' })).toBeNull()
+    expect(boundaryFeature(undefined)).toBeNull()
+  })
+
+  // The dashboard turns a click into a route with this id, so a feature that
+  // lost it would be a field you cannot open.
+  it('carries the field id on every outline, and drops undrawable fields', () => {
+    const undrawable = { ...pivot, id: 'p3', geometry: { year: '2026' } }
+    const fc = fieldOutlines([pivot, drawn, undrawable])
+    expect(fc.features.map((f) => f.properties?.id)).toEqual(['p1', 'p2'])
+    expect(fc.features[0].properties).toMatchObject({ name: 'Grassy Lake NW', client: 'Demo Seed Co.' })
   })
 })

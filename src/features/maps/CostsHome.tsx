@@ -87,7 +87,13 @@ export default function CostsHome() {
     ys.add(String(new Date().getFullYear()))
     return [...ys].sort().reverse()
   }, [fields, costPrefsByYear])
-  const [year, setYear] = useState(years[0])
+  /**
+   * Open on the CURRENT season, not the newest year present. `years` is a union
+   * that includes anything already entered, so a 2027 field created while
+   * planning would otherwise land the page on a year nobody is costing yet.
+   * The current year is always in the list — it is added above.
+   */
+  const [year, setYear] = useState(() => String(new Date().getFullYear()))
   const [showPrefs, setShowPrefs] = useState(false)
 
   // Draft form for the selected year (whole-form carry-forward when unset).

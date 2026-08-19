@@ -123,7 +123,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, warnings = [],
         <h2 className="font-display font-bold text-primary">Edit field</h2>
         <span className="inline-flex items-center gap-1.5 text-sm">
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-brand" />
-          <span className="font-mono tabular font-semibold text-primary">{count}</span>
+          <span className="tabular-nums font-semibold text-primary">{count}</span>
           <span className="text-muted">shelters</span>
         </span>
       </div>
@@ -247,7 +247,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, warnings = [],
         <div>
           <button
             type="button"
-            className="text-xs font-mono uppercase tracking-wider text-muted hover:text-secondary"
+            className="text-xs uppercase tracking-wider text-muted hover:text-secondary"
             onClick={() => setShowAdvanced((v) => !v)}
           >
             {showAdvanced ? '▾' : '▸'} Advanced

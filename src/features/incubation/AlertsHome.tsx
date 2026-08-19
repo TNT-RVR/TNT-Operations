@@ -180,14 +180,14 @@ function AlertRow({ alert: a, incubatorName }: { alert: IncubatorAlert; incubato
     <li className="px-3 py-2">
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <Badge tone={SEVERITY_TONE[a.severity] ?? 'blue'}>{a.severity}</Badge>
-        <span className="font-mono text-xs uppercase tracking-wide text-muted">{typeLabel(a.alertType)}</span>
+        <span className="text-xs uppercase tracking-wide text-muted">{typeLabel(a.alertType)}</span>
         {a.incubatorId && (
           <span className="text-sm text-secondary">{incubatorName.get(a.incubatorId) ?? 'Unknown incubator'}</span>
         )}
         {!a.acknowledged && <Badge tone="red">unacknowledged</Badge>}
       </div>
       <div className="text-sm text-primary">{a.message}</div>
-      <div className="mt-0.5 font-mono text-xs text-faint">
+      <div className="mt-0.5 text-xs text-faint">
         {fmtWhen(a.triggeredAt)}
         {a.acknowledged && a.acknowledgedAt ? ` · acknowledged ${fmtWhen(a.acknowledgedAt)}` : ''}
       </div>
@@ -201,7 +201,7 @@ function Pager({ page, pageCount, onPage }: { page: number; pageCount: number; o
       <button className="btn-ghost px-2 py-1 disabled:opacity-40" disabled={page <= 1} onClick={() => onPage(page - 1)}>
         ← Prev
       </button>
-      <span className="font-mono text-xs text-muted">
+      <span className="text-xs text-muted">
         Page {page} of {pageCount}
       </span>
       <button

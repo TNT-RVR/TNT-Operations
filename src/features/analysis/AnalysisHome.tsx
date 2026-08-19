@@ -182,7 +182,7 @@ function ScreenCount({
     <Link to={`/analysis/correlations?verdict=${verdict}`} className="block rounded-lg transition hover:-translate-y-0.5">
       <Card>
         <div className="label mb-1">{label}</div>
-        <div className="font-mono text-xl font-semibold tabular-nums" style={{ color }}>
+        <div className="text-xl font-semibold tabular-nums" style={{ color }}>
           {value}
         </div>
       </Card>

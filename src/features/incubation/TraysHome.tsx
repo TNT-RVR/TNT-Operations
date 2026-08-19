@@ -322,12 +322,12 @@ export default function TraysHome() {
                     <button className="font-medium text-brand hover:underline" onClick={() => setOpenTrayNumber(t.trayNumber)}>
                       {t.trayNumber}
                     </button>
-                    <span className="font-mono text-xs text-muted">{trayYear(t) ?? '—'}</span>
+                    <span className="text-xs text-muted">{trayYear(t) ?? '—'}</span>
                   </div>
                   <div className="mt-0.5 text-sm text-secondary">
                     {t.sampleId ? sampleName.get(t.sampleId) ?? '—' : '—'}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-xs text-faint">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-faint">
                     <span>{t.incubatorId ? incubatorName.get(t.incubatorId) ?? '—' : '—'}</span>
                     <span>{t.status}</span>
                     {weightOf(t) != null && <span>{num(weightOf(t))} kg</span>}

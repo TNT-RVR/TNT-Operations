@@ -100,7 +100,7 @@ export default function LineageHome() {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono tabular font-semibold text-primary">{t.trayNumber}</span>
+                    <span className="tabular-nums font-semibold text-primary">{t.trayNumber}</span>
                     <Badge tone={t.status === 'released' ? 'green' : 'brand'}>{t.status || '—'}</Badge>
                   </div>
                   <div className="mt-0.5 text-xs text-muted">
@@ -119,7 +119,7 @@ export default function LineageHome() {
           ) : (
             <div className="max-w-2xl space-y-3">
               <h2 className="font-display text-lg font-bold text-primary">
-                Tray <span className="font-mono tabular">{selected.trayNumber}</span>
+                Tray <span className="tabular-nums">{selected.trayNumber}</span>
               </h2>
 
               {/* Sample */}
@@ -174,7 +174,7 @@ export default function LineageHome() {
                 ) : (
                   chain.shelters.map(({ shelter, field, blocks }) => (
                     <div key={shelter.id} className="mt-1 text-sm text-secondary">
-                      Shelter <span className="font-mono tabular font-semibold text-primary">{shelter.qrCode ?? shelter.id.slice(0, 8)}</span>
+                      Shelter <span className="tabular-nums font-semibold text-primary">{shelter.qrCode ?? shelter.id.slice(0, 8)}</span>
                       {field && (
                         <>
                           {' '}

@@ -219,10 +219,10 @@ function Weather() {
                               <div className="text-muted">
                                 {p.year} · {p.company}
                               </div>
-                              <div className="mt-1 font-mono tabular-nums text-secondary">
+                              <div className="mt-1 tabular-nums text-secondary">
                                 {METRIC_BY_KEY[xKey]?.label}: {formatMetric(p.x, xKey)}
                               </div>
-                              <div className="font-mono tabular-nums text-secondary">
+                              <div className="tabular-nums text-secondary">
                                 {METRIC_BY_KEY[yKey]?.label}: {formatMetric(p.y, yKey)}
                               </div>
                             </div>

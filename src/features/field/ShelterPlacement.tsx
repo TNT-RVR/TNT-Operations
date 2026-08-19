@@ -650,7 +650,7 @@ export default function ShelterPlacement() {
           ))}
         </select>
         <span
-          className="rounded-pill px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider"
+          className="rounded-pill px-2.5 py-1.5 text-[11px] uppercase tracking-wider"
           style={{
             background: gps ? 'var(--ok-bg)' : 'var(--danger-bg)',
             color: gps ? 'var(--ok-fg)' : 'var(--danger-fg)',
@@ -755,7 +755,7 @@ export default function ShelterPlacement() {
             {!gps && <p className="mt-2 text-xs text-amber-600">Waiting for a GPS fix.</p>}
 
             <div className="mt-2 flex items-center justify-between text-xs">
-              <span className="font-mono text-faint">
+              <span className="text-faint">
                 {nudgeE || nudgeN || sprayShiftM
                   ? [
                       nudgeE ? `${nudgeE > 0 ? 'E' : 'W'} ${Math.abs(nudgeE)}ft` : '',
@@ -892,7 +892,7 @@ export default function ShelterPlacement() {
         style={{ background: 'color-mix(in srgb, var(--bg-raised) 94%, transparent)' }}
       >
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="font-mono tabular font-semibold text-primary">
+          <span className="tabular-nums font-semibold text-primary">
             {placedCount} / {pins.length} <span className="font-sans font-normal text-muted">placed</span>
           </span>
           {target && (

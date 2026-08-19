@@ -81,8 +81,8 @@ export function FilterBar() {
         </div>
 
         <div className="ml-auto pb-1.5 text-xs text-muted">
-          <span className="font-mono tabular-nums text-secondary">{rows.length}</span> of{' '}
-          <span className="font-mono tabular-nums">{allRows.length}</span> field-seasons
+          <span className="tabular-nums text-secondary">{rows.length}</span> of{' '}
+          <span className="tabular-nums">{allRows.length}</span> field-seasons
           {excludedCount > 0 && <> · {excludedCount} excluded</>}
         </div>
       </div>
@@ -186,22 +186,22 @@ export function VerdictNote({ verdict }: { verdict: Verdict }) {
 export function CorrelationStats({ c }: { c: Correlation }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-      <span className="font-mono text-2xl font-semibold tabular-nums text-primary">
+      <span className="text-2xl font-semibold tabular-nums text-primary">
         {c.r >= 0 ? '+' : ''}
         {c.r.toFixed(3)}
       </span>
       {/* Spelled out, not "n / r² / p" — see the note on the pair table. */}
       <span className="text-xs text-muted">
-        <span className="font-mono tabular-nums text-secondary">{c.n}</span> field-seasons
+        <span className="tabular-nums text-secondary">{c.n}</span> field-seasons
       </span>
       <span className="text-xs text-muted">
-        <span className="font-mono tabular-nums text-secondary">{Math.round(c.r2 * 100)}%</span> of
+        <span className="tabular-nums text-secondary">{Math.round(c.r2 * 100)}%</span> of
         variance explained
       </span>
       {c.pValue !== null && (
         <span className="text-xs text-muted">
           significance{' '}
-          <span className="font-mono tabular-nums text-secondary">
+          <span className="tabular-nums text-secondary">
             {c.pValue < 0.001 ? c.pValue.toExponential(1) : c.pValue.toFixed(3)}
           </span>
         </span>

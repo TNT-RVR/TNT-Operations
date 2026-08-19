@@ -112,14 +112,21 @@ input[type='checkbox'] {
   }
 
   /* Eyebrows / field labels: uppercase mono, instrumentation feel. */
+  /*
+   * Labels, eyebrows and table headers are UPPERCASE with wide tracking — but
+   * in the SANS, not the mono. They used to set `font-mono`, which put the
+   * chrome of every screen in Consolas while its content was Segoe UI: two
+   * typefaces on one page, and the reason this app read as a different family
+   * from the other TNT/GFC apps. Mono is for readouts (see `.tabular`).
+   */
   .label {
-    @apply mb-1 block font-mono uppercase;
+    @apply mb-1 block uppercase;
     font-size: var(--text-2xs);
     letter-spacing: var(--ls-wider);
     color: var(--text-muted);
   }
   .eyebrow {
-    @apply font-mono uppercase;
+    @apply uppercase;
     font-size: var(--text-2xs);
     letter-spacing: var(--ls-widest);
     color: var(--text-brand);
@@ -143,7 +150,7 @@ input[type='checkbox'] {
 
   /* Table headers: uppercase mono over a faint wash. */
   .th {
-    @apply px-3 py-2 text-left font-mono uppercase;
+    @apply px-3 py-2 text-left uppercase;
     font-size: var(--text-2xs);
     letter-spacing: var(--ls-wider);
     color: var(--text-muted);

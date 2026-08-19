@@ -235,7 +235,7 @@ export default function WorkOrderDetail() {
               <ul className="space-y-1">
                 {lines.map((l) => (
                   <li key={l.item} className="flex items-baseline gap-2 text-sm">
-                    <span className="min-w-10 font-mono font-semibold text-primary">{l.qty}</span>
+                    <span className="min-w-10 tabular-nums font-semibold text-primary">{l.qty}</span>
                     <span className="text-secondary">{l.item}</span>
                     {l.note && <span className="text-xs text-faint">— {l.note}</span>}
                   </li>

@@ -536,7 +536,7 @@ export default function CrewsView() {
                     <div className="flex-1">
                       <ProgressBar pct={pct} tone={pct === 100 ? 'green' : 'brand'} />
                     </div>
-                    <span className="font-mono text-xs text-secondary">
+                    <span className="tabular-nums text-xs text-secondary">
                       {c.placed}/{c.total}
                     </span>
                   </div>

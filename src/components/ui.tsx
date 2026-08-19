@@ -168,7 +168,7 @@ export function Badge({ children, tone = 'brand' }: { children: ReactNode; tone?
   const c = CHIP[tone]
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono uppercase"
+      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 uppercase"
       style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-wide)', color: c.fg, background: c.bg, border: `1px solid ${c.bd}` }}
     >
       {children}
@@ -207,12 +207,12 @@ export function Stat({
     <div className="rounded-lg bg-raised p-4" style={{ border: `1px solid ${edge}`, boxShadow: 'var(--shadow-sm)' }}>
       <div className="label mb-2">{label}</div>
       <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-2xl font-semibold tabular text-primary">{value}</span>
-        {unit && <span className="font-mono text-sm text-muted">{unit}</span>}
+        <span className="text-2xl font-semibold tabular-nums text-primary">{value}</span>
+        {unit && <span className="text-sm text-muted">{unit}</span>}
       </div>
       <div className="mt-1 flex items-center gap-2">
         {delta && (
-          <span className="font-mono text-xs tabular" style={{ color: deltaColor }}>
+          <span className="text-xs tabular-nums" style={{ color: deltaColor }}>
             {delta.dir === 'up' ? '▲' : delta.dir === 'down' ? '▼' : '±'} {delta.value}
           </span>
         )}

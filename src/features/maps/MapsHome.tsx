@@ -2080,13 +2080,13 @@ export default function MapsHome() {
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BRAND }} />
-                      <span className="font-mono tabular font-semibold text-primary">{shelters.length}</span>
+                      <span className="tabular-nums font-semibold text-primary">{shelters.length}</span>
                       <span className="text-muted">shelters (live)</span>
                     </span>
                     {crew.totalM > 0 && (
                       <span className="inline-flex items-center gap-1.5">
                         <span className="inline-block h-0.5 w-3" style={{ backgroundColor: CREW }} />
-                        <span className="font-mono tabular font-semibold text-primary">{(crew.totalM / 1000).toFixed(1)}</span>
+                        <span className="tabular-nums font-semibold text-primary">{(crew.totalM / 1000).toFixed(1)}</span>
                         <span className="text-muted">km route</span>
                       </span>
                     )}

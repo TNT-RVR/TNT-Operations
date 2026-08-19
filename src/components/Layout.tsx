@@ -364,7 +364,7 @@ export default function Layout() {
                   to={c.to}
                   end={c.end}
                   className={({ isActive }) =>
-                    `shrink-0 rounded-sm px-3 py-1.5 font-mono text-xs uppercase tracking-wide transition ${
+                    `shrink-0 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition ${
                       isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
                     }`
                   }

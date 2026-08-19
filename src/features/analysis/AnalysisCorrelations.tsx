@@ -209,10 +209,10 @@ function Correlations() {
                               <div className="text-muted">
                                 {p.year} · {p.company}
                               </div>
-                              <div className="mt-1 font-mono tabular-nums text-secondary">
+                              <div className="mt-1 tabular-nums text-secondary">
                                 {METRIC_BY_KEY[xKey]?.label}: {formatMetric(p.x, xKey)}
                               </div>
-                              <div className="font-mono tabular-nums text-secondary">
+                              <div className="tabular-nums text-secondary">
                                 {METRIC_BY_KEY[yKey]?.label}: {formatMetric(p.y, yKey)}
                               </div>
                             </div>
@@ -360,12 +360,12 @@ function PairTable({ pairs, onPick }: { pairs: ScreenedPair[]; onPick: (p: Scree
               <td className="px-2 py-2 text-secondary">
                 {p.xLabel} <span className="text-muted">vs</span> {p.yLabel}
               </td>
-              <td className="px-2 py-2 text-right font-mono tabular-nums text-primary">
+              <td className="px-2 py-2 text-right tabular-nums text-primary">
                 {p.correlation.r >= 0 ? '+' : ''}
                 {p.correlation.r.toFixed(3)}
               </td>
-              <td className="px-2 py-2 text-right font-mono tabular-nums text-muted">{p.correlation.n}</td>
-              <td className="px-2 py-2 text-right font-mono tabular-nums text-muted">
+              <td className="px-2 py-2 text-right tabular-nums text-muted">{p.correlation.n}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-muted">
                 {p.correlation.pValue === null
                   ? '—'
                   : p.correlation.pValue < 0.001

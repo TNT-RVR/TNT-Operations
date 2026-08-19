@@ -111,7 +111,7 @@ function TasksSection({ grantId }: { grantId: string }) {
 const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div>
     <p className="label">{label}</p>
-    {/* tabular-nums, not font-mono: these facts mix numbers and words (Region),
+    {/* tabular-nums, not : these facts mix numbers and words (Region),
         so switching typeface made them clash with the rest of the sheet. */}
     <p className="tabular-nums font-medium text-primary">{children}</p>
   </div>
@@ -404,7 +404,7 @@ export default function GrantsHome() {
                 tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
-              {label} <span className="ml-1 font-mono tabular text-xs text-faint">{n}</span>
+              {label} <span className="ml-1 tabular-nums text-xs text-faint">{n}</span>
             </button>
           ))}
         </div>
@@ -436,7 +436,7 @@ export default function GrantsHome() {
                     <p className="text-xs text-faint">{g.funder ?? ''}</p>
                   </td>
                   {/* tabular-nums aligns the digits WITHOUT switching typeface —
-                      font-mono here made this the only column in a different font. */}
+                      here made this the only column in a different font. */}
                   <td className="whitespace-nowrap px-3 py-2 tabular-nums text-secondary">
                     {moneyRange(g.amountMin, g.amountMax)}
                   </td>

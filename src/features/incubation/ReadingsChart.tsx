@@ -82,7 +82,7 @@ export function ReadingsChart({
         <button
           key={r.key}
           onClick={() => setRange(r.key)}
-          className={`rounded-sm px-2 py-0.5 font-mono text-xs tracking-wide transition ${
+          className={`rounded-sm px-2 py-0.5 text-xs tracking-wide transition ${
             r.key === range
               ? 'bg-brand text-on-brand'
               : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-secondary'
@@ -91,7 +91,7 @@ export function ReadingsChart({
           {r.label}
         </button>
       ))}
-      {loading && <span className="ml-1 font-mono text-xs text-faint">loading…</span>}
+      {loading && <span className="ml-1 text-xs text-faint">loading…</span>}
     </div>
   )
 
@@ -183,7 +183,7 @@ export function ReadingsChart({
           {fmtTime(pts[pts.length - 1].at)}
         </text>
       </svg>
-      <p className="mt-1 text-right font-mono text-xs text-faint">{pts.length} readings</p>
+      <p className="mt-1 text-right text-xs text-faint">{pts.length} readings</p>
     </div>
   )
 }

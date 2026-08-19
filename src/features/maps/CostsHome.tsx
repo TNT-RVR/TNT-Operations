@@ -289,7 +289,7 @@ export default function CostsHome() {
           ].map(([l, v]) => (
             <div key={l} className="card">
               <div className="label">{l}</div>
-              <div className="mt-1 font-mono text-lg font-semibold tabular text-primary">{v}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-primary">{v}</div>
             </div>
           ))}
         </section>
@@ -319,14 +319,14 @@ export default function CostsHome() {
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     <div>
                       <div className="label">Cost / acre</div>
-                      <div className="font-mono text-xl font-semibold tabular text-primary">
+                      <div className="text-xl font-semibold tabular-nums text-primary">
                         {r.cost.costPerAcre != null ? money(r.cost.costPerAcre) : '—'}
                       </div>
                     </div>
                     <div>
                       <div className="label">Profit / acre</div>
                       <div
-                        className="font-mono text-xl font-semibold tabular"
+                        className="text-xl font-semibold tabular-nums"
                         style={{ color: (r.cost.profitPerAcre ?? 0) >= 0 ? 'var(--ok-fg)' : 'var(--danger-fg)' }}
                       >
                         {r.cost.profitPerAcre != null ? money(r.cost.profitPerAcre) : '—'}
@@ -349,7 +349,7 @@ export default function CostsHome() {
                     ).map(([l, v]) => (
                       <div key={l} className="flex justify-between">
                         <dt className="text-muted">{l}</dt>
-                        <dd className="font-mono tabular text-secondary">{money(v)}</dd>
+                        <dd className="tabular-nums text-secondary">{money(v)}</dd>
                       </div>
                     ))}
                   </dl>

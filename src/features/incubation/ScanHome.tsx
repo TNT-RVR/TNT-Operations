@@ -287,8 +287,8 @@ export default function ScanHome() {
         <div className="rounded-lg border border-subtle p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <div className="font-mono text-3xl font-bold text-primary tabular-nums">{okCount}</div>
-              <div className="font-mono text-xs uppercase tracking-wide text-faint">trays this run</div>
+              <div className="text-3xl font-bold text-primary tabular-nums">{okCount}</div>
+              <div className="text-xs uppercase tracking-wide text-faint">trays this run</div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               {entries.length > 0 && (
@@ -369,7 +369,7 @@ export default function ScanHome() {
                       <button
                         key={r.id}
                         onClick={() => setSampleId(r.id)}
-                        className={`rounded-sm px-2 py-1 font-mono text-xs transition ${
+                        className={`rounded-sm px-2 py-1 text-xs transition ${
                           r.id === sampleId ? 'bg-brand text-on-brand' : 'text-secondary'
                         }`}
                       >

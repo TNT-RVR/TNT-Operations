@@ -159,7 +159,7 @@ function Growers() {
                       return (
                         <div style={TOOLTIP_STYLE} className="px-2.5 py-2">
                           <div className="font-medium text-primary">{g.name}</div>
-                          <div className="mt-1 font-mono tabular-nums text-secondary">
+                          <div className="mt-1 tabular-nums text-secondary">
                             {formatMetric(g.avg, metricKey)} average
                           </div>
                           <div className="text-muted">

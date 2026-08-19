@@ -319,7 +319,7 @@ function CoordinateFixer({ onClose }: { onClose: () => void }) {
                   {parsed && (
                     <p className="mt-1.5 text-xs text-muted">
                       Reads as{' '}
-                      <span className="font-mono tabular-nums text-secondary">
+                      <span className="tabular-nums text-secondary">
                         {parsed.lat.toFixed(5)}, {parsed.lng.toFixed(5)}
                       </span>
                       {offPatch && (

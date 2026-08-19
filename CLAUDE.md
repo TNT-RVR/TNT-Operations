@@ -52,7 +52,9 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   - **Type.** The SYSTEM font stack — no downloaded webfonts (Montserrat/IBM Plex
     were tried and REVERTED 2026-08-04). `--font-display` and `--font-sans` are
     both `system-ui`; `--font-mono` is the system monospace.
-    Eyebrows/labels/badges are UPPERCASE, wide tracking.
+    Eyebrows/labels/badges are UPPERCASE, wide tracking — in the SANS. Mono is
+    for readouts, scanned identifiers, coordinates and credentials only; it was
+    on all the chrome until 2026-08-19 and made every screen two typefaces.
     For numbers in a table column, use `tabular-nums` (aligns digits) — NOT
     `font-mono`/`.tabular`, which swap the typeface and make that column the only
     one in a different font. Reserve mono for genuine telemetry readouts.

@@ -40,7 +40,14 @@ desktop, and the round trip to Google Fonts bought nothing.
 - `font-display` and `font-sans` both resolve to `system-ui` (the tokens are kept
   separate so headings can diverge later without touching components).
 - `font-mono` / `.tabular` — the system monospace. Reserve it for genuine
-  telemetry readouts (a live sensor value, a coordinate dump).
+  telemetry readouts (a live sensor value, a coordinate dump), scanned
+  identifiers echoed back (a tray label), coordinate inputs, and credentials.
+  **Not for chrome.** Labels, eyebrows, table headers, badges and stat values
+  were all mono until 2026-08-19, which put the furniture of every screen in
+  Consolas while its content was Segoe UI — two typefaces per page, and the
+  reason this app read as a different family from the other TNT/GFC apps. They
+  are UPPERCASE and wide-tracked in the SANS now; the tracking and case carry
+  the identity, the typeface does not have to.
 - **Numbers in a table column: use `tabular-nums`, not `font-mono`.**
   `tabular-nums` aligns the digits while keeping the body typeface;
   `font-mono`/`.tabular` also swap the *face*, which makes that column the only

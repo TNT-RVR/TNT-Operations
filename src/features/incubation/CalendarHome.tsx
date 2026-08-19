@@ -252,7 +252,7 @@ export default function CalendarHome() {
               <div className="min-w-[640px] overflow-hidden rounded-lg border border-subtle">
                 <div className="grid grid-cols-7 border-b border-subtle bg-overlay">
                   {DOW.map((d) => (
-                    <div key={d} className="px-2 py-1 font-mono text-xs uppercase tracking-wide text-muted">
+                    <div key={d} className="px-2 py-1 text-xs uppercase tracking-wide text-muted">
                       {d}
                     </div>
                   ))}
@@ -272,7 +272,7 @@ export default function CalendarHome() {
                         >
                           <div className="flex items-baseline justify-between">
                             <span
-                              className={`font-mono text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}
+                              className={`text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}
                             >
                               {Number(ymd.slice(8, 10))}
                             </span>
@@ -348,7 +348,7 @@ export default function CalendarHome() {
                       />
                       <span className="text-sm text-primary">{e.label}</span>
                       <span className="text-sm text-muted">{e.incubatorName}</span>
-                      <span className="ml-auto font-mono text-xs text-faint">
+                      <span className="ml-auto text-xs text-faint">
                         {e.date} · {formatDays(away)}
                       </span>
                     </li>

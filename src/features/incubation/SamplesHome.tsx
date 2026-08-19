@@ -263,7 +263,7 @@ export default function SamplesHome() {
                   </option>
                 ))}
               </select>
-              <span className="font-mono text-xs text-faint">{visibleSamples.length} shown</span>
+              <span className="text-xs text-faint">{visibleSamples.length} shown</span>
               {canEdit && (
                 <label className="btn-ghost cursor-pointer px-2 py-1 text-xs">
                   {importing ? 'Importing…' : 'Import x-ray sheet'}

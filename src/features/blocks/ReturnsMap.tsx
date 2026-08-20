@@ -23,6 +23,7 @@ import {
 } from '@/domain/returnsMap'
 import { readSheet, guessColumns, toSamples, groupValues, type SheetTable, type ColMap } from './returnsImport'
 import { beeReturnLbs, seasonsOf, blockStage, STAGE_LABEL } from '@/domain/blocks'
+import { blocksOutsideFields } from '@/domain/outsideFields'
 import { findGpsOutliers } from '@/domain/gpsOutliers'
 import type { FieldDict } from '@/domain/tentGrid'
 
@@ -72,6 +73,8 @@ export default function ReturnsMap() {
   const [picked, setPicked] = useState<{ placementId?: string; label?: string; value?: number; note?: string } | null>(
     null,
   )
+  /** Off by default: it answers a question about the MAP, not about returns. */
+  const [showOutside, setShowOutside] = useState(false)
   /** Drop points the GPS clearly got wrong before interpolating. */
   const [cleanGps, setCleanGps] = useState(true)
   const [strictness, setStrictness] = useState(5)
@@ -199,6 +202,20 @@ export default function ReturnsMap() {
         (p) => p.season === activeSeason && p.lat != null && p.lng != null && !p.fieldId,
       ).length,
     [blockPlacements, activeSeason],
+  )
+
+  /**
+   * Blocks whose GPS lands inside no field boundary at all.
+   *
+   * Not the same as the unattributed count above, which is about a scan that
+   * recorded no field. These were filed under a field and are physically
+   * somewhere else — usually because that field's boundary is missing or was
+   * traced from an old survey. A cluster of them in one shape IS the missing
+   * boundary, drawn by the crews' own phones.
+   */
+  const outside = useMemo(
+    () => blocksOutsideFields(fields, blockPlacements, activeSeason),
+    [fields, blockPlacements, activeSeason],
   )
 
   const samples: SamplePoint[] = useMemo(() => {
@@ -482,6 +499,25 @@ export default function ReturnsMap() {
         })
       }
 
+      // Blocks that fall in no boundary, in red, drawn in every mode: they are
+      // the reason to open this screen when a field looks wrong, and hiding
+      // them behind the field picker would mean never finding them.
+      if (showOutside) {
+        for (const pt of outside.points) {
+          const el = document.createElement('div')
+          el.style.cssText =
+            `width:11px;height:11px;border-radius:9999px;background:${MARKER_BAD};` +
+            `border:2px solid ${MARKER_EDGE};box-shadow:0 1px 3px rgba(0,0,0,.6)`
+          const filed = pt.filedUnder
+            ? (fields.find((f) => f.id === pt.filedUnder)?.name ?? 'a deleted field')
+            : 'no field recorded'
+          el.title = `Outside every boundary — filed under ${filed}`
+          markersRef.current.push(
+            new maplibregl.Marker({ element: el }).setLngLat([pt.lng, pt.lat]).addTo(map),
+          )
+        }
+      }
+
       // Blocks placed but not yet weighed, in amber. They can't colour the
       // surface — a return needs both weigh-ins — but they ARE in the ground,
       // and saying nothing about them read as "you have no blocks".
@@ -598,7 +634,7 @@ export default function ReturnsMap() {
 
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
-  }, [grid, outline, active, cleaned, showPoints, awaitingWeights, imported])
+  }, [grid, outline, active, cleaned, showPoints, awaitingWeights, imported, showOutside, outside])
 
   function exportPng() {
     const map = mapRef.current
@@ -960,11 +996,62 @@ export default function ReturnsMap() {
             <div className="card">
               <div className="mb-2 flex items-baseline justify-between text-sm">
                 <span className="font-semibold">Bee return (lbs per block)</span>
-                <label className="flex items-center gap-2 text-xs text-muted">
-                  <input type="checkbox" checked={showPoints} onChange={(e) => setShowPoints(e.target.checked)} />
-                  Show block locations
-                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input type="checkbox" checked={showPoints} onChange={(e) => setShowPoints(e.target.checked)} />
+                    Show block locations
+                  </label>
+                  {/* Only offered when there is something to see: a checkbox
+                      that never changes anything is a checkbox people learn to
+                      ignore. */}
+                  {outside.points.length > 0 && (
+                    <label className="flex items-center gap-2 text-xs" style={{ color: MARKER_BAD }}>
+                      <input
+                        type="checkbox"
+                        checked={showOutside}
+                        onChange={(e) => setShowOutside(e.target.checked)}
+                      />
+                      Outside any boundary ({outside.points.length})
+                    </label>
+                  )}
+                </div>
               </div>
+
+              {/*
+                Where the orphans were filed.
+
+                The map says WHERE they are; this says which field claims them,
+                which is the half that names the fix. Forty blocks filed under
+                one quarter and sitting outside it is a boundary that was never
+                traced — not forty bad scans.
+              */}
+              {showOutside && outside.points.length > 0 && (
+                <div className="mb-2 rounded-md border border-default p-2 text-xs">
+                  <div className="mb-1 font-semibold" style={{ color: MARKER_BAD }}>
+                    {outside.points.length} of {outside.located} located blocks fall in no boundary
+                  </div>
+                  <ul className="space-y-0.5">
+                    {outside.byFiledField.slice(0, 8).map((t) => (
+                      <li key={t.fieldId ?? 'none'} className="flex justify-between gap-3">
+                        <span className="text-secondary">
+                          {t.fieldId
+                            ? (fields.find((f) => f.id === t.fieldId)?.name ?? 'a deleted field')
+                            : 'no field recorded'}
+                        </span>
+                        <span className="font-mono text-primary">{t.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {outside.fieldsWithoutBoundary.length > 0 && (
+                    <p className="mt-1 text-faint">
+                      {outside.fieldsWithoutBoundary.length} field
+                      {outside.fieldsWithoutBoundary.length === 1 ? ' has' : 's have'} no boundary at
+                      all, so nothing can sit inside{' '}
+                      {outside.fieldsWithoutBoundary.length === 1 ? 'it' : 'them'}.
+                    </p>
+                  )}
+                </div>
+              )}
               <div
                 className="h-4 w-full rounded"
                 style={{

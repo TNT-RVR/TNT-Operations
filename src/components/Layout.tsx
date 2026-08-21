@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Map, Bug, Bell, PanelLeftClose, PanelLeftOpen, Moon, Sun, Navigation, Banknote, CalendarDays, Boxes, MoreHorizontal, ChartScatter, Receipt, ListChecks, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { Banknote, Bell, Boxes, Bug, CalendarDays, ChartScatter, FlaskConical, LayoutDashboard, ListChecks, Map, Moon, MoreHorizontal, Navigation, PanelLeftClose, PanelLeftOpen, Receipt, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
 import { useSession, type Module, type Role } from '@/auth/session'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
@@ -99,6 +99,12 @@ const NAV: NavItem[] = [
       { to: '/blocks/list', label: 'Register' },
       { to: '/blocks/map', label: 'Returns map', denyRoles: ['device'] },
     ],
+  },
+  {
+    to: '/experiments',
+    label: 'Experiments',
+    icon: FlaskConical,
+    module: 'blocks',
   },
   {
     to: '/tasks',

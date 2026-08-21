@@ -41,6 +41,8 @@ import type {
   TaskStatus,
   TaskStep,
   Checklist,
+  ExperimentNote,
+  ExperimentNoteItem,
 } from './types'
 import type { SettingsSlice } from './useSettings'
 import type { CostPrefs } from '@/domain/cost'
@@ -259,6 +261,23 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
     input: Partial<CalendarEvent> & { title: string; startDate: string },
   ) => Promise<{ ok: boolean; id?: string; error?: string }>
   deleteCalendarEvent: (id: string) => Promise<{ ok: boolean; error?: string }>
+
+  // ── Experiment notes (migration 0033) ──────────────────────────────────────
+  /**
+   * Observations from trials, newest first, with their blocks and trays.
+   *
+   * Loaded on demand rather than at sign-in: most people never open this
+   * screen, and a season of notes is not worth carrying in every phone's
+   * memory for the ones who do.
+   */
+  experimentNotes: ExperimentNote[]
+  loadExperimentNotes: () => Promise<void>
+  saveExperimentNote: (
+    input: Partial<Omit<ExperimentNote, 'items'>> & {
+      items: Array<Omit<ExperimentNoteItem, 'id' | 'noteId' | 'addedAt'>>
+    },
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>
+  deleteExperimentNote: (id: string) => Promise<{ ok: boolean; error?: string }>
 
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]

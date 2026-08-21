@@ -5,6 +5,7 @@ import type {
   FieldChecklistCell,
   Block,
   BlockPlacement,
+  ExperimentNote,
   Field,
   Incubator,
   IncubatorModeEvent,
@@ -117,6 +118,9 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([
     { id: 'cm1', crewId: 'crew1', userId: 'u_op', role: 'lead', joinedAt: new Date().toISOString(), leftAt: null },
   ])
+  /** Experiment notes start empty in mock: they are what a session creates. */
+  const [experimentNotes, setExperimentNotes] = useState<ExperimentNote[]>([])
+
   // A couple of typed events, so the calendar shows what it is for.
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([
     {
@@ -354,6 +358,49 @@ function MockProvider({ children }: { children: ReactNode }) {
       },
       deleteCalendarEvent: async (id: string) => {
         setCalendarEvents((prev) => prev.filter((e) => e.id !== id))
+        return { ok: true }
+      },
+
+      // ── Experiment notes ────────────────────────────────────────────────
+      experimentNotes,
+      loadExperimentNotes: async () => {},
+      saveExperimentNote: async (input) => {
+        const id = input.id ?? `exp_${Math.random().toString(36).slice(2, 9)}`
+        const now = new Date().toISOString()
+        const saved: ExperimentNote = {
+          id,
+          experiment: input.experiment ?? '',
+          notes: input.notes ?? '',
+          observedAt: input.observedAt ?? now,
+          fieldId: input.fieldId ?? null,
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+          accuracyM: input.accuracyM ?? null,
+          createdBy: input.createdBy ?? mockUserId,
+          createdAt: input.createdAt ?? now,
+          items: input.items.map((it, i) => ({
+            id: `${id}_i${i}`,
+            noteId: id,
+            kind: it.kind,
+            label: it.label,
+            blockId: it.blockId ?? null,
+            trayId: it.trayId ?? null,
+            lat: it.lat ?? null,
+            lng: it.lng ?? null,
+            addedAt: now,
+          })),
+        }
+        setExperimentNotes((prev) => {
+          const i = prev.findIndex((n) => n.id === id)
+          if (i < 0) return [saved, ...prev]
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, id }
+      },
+      deleteExperimentNote: async (id: string) => {
+        setExperimentNotes((prev) => prev.filter((n) => n.id !== id))
         return { ok: true }
       },
       latestReading: (incubatorId) =>
@@ -857,6 +904,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       crews,
       crewMembers,
       calendarEvents,
+      experimentNotes,
       mockUserId,
       grants,
       grantTasks,

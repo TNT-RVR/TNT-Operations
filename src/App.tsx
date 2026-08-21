@@ -20,6 +20,7 @@ import ShelterPlacement from './features/field/ShelterPlacement'
 import TrayPlacement from './features/field/TrayPlacement'
 import CrewsView from './features/field/CrewsView'
 import ScheduleHome from './features/field/ScheduleHome'
+import ExperimentsHome from './features/experiments/ExperimentsHome'
 import WorkOrderDetail from './features/field/WorkOrderDetail'
 import IncubationHome from './features/incubation/IncubationHome'
 import SamplesHome from './features/incubation/SamplesHome'
@@ -118,6 +119,9 @@ export default function App() {
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
+{/* Filed under the blocks module: an experiment note is field work, and
+            the people who write them are the ones who scan blocks. */}
+        <Route path="experiments" element={<Protected module="blocks"><ExperimentsHome /></Protected>} />
         <Route path="blocks" element={<Protected module="blocks" denyRoles={['device']}><BlocksHome /></Protected>} />
         <Route path="blocks/scan" element={<Protected module="blocks"><BlockScan /></Protected>} />
         <Route path="blocks/list" element={<Protected module="blocks"><BlockList /></Protected>} />

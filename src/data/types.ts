@@ -987,3 +987,42 @@ export interface CalendarEvent {
   crewId: string | null
   task: CrewTask | null
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Experiment notes (migration 0033)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A block or tray a note is about. The label is what was actually scanned. */
+export interface ExperimentNoteItem {
+  id: string
+  noteId: string
+  kind: 'block' | 'tray'
+  label: string
+  /** Set when the label matched a record; null when it matched nothing. */
+  blockId: string | null
+  trayId: string | null
+  lat: number | null
+  lng: number | null
+  addedAt: string
+}
+
+/**
+ * One observation from a trial.
+ *
+ * `experiment` is a typed name rather than a foreign key — what counts as an
+ * experiment is not knowable in advance, and a setup screen somebody has to
+ * visit first is how a quick observation becomes no observation.
+ */
+export interface ExperimentNote {
+  id: string
+  experiment: string
+  notes: string
+  observedAt: string
+  fieldId: string | null
+  lat: number | null
+  lng: number | null
+  accuracyM: number | null
+  createdBy: string | null
+  createdAt: string
+  items: ExperimentNoteItem[]
+}

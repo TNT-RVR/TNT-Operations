@@ -5,6 +5,8 @@ import type {
   FieldChecklistCell,
   Block,
   BlockPlacement,
+  ExperimentNote,
+  ExperimentNoteItem,
   Field,
   Incubator,
   IncubationBatch,
@@ -139,6 +141,45 @@ async function fetchAllRows<T>(
   }
 }
 
+/**
+ * Rows → app shapes for experiment notes.
+ *
+ * Kept here rather than in mappers.ts because nothing else reads these tables,
+ * and a mapper's value is being next to the query it serves.
+ */
+function toExperimentItem(r: Record<string, unknown>): ExperimentNoteItem {
+  return {
+    id: String(r.id),
+    noteId: String(r.note_id),
+    kind: r.kind === 'tray' ? 'tray' : 'block',
+    label: String(r.label ?? ''),
+    blockId: (r.block_id as string | null) ?? null,
+    trayId: (r.tray_id as string | null) ?? null,
+    lat: r.lat == null ? null : Number(r.lat),
+    lng: r.lng == null ? null : Number(r.lng),
+    addedAt: String(r.added_at ?? ''),
+  }
+}
+
+function toExperimentNote(
+  r: Record<string, unknown>,
+  items: ExperimentNoteItem[],
+): ExperimentNote {
+  return {
+    id: String(r.id),
+    experiment: String(r.experiment ?? ''),
+    notes: String(r.notes ?? ''),
+    observedAt: String(r.observed_at ?? ''),
+    fieldId: (r.field_id as string | null) ?? null,
+    lat: r.lat == null ? null : Number(r.lat),
+    lng: r.lng == null ? null : Number(r.lng),
+    accuracyM: r.accuracy_m == null ? null : Number(r.accuracy_m),
+    createdBy: (r.created_by as string | null) ?? null,
+    createdAt: String(r.created_at ?? ''),
+    items,
+  }
+}
+
 export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fields, setFields] = useState<Field[]>([])
   const [incubators, setIncubators] = useState<Incubator[]>([])
@@ -165,6 +206,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [earlierInspectionsLoaded, setEarlierInspectionsLoaded] = useState(false)
   const [crews, setCrews] = useState<Crew[]>([])
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const [experimentNotes, setExperimentNotes] = useState<ExperimentNote[]>([])
   const calendarPromiseRef = useRef<Promise<void> | null>(null)
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
   const crewsPromiseRef = useRef<Promise<void> | null>(null)
@@ -920,6 +962,112 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.from('calendar_events').delete().eq('id', id)
         if (error) return { ok: false, error: error.message }
         setCalendarEvents((prev) => prev.filter((e) => e.id !== id))
+        return { ok: true }
+      },
+
+      // ── Experiment notes (migration 0033) ─────────────────────────────────
+      experimentNotes,
+      loadExperimentNotes: async () => {
+        if (!supabase) return
+        // Notes and their items in two reads rather than an embedded join:
+        // PostgREST's nesting is easy to get subtly wrong across RLS, and two
+        // plain selects are trivially correct.
+        const [notesRes, itemsRes] = await Promise.all([
+          supabase.from('experiment_notes').select('*').order('observed_at', { ascending: false }),
+          supabase.from('experiment_note_items').select('*'),
+        ])
+        if (notesRes.error) {
+          console.error('[data] load experiment_notes:', notesRes.error.message)
+          return
+        }
+        if (itemsRes.error) console.warn('[data] load experiment_note_items:', itemsRes.error.message)
+
+        const byNote = new Map<string, ExperimentNoteItem[]>()
+        for (const raw of (itemsRes.data ?? []) as Array<Record<string, unknown>>) {
+          const item = toExperimentItem(raw)
+          const list = byNote.get(item.noteId)
+          if (list) list.push(item)
+          else byNote.set(item.noteId, [item])
+        }
+        setExperimentNotes(
+          ((notesRes.data ?? []) as Array<Record<string, unknown>>).map((r) =>
+            toExperimentNote(r, byNote.get(String(r.id)) ?? []),
+          ),
+        )
+      },
+      saveExperimentNote: async (input) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row = {
+          experiment: (input.experiment ?? '').trim(),
+          notes: input.notes ?? '',
+          observed_at: input.observedAt ?? new Date().toISOString(),
+          field_id: input.fieldId ?? null,
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+          accuracy_m: input.accuracyM ?? null,
+        }
+
+        const res = input.id
+          ? await supabase
+              .from('experiment_notes')
+              .update({ ...row, updated_at: new Date().toISOString() })
+              .eq('id', input.id)
+              .select()
+              .single()
+          : await supabase
+              .from('experiment_notes')
+              .insert({ ...row, created_by: userId })
+              .select()
+              .single()
+        if (res.error) {
+          console.error('[data] saveExperimentNote:', res.error.message)
+          return { ok: false, error: res.error.message }
+        }
+        const noteId = String((res.data as Record<string, unknown>).id)
+
+        // Items are replaced wholesale. A note's attachments are edited as a
+        // set — add three, remove one — and diffing them would be more code
+        // for a list that is never longer than a screen.
+        const del = await supabase.from('experiment_note_items').delete().eq('note_id', noteId)
+        if (del.error) return { ok: false, error: del.error.message }
+
+        let items: ExperimentNoteItem[] = []
+        if (input.items.length) {
+          const ins = await supabase
+            .from('experiment_note_items')
+            .insert(
+              input.items.map((it) => ({
+                note_id: noteId,
+                kind: it.kind,
+                label: it.label,
+                block_id: it.blockId ?? null,
+                tray_id: it.trayId ?? null,
+                lat: it.lat ?? null,
+                lng: it.lng ?? null,
+              })),
+            )
+            .select()
+          if (ins.error) return { ok: false, error: ins.error.message }
+          items = ((ins.data ?? []) as Array<Record<string, unknown>>).map(toExperimentItem)
+        }
+
+        const saved = toExperimentNote(res.data as Record<string, unknown>, items)
+        setExperimentNotes((prev) => {
+          const i = prev.findIndex((n) => n.id === saved.id)
+          if (i < 0) return [saved, ...prev]
+          const next = [...prev]
+          next[i] = saved
+          return next
+        })
+        return { ok: true, id: saved.id }
+      },
+      deleteExperimentNote: async (id: string) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Items go with it: the cascade is declared on the table, so this is
+        // one delete rather than two.
+        const { error } = await supabase.from('experiment_notes').delete().eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        setExperimentNotes((prev) => prev.filter((n) => n.id !== id))
         return { ok: true }
       },
 

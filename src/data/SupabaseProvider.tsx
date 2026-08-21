@@ -2181,6 +2181,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       crews,
       crewMembers,
       calendarEvents,
+      experimentNotes,
       blocksLoading,
       upsertPlacement,
       grants,

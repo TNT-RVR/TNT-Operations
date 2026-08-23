@@ -20,7 +20,7 @@
  * highlighted "done" with for three seasons, so it reads without explanation.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Check, CalendarClock, RefreshCw, X } from 'lucide-react'
+import { Check, CalendarClock, Columns3, RefreshCw, X } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { Badge, Button, EmptyState, Input, Modal, Select, StatTile } from '@/components/ui'
@@ -35,6 +35,8 @@ import {
   type ChecklistCell,
 } from '@/domain/fieldChecklist'
 import { TasksChrome } from './TasksChrome'
+
+const HIDDEN_KEY = 'tnt.checklist.hiddenColumns.v1'
 
 /** "2026-06-08" → "Jun 8". The year is the page's, not each cell's. */
 function shortDate(iso: string | null): string {
@@ -60,6 +62,36 @@ export default function OverallChecklist() {
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncNote, setSyncNote] = useState('')
+  const [pickingColumns, setPickingColumns] = useState(false)
+  /**
+   * Columns hidden on THIS device.
+   *
+   * Hiding is a view, never a delete: the marks stay, the sync keeps carrying
+   * them, and the spreadsheet keeps its column. TNT does not bait every field
+   * every season, so a Mouse Poison column of dashes is noise most of the time
+   * — but the seasons where it was baited still need their record.
+   *
+   * Per device rather than per account, like the map's layer switches: it is a
+   * preference about a screen, and syncing it would mean one person tidying
+   * their own view changes what the office sees.
+   */
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_KEY)
+      return new Set(raw ? (JSON.parse(raw) as string[]) : [])
+    } catch {
+      return new Set()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden]))
+    } catch {
+      // A device that refuses storage still gets working toggles, just not
+      // remembered ones.
+    }
+  }, [hidden])
+  const steps = useMemo(() => CHECKLIST_STEPS.filter((s) => !hidden.has(s.key)), [hidden])
 
   useEffect(() => {
     void loadFieldChecklist(year)
@@ -138,8 +170,10 @@ export default function OverallChecklist() {
 
   const byKey = useMemo(() => indexCells(cells as ChecklistCell[]), [cells])
   const progress = useMemo(
-    () => checklistProgress(cells as ChecklistCell[], rows.map((r) => r.filed)),
-    [cells, rows],
+    // Only the visible steps: a total that counts a column you have chosen not
+    // to track reads as permanently unfinished work.
+    () => checklistProgress(cells as ChecklistCell[], rows.map((r) => r.filed), steps.map((s) => s.key)),
+    [cells, rows, steps],
   )
 
   const save = async (
@@ -192,6 +226,33 @@ export default function OverallChecklist() {
               </option>
             ))}
           </Select>
+          <div className="relative">
+            <Button variant="ghost" onClick={() => setPickingColumns((v) => !v)}>
+              <Columns3 size={16} /> Columns{hidden.size > 0 ? ` (${steps.length}/${CHECKLIST_STEPS.length})` : ''}
+            </Button>
+            {pickingColumns && (
+              <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-default bg-raised p-2 shadow-lg">
+                {CHECKLIST_STEPS.map((s) => (
+                  <label key={s.key} className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-overlay">
+                    <input
+                      type="checkbox"
+                      checked={!hidden.has(s.key)}
+                      onChange={(e) =>
+                        setHidden((prev) => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.delete(s.key)
+                          else next.add(s.key)
+                          return next
+                        })
+                      }
+                    />
+                    <span className="text-primary">{s.label}</span>
+                  </label>
+                ))}
+                <p className="px-2 pt-1 text-xs text-faint">Hiding only affects this device. Nothing is deleted.</p>
+              </div>
+            )}
+          </div>
           {canEdit && (
             <Button variant="ghost" disabled={syncing} onClick={() => void runSync()}>
               <RefreshCw size={16} className={syncing ? 'animate-spin' : undefined} />
@@ -222,7 +283,7 @@ export default function OverallChecklist() {
               <thead>
                 <tr>
                   <th className="th sticky left-0 z-10 bg-overlay text-left">Field</th>
-                  {CHECKLIST_STEPS.map((s) => (
+                  {steps.map((s) => (
                     <th key={s.key} className="th text-left" title={s.hint}>
                       {s.label}
                     </th>
@@ -241,7 +302,7 @@ export default function OverallChecklist() {
                         <span className="block text-xs text-faint">not on this season&rsquo;s map</span>
                       )}
                     </td>
-                    {CHECKLIST_STEPS.map((s) => {
+                    {steps.map((s) => {
                       const filed = row.filed
                       const cell = byKey.get(cellKey(filed, s.key))
                       const state = cellState(cell)

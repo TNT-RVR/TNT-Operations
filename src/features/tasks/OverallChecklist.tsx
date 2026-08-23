@@ -318,10 +318,18 @@ export default function OverallChecklist() {
                               title={cell?.note || `${row.label} — ${s.label}`}
                               className={
                                 state === 'done'
-                                  ? 'rounded-sm border border-info/50 bg-info/15 px-2 py-1 text-xs font-semibold text-info'
+                                  ? // Solid blue with white text — the spreadsheet's own convention
+                                    // for a finished step, and what makes it readable at a glance
+                                    // down fourteen rows.
+                                    'rounded-sm border border-transparent px-2 py-1 text-xs font-semibold'
                                   : state === 'planned'
                                     ? 'rounded-sm border border-dashed border-default px-2 py-1 text-xs text-muted'
                                     : 'rounded-sm border border-transparent px-2 py-1 text-xs text-faint hover:border-subtle'
+                              }
+                              style={
+                                state === 'done'
+                                  ? { background: 'var(--done-fill)', color: 'var(--on-done)' }
+                                  : undefined
                               }
                             >
                               {state === 'done'
@@ -330,7 +338,14 @@ export default function OverallChecklist() {
                                   ? shortDate(cell?.plannedDate ?? null)
                                   : '—'}
                               {late != null && late !== 0 && (
-                                <span className="ml-1 font-normal text-muted">
+                                <span
+                                  className="ml-1 font-normal"
+                                  // Muted ink vanishes on the blue, so on a done cell this steps
+                                  // back by opacity rather than by colour.
+                                  style={
+                                    state === 'done' ? { color: 'var(--on-done)', opacity: 0.8 } : { color: 'var(--text-muted)' }
+                                  }
+                                >
                                   {late > 0 ? `+${late}d` : `${late}d`}
                                 </span>
                               )}

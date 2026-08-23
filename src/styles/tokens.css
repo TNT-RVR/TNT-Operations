@@ -17,6 +17,15 @@
   --data-honey:#FEB836; --data-teal:#3FB6A8; --data-lime:#9BD45E;
   --data-coral:#E8785B; --data-sky:#5AA9E6; --data-violet:#9B8CE6;
 
+  /*
+   * Checklist "done" fill. Its own token because it is a SURFACE that carries
+   * white text, which no existing blue does: --info-fg and --blue-500 are
+   * foreground blues (1.8:1 and 2.5:1 against white — unreadable as a fill).
+   * This is 4.8:1, a shade deeper than the #4A86E8 the spreadsheet uses, which
+   * only reaches 3.6:1. Same convention, legible at 12px.
+   */
+  --done-fill:#3B6FD4; --on-done:var(--white);
+
   /* Status bases */
   --green-500:#4FBF7B; --green-bg:#0E241A;
   --amber-500:#FEB836; --amber-bg:#2A2008;

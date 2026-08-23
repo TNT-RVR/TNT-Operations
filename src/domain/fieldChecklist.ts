@@ -106,3 +106,44 @@ export function indexCells(cells: ChecklistCell[]): Map<string, ChecklistCell> {
   for (const c of cells) m.set(cellKey(c.fieldName, c.step), c)
   return m
 }
+
+/** One checklist mark, placed on a day. */
+export interface ChecklistCalendarEntry {
+  date: string
+  fieldName: string
+  step: string
+  stepLabel: string
+  kind: 'planned' | 'done'
+}
+
+/**
+ * Checklist marks as calendar entries.
+ *
+ * DERIVED, never stored twice. A mark already has a date and a field; copying
+ * it into `calendar_events` would mean two records of one fact, and the day a
+ * step moves is the day they start disagreeing.
+ *
+ * A cell with both dates contributes only its COMPLETED day. The plan is
+ * history the moment the work happens — the calendar should say when the field
+ * was worked, and "planned for the 8th" still sitting on the 8th after it was
+ * done on the 11th is a diary of intentions rather than of work. The checklist
+ * itself still shows both, and the gap between them.
+ */
+export function checklistCalendarEntries(cells: ChecklistCell[]): ChecklistCalendarEntry[] {
+  const labels = new Map(CHECKLIST_STEPS.map((s) => [s.key, s.label]))
+  const out: ChecklistCalendarEntry[] = []
+  for (const c of cells) {
+    const date = c.completedDate ?? c.plannedDate
+    if (!date) continue
+    out.push({
+      date,
+      fieldName: c.fieldName,
+      step: c.step,
+      stepLabel: labels.get(c.step) ?? c.step,
+      kind: c.completedDate ? 'done' : 'planned',
+    })
+  }
+  return out.sort(
+    (a, b) => a.date.localeCompare(b.date) || a.fieldName.localeCompare(b.fieldName) || a.step.localeCompare(b.step),
+  )
+}

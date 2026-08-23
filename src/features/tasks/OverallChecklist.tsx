@@ -103,9 +103,15 @@ export default function OverallChecklist() {
     void loadFieldChecklist(year)
   }, [loadFieldChecklist, year])
 
-  /** Seasons offered: whatever the fields carry, plus the current one. */
+  /**
+   * Seasons offered: whatever the fields carry, this one, and the NEXT one.
+   *
+   * Next season is there so planning can start before a single field is stamped
+   * with it — and because selecting it and syncing is what creates its tab in
+   * the spreadsheet, copied from this year's header.
+   */
   const years = useMemo(() => {
-    const ys = new Set<string>([thisYear])
+    const ys = new Set<string>([thisYear, String(Number(thisYear) + 1)])
     for (const f of fields) {
       const y = String(f.geometry?.year ?? '').trim()
       if (y) ys.add(y)

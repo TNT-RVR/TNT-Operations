@@ -6,6 +6,11 @@ import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { PageHeader, Badge, Modal, Input, Select, Button } from '@/components/ui'
 import { useData } from '@/data/context'
 import {
+  checklistCalendarEntries,
+  type ChecklistCalendarEntry,
+  type ChecklistCell,
+} from '@/domain/fieldChecklist'
+import {
   INCUBATION_MILESTONES,
   TEMP_MODES,
   milestoneEvents,
@@ -70,6 +75,8 @@ export default function CalendarHome() {
     loadTrays,
     fields,
     calendarEvents,
+    fieldChecklist,
+    loadFieldChecklist,
     crews,
     loadCrews,
     loadCalendarEvents,
@@ -92,7 +99,30 @@ export default function CalendarHome() {
   const [year, setYear] = useState(() => Number(today.slice(0, 4)))
   const [month0, setMonth0] = useState(() => Number(today.slice(5, 7)) - 1)
 
+  // The checklist is stored per season, so paging the calendar into another
+  // year has to fetch that year before its marks can appear.
+  useEffect(() => {
+    void loadFieldChecklist(String(year))
+  }, [loadFieldChecklist, year])
+
   const events = useMemo(() => milestoneEvents(incubators, trays), [incubators, trays])
+
+  /**
+   * Field work from the Overall Checklist, by day.
+   *
+   * Derived from the marks rather than copied into `calendar_events`: one fact,
+   * one record. A step planned for the 8th and done on the 11th shows on the
+   * 11th — see `checklistCalendarEntries` for why.
+   */
+  const checklistByDate = useMemo(() => {
+    const m = new Map<string, ChecklistCalendarEntry[]>()
+    for (const e of checklistCalendarEntries(fieldChecklist as ChecklistCell[])) {
+      const list = m.get(e.date)
+      if (list) list.push(e)
+      else m.set(e.date, [e])
+    }
+    return m
+  }, [fieldChecklist])
 
   /** Colour per incubator so a run reads as one thread across the month. */
   const colorOf = useMemo(() => {
@@ -315,6 +345,24 @@ export default function CalendarHome() {
                                 {e.startTime ? `${e.startTime} ` : ''}
                                 {e.title}
                               </button>
+                            ))}
+                            {(checklistByDate.get(ymd) ?? []).map((e) => (
+                              <div
+                                key={`cl-${e.fieldName}-${e.step}`}
+                                className={`truncate rounded-sm px-1 py-0.5 text-[10px] leading-tight ${
+                                  e.kind === 'done'
+                                    ? 'font-semibold'
+                                    : 'border border-dashed border-default text-secondary'
+                                }`}
+                                style={
+                                  e.kind === 'done'
+                                    ? { background: 'var(--done-fill)', color: 'var(--on-done)' }
+                                    : undefined
+                                }
+                                title={`${e.fieldName} — ${e.stepLabel} (${e.kind === 'done' ? 'done' : 'planned'})`}
+                              >
+                                {e.stepLabel} · {e.fieldName}
+                              </div>
                             ))}
                             {dayEvents.map((e) => (
                               <div

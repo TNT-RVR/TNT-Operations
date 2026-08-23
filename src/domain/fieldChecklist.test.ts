@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { CHECKLIST_STEPS, cellKey, cellState, checklistProgress, daysLate, indexCells } from './fieldChecklist'
+import {
+  CHECKLIST_STEPS,
+  cellKey,
+  cellState,
+  checklistCalendarEntries,
+  checklistProgress,
+  daysLate,
+  indexCells,
+} from './fieldChecklist'
 
 const cell = (over: Partial<Parameters<typeof cellState>[0]> & Record<string, unknown> = {}) => ({
   year: '2026',
@@ -77,5 +85,48 @@ describe('indexCells', () => {
     expect(m.get(cellKey('BASF Stolk', 'flag'))?.step).toBe('flag')
     expect(m.get(cellKey('Corteva Stolk', 'bees_in'))?.fieldName).toBe('Corteva Stolk')
     expect(m.get(cellKey('BASF Stolk', 'bees_in'))).toBeUndefined()
+  })
+})
+
+describe('checklistCalendarEntries', () => {
+  const c = (over: Record<string, unknown>) => ({
+    year: '2026',
+    fieldName: 'BASF Stolk',
+    step: 'bees_in',
+    plannedDate: null,
+    completedDate: null,
+    note: '',
+    ...over,
+  })
+
+  it('places a planned step on its planned day', () => {
+    const [e] = checklistCalendarEntries([c({ plannedDate: '2026-07-02' })])
+    expect(e).toMatchObject({ date: '2026-07-02', kind: 'planned', stepLabel: 'Bees In' })
+  })
+
+  it('places a completed step on the day it was done', () => {
+    const [e] = checklistCalendarEntries([c({ completedDate: '2026-07-05' })])
+    expect(e).toMatchObject({ date: '2026-07-05', kind: 'done' })
+  })
+
+  // A diary of work, not of intentions: once it is done, the plan is history
+  // and the checklist is where the gap between them is read.
+  it('shows only the completed day when a cell has both', () => {
+    const out = checklistCalendarEntries([c({ plannedDate: '2026-07-02', completedDate: '2026-07-05' })])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ date: '2026-07-05', kind: 'done' })
+  })
+
+  it('ignores a mark with no date at all (a note-only cell)', () => {
+    expect(checklistCalendarEntries([c({ note: 'Most in June 29th' })])).toEqual([])
+  })
+
+  it('sorts by day, then field, then step', () => {
+    const out = checklistCalendarEntries([
+      c({ fieldName: 'Zed', plannedDate: '2026-07-02' }),
+      c({ fieldName: 'Alpha', plannedDate: '2026-07-02' }),
+      c({ fieldName: 'Mid', plannedDate: '2026-06-30' }),
+    ])
+    expect(out.map((e) => e.fieldName)).toEqual(['Mid', 'Alpha', 'Zed'])
   })
 })

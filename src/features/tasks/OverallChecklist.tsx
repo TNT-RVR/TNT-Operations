@@ -14,12 +14,14 @@
  *    work happens. Here a plan is an outline, a completion is filled, and a cell
  *    that has both says how many days apart they were.
  *
- * Colour: completed cells are `--info-fg` blue, not honey. Honey is the app's
- * single accent and the rule is one primary honey element per view — a grid
- * where half the cells are honey would drown that. Blue is also what Darren has
- * highlighted "done" with for three seasons, so it reads without explanation.
+ * Colour: a completed cell is a solid `--done-fill` blue box with white text —
+ * the spreadsheet's own convention, so it reads without explanation. Not honey:
+ * honey is the app's single accent and the rule is one primary honey element per
+ * view, which a grid half-full of it would drown. `--done-fill` exists because
+ * every other blue here is a FOREGROUND colour and unreadable as a fill.
  */
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Check, CalendarClock, Columns3, RefreshCw, X } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
@@ -53,7 +55,11 @@ function shortDate(iso: string | null): string {
 export default function OverallChecklist() {
   const { fields, fieldChecklist, fieldChecklistLoading, loadFieldChecklist, saveChecklistCell, syncChecklistSheet } =
     useData()
-  const canEdit = useSession().can('tasks', 'edit')
+  const session = useSession()
+  const canEdit = session.can('tasks', 'edit')
+  // A crew tablet has Tasks but not Shelter Maps, so the name is a link only
+  // where the destination is actually reachable.
+  const canSeeMaps = session.can('maps')
 
   const thisYear = String(new Date().getFullYear())
   const [year, setYear] = useState(thisYear)
@@ -294,7 +300,17 @@ export default function OverallChecklist() {
                 {rows.map((row) => (
                   <tr key={row.key} className="border-t border-subtle">
                     <td className="sticky left-0 z-10 bg-surface px-3 py-2 font-medium text-primary">
-                      {row.label}
+                      {row.fieldId && canSeeMaps ? (
+                        // Straight to this field on the office map. The checklist
+                        // is usually where someone first notices a field needs
+                        // looking at, and retyping its name into the map's search
+                        // is the step that gets skipped.
+                        <Link to={`/maps?field=${row.fieldId}`} className="hover:text-brand hover:underline">
+                          {row.label}
+                        </Link>
+                      ) : (
+                        row.label
+                      )}
                       {row.onMap && row.filed !== row.label && (
                         <span className="block text-xs text-faint">filed as “{row.filed}” in the sheet</span>
                       )}

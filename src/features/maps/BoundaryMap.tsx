@@ -25,6 +25,9 @@ import { fieldOutlines } from './overlays'
 const OUTLINE = '#FEB836'
 const OUTLINE_HOVER = '#FFFFFF'
 const FILL_OPACITY = 0.18
+// Shelter pins in a layout preview — the same honey as the outline they sit in.
+const PIN = '#FEB836'
+const PIN_STROKE = '#050506'
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 const DEFAULT_CENTER: [number, number] = [-111.6, 49.83] // southern Alberta
@@ -32,11 +35,18 @@ const DEFAULT_CENTER: [number, number] = [-111.6, 49.83] // southern Alberta
 export function BoundaryMap({
   fields,
   onSelect,
+  pins,
   className = 'h-[420px]',
 }: {
   fields: Field[]
   /** Given, the outlines become clickable and the cursor says so. */
   onSelect?: (fieldId: string) => void
+  /**
+   * Shelter positions to draw inside the outline. Used by the layout preview,
+   * where seeing 132 dots land where they will actually go is the difference
+   * between accepting last year's settings and guessing at them.
+   */
+  pins?: Array<{ lat: number; lng: number }>
   className?: string
 }) {
   const holder = useRef<HTMLDivElement | null>(null)
@@ -79,6 +89,18 @@ export function BoundaryMap({
         paint: {
           'line-color': ['case', ['boolean', ['feature-state', 'hover'], false], OUTLINE_HOVER, OUTLINE],
           'line-width': 2,
+        },
+      })
+      map.addSource('preview-pins', { type: 'geojson', data: EMPTY })
+      map.addLayer({
+        id: 'preview-pins',
+        type: 'circle',
+        source: 'preview-pins',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2, 15, 5],
+          'circle-color': PIN,
+          'circle-stroke-color': PIN_STROKE,
+          'circle-stroke-width': 1,
         },
       })
       readyRef.current = true
@@ -135,6 +157,14 @@ export function BoundaryMap({
         setTimeout(apply, 60)
         return
       }
+      ;(map.getSource('preview-pins') as GeoJSONSource | undefined)?.setData({
+        type: 'FeatureCollection',
+        features: (pins ?? []).map((p) => ({
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        })),
+      })
       const data = fieldOutlines(fields)
       // Numeric feature ids so hover state has something to key on; GeoJSON
       // sources cannot use a string property as a feature id.
@@ -155,7 +185,7 @@ export function BoundaryMap({
     return () => {
       cancelled = true
     }
-  }, [fields])
+  }, [fields, pins])
 
   return <div ref={holder} className={`w-full overflow-hidden rounded-lg border border-subtle ${className}`} />
 }

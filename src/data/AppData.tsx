@@ -1018,7 +1018,15 @@ const SEED_PLACES: PollinationField[] = seedFields.map((f) => ({
   grower: f.client,
   region: f.region,
   lld: String(f.geometry?.lld ?? ''),
-  boundary: {},
+  // The outline, split off the demo geometry the way migration 0041 splits
+  // the live rows — so the layout preview has something real to draw on.
+  boundary: f.geometry?.boundary_polygon
+    ? { boundary_polygon: f.geometry.boundary_polygon }
+    : {
+        PP_Latitude: f.geometry?.PP_Latitude,
+        PP_Longitude: f.geometry?.PP_Longitude,
+        Radius: f.geometry?.Radius,
+      },
   notes: '',
   archivedAt: null,
 }))
@@ -1032,7 +1040,8 @@ const SEED_SEASONS: FieldSeason[] = seedFields.map((f, i) => ({
   acres: Number(f.geometry?.acres) || null,
   plannedShelters: f.shelterCount || null,
   status: 'active' as const,
-  geometry: {},
+  // Last season's placement settings, which is what the preview offers to reuse.
+  geometry: (f.geometry ?? {}) as Record<string, unknown>,
   copiedFrom: null,
   notes: '',
   field: SEED_PLACES[i],

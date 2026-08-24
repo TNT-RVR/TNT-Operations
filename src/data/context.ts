@@ -466,7 +466,9 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   /** Edit one season's intake. Only the keys passed are written. */
   saveFieldSeason: (
     id: string,
-    patch: Partial<Pick<FieldSeason, 'company' | 'crop' | 'acres' | 'plannedShelters' | 'status' | 'notes'>>,
+    patch: Partial<
+      Pick<FieldSeason, 'company' | 'crop' | 'acres' | 'plannedShelters' | 'status' | 'notes' | 'geometry'>
+    >,
   ) => Promise<{ ok: boolean; error?: string }>
   /** Drop a field from a season. The FIELD stays; only this year's plan goes. */
   removeFieldSeason: (id: string) => Promise<{ ok: boolean; error?: string }>

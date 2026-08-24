@@ -1540,6 +1540,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         if ('plannedShelters' in patch) row.planned_shelters = patch.plannedShelters
         if ('status' in patch) row.status = patch.status
         if ('notes' in patch) row.notes = patch.notes
+        if ('geometry' in patch) row.geometry = patch.geometry
         if (Object.keys(row).length === 0) return { ok: true }
         const { data, error } = await supabase.from('field_seasons').update(row).eq('id', id).select().single()
         if (error) return { ok: false, error: error.message }

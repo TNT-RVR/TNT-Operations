@@ -21,11 +21,12 @@
  * the measurements in front of you before you answer it. That step comes next.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { CopyPlus, Plus, Trash2 } from 'lucide-react'
+import { CopyPlus, LayoutGrid, Plus, Trash2 } from 'lucide-react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { Badge, Button, EmptyState, Input, Modal, PageHeader, Select, StatTile } from '@/components/ui'
 import type { FieldSeason, SeasonStatus } from '@/data/types'
+import { LayoutStep } from './LayoutStep'
 
 const STATUSES: SeasonStatus[] = ['planned', 'active', 'complete', 'dropped']
 
@@ -48,6 +49,8 @@ export default function SeasonSetup() {
   const [year, setYear] = useState(String(thisYear))
   const [adding, setAdding] = useState(false)
   const [copying, setCopying] = useState(false)
+  /** The season whose layout question is open. */
+  const [layoutFor, setLayoutFor] = useState<FieldSeason | null>(null)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
 
@@ -159,6 +162,7 @@ export default function SeasonSetup() {
                   <th className="th text-left">Crop</th>
                   <th className="th text-right">Acres</th>
                   <th className="th text-right">Shelters</th>
+                  <th className="th text-left">Layout</th>
                   <th className="th text-left">Status</th>
                   {canEdit && <th className="th" />}
                 </tr>
@@ -216,6 +220,17 @@ export default function SeasonSetup() {
                       />
                     </td>
                     <td className="px-2 py-1">
+                      {Object.keys(s.geometry).length > 0 ? (
+                        <Badge tone="green">set</Badge>
+                      ) : canEdit ? (
+                        <Button variant="ghost" onClick={() => setLayoutFor(s)}>
+                          <LayoutGrid size={15} /> Set layout
+                        </Button>
+                      ) : (
+                        <Badge tone="amber">none</Badge>
+                      )}
+                    </td>
+                    <td className="px-2 py-1">
                       {canEdit ? (
                         <Select
                           value={s.status}
@@ -264,6 +279,30 @@ export default function SeasonSetup() {
             const r = await addFieldSeason({ year, ...input })
             if (!r.ok) return r.error ?? 'Could not add'
             setNote(`${input.name} added to ${year}.`)
+            return null
+          }}
+        />
+      )}
+
+      {layoutFor && layoutFor.field && (
+        <LayoutStep
+          season={layoutFor}
+          field={layoutFor.field}
+          previousSeason={
+            // What it was copied from, or failing that the same field's most
+            // recent earlier season — a field added by hand still has a
+            // history worth offering.
+            fieldSeasons.find((p) => p.id === layoutFor.copiedFrom) ??
+            fieldSeasons
+              .filter((p) => p.fieldId === layoutFor.fieldId && p.year < layoutFor.year)
+              .sort((a, b) => b.year.localeCompare(a.year))[0] ??
+            null
+          }
+          onClose={() => setLayoutFor(null)}
+          onUse={async (geometry) => {
+            const r = await saveFieldSeason(layoutFor.id, { geometry })
+            if (!r.ok) return r.error ?? 'Could not save the layout'
+            setNote(`${layoutFor.field?.name} now uses that layout for ${year}.`)
             return null
           }}
         />

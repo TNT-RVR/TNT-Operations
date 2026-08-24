@@ -4,6 +4,7 @@ import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Mountain, Layers, Camera , ChevronLeft } from 'lucide-react'
 import { useData } from '@/data/context'
+import { useSeasonFields } from './useSeasonFields'
 import { useSession } from '@/auth/session'
 import { supabase } from '@/data/supabaseClient'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
@@ -44,7 +45,6 @@ const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: 
 
 export default function TrayPlacement() {
   const {
-    fields,
     crews,
     crewMembers,
     loadCrews,
@@ -55,7 +55,8 @@ export default function TrayPlacement() {
     releaseTrayToShelter,
   } = useData()
   const session = useSession()
-  const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
+  const seasonList = useSeasonFields()
+  const mapped = useMemo(() => seasonList.filter((f) => f.geometry), [seasonList])
   const [search] = useSearchParams()
   /**
    * A field can be named in the URL — that is how "Open <field>" on a work

@@ -354,7 +354,21 @@ _Last reviewed 2026-08-17._
         than a fuzzy rule that guesses). Backfilled: 18 fields, 18 seasons
         (2026), 14 aliases. NOTHING reads it yet — `shelter_fields` is still
         the live source and keeps its foreign keys (1,747 block placements).
-        The plan is to build 2027 on the new tables first.
+        Consumers move over one at a time, each falling back to
+        `shelter_fields` when a season has NOT been set up — so 2027 reads the
+        new model while 2026 carries on unchanged. Moved so far: the **Overall
+        Checklist** (rows + sheet-name resolution via `field_aliases`) and
+        **Field Mode**'s three crew pickers (`useSeasonFields`).
+        `domain/seasonFields.ts` rebuilds the `Field` those screens expect —
+        boundary from the field, layout from the season, and the FIELD's
+        boundary winning, matching `layoutDict` so the layout preview and the
+        crew map cannot draw different shapes.
+        **KNOWN GAP:** crew tables (`block_placements`, shelter scans, work
+        orders) still key on `shelter_fields.id`, so creating a season also
+        creates a map row (`ensureMapRow`) and copy-forward reuses last
+        season's. That means two seasons of one field share a map row, and
+        placements are told apart only by date — fine while coexisting, and the
+        reason to move those tables onto `field_seasons` next.
       - **Overall Checklist** (`/tasks/overall`, `0039_field_checklist.sql`) —
         the field × season-step grid ported from the "Checklist" spreadsheet
         (one sheet per year since 2023). ROWS ARE NOT STORED: they are the

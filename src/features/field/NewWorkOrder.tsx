@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { useData } from '@/data/context'
+import { useSeasonFields } from './useSeasonFields'
 import { buildWorkOrder, clashesFor, workOrderTitle, type WorkOrderDraft } from '@/domain/workOrder'
 
 const TZ = 'America/Edmonton'
@@ -50,7 +51,8 @@ export function WorkOrderForm({
   const fieldName = fields.find((f) => f.id === draft.fieldId)?.name ?? ''
 
   /** Only fields with geometry can be worked — the maps need a boundary. */
-  const workable = useMemo(() => fields.filter((f) => f.geometry), [fields])
+  const seasonList = useSeasonFields()
+  const workable = useMemo(() => seasonList.filter((f) => f.geometry), [seasonList])
 
   // Warned about, never blocked: a crew doing shelters in the morning and
   // trays after lunch is a real day, not a mistake.

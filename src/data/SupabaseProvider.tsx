@@ -278,6 +278,53 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const blocksPromiseRef = useRef<Map<number, Promise<void>>>(new Map())
   /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
   const analysisPromiseRef = useRef<Promise<void> | null>(null)
+  /**
+   * Make sure a field has a `shelter_fields` row, and give back its id.
+   *
+   * Every crew table — block placements, shelter scans, work orders — carries a
+   * foreign key into `shelter_fields`. A field declared only in Season Setup has
+   * no such row, so a crew scanning it would fail at the DATABASE: a red error
+   * on a tablet in a field, with the office unable to see why.
+   *
+   * So the map row is created with the season, not left for whoever opens the
+   * map first. It carries the field's boundary and the season's facts, which is
+   * exactly what the map would have been given by hand.
+   *
+   * This is scaffolding for the coexistence period. When the scan tables move
+   * onto `field_seasons`, this goes.
+   */
+  const ensureMapRow = useCallback(
+    async (place: PollinationField, season: { year: string; company: string; acres: number | null }) => {
+      if (!supabase) return null
+      const found = await supabase.from('shelter_fields').select('id').eq('name', place.name).maybeSingle()
+      if (found.data?.id) return String(found.data.id)
+      const made = await supabase
+        .from('shelter_fields')
+        .insert({
+          name: place.name,
+          client: season.company || place.grower,
+          region: place.region,
+          shape_type: place.boundary.boundary_polygon ? 'polygon' : 'pivot',
+          shelter_count: 0,
+          data: {
+            ...place.boundary,
+            year: season.year,
+            company: season.company,
+            lld: place.lld,
+            ...(season.acres != null ? { acres: String(season.acres) } : {}),
+          },
+        })
+        .select('id')
+        .single()
+      if (made.error) {
+        console.error('[data] ensureMapRow:', made.error.message)
+        return null
+      }
+      return String(made.data.id)
+    },
+    [],
+  )
+
   /** One in-flight guard per season for the intake list. */
   const seasonsPromiseRef = useRef<Map<string, Promise<void>>>(new Map())
 
@@ -1537,7 +1584,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           if (error.code === '23505') return { ok: false, error: name + ' is already in ' + input.year + '.' }
           return { ok: false, error: error.message }
         }
-        const season = { ...toFieldSeason(data as FieldSeasonRow), field: place }
+        // Give it a map row now: without one, a crew scanning this field
+        // hits a foreign-key error on a tablet rather than a message here.
+        const mapId = await ensureMapRow(place, {
+          year: input.year,
+          company: input.company ?? '',
+          acres: input.acres ?? null,
+        })
+        if (mapId) {
+          await supabase.from('field_seasons').update({ shelter_field_id: mapId }).eq('id', data.id)
+        }
+        const season = { ...toFieldSeason(data as FieldSeasonRow), shelterFieldId: mapId, field: place }
         setFieldSeasons((prev) => [...prev, season])
         setPollinationFields((prev) => (prev.some((f) => f.id === place.id) ? prev : [...prev, place]))
         return { ok: true, season }
@@ -1589,6 +1646,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
             // still applies is its own question, asked per field with a preview.
             geometry: {},
             copied_from: r.id,
+            // The same map row as last season, so crew scans keep landing on
+            // the field the office sees.
+            shelter_field_id: r.shelter_field_id,
           }))
         if (rows.length === 0) return { ok: true, created: 0 }
         const { data, error } = await supabase.from('field_seasons').insert(rows).select()
@@ -2380,6 +2440,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fieldSeasons,
       seasonsLoading,
       readSeasonYear,
+      ensureMapRow,
       fieldWeather,
       blockSeasons,
       earlierInspectionsLoaded,

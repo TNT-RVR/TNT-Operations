@@ -5,6 +5,7 @@ import { nextHeading, cameraFor, shouldMoveCamera } from '@/domain/navView'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Crosshair, Layers, Check, Mountain, Move , ChevronLeft } from 'lucide-react'
 import { useData } from '@/data/context'
+import { useSeasonFields } from './useSeasonFields'
 import { crewOf, shouldBroadcastPosition } from '@/domain/crews'
 import { checkPlacementFix } from '@/domain/placementFix'
 import { fieldForPoint } from '@/domain/blockImport'
@@ -68,11 +69,14 @@ const distM = (aLat: number, aLng: number, bLat: number, bLng: number): number =
 }
 
 export default function ShelterPlacement() {
-  const { fields, placedShelters, addPlacedShelter, crews, crewMembers, loadCrews } = useData()
+  const { placedShelters, addPlacedShelter, crews, crewMembers, loadCrews } = useData()
   const s = useSession()
   const canEdit = s.can('field', 'edit')
 
-  const mapped = useMemo(() => fields.filter((f) => f.geometry), [fields])
+  // This season's fields, not every field ever mapped: a crew list that
+  // still shows last year's work is how the wrong field gets scanned.
+  const seasonList = useSeasonFields()
+  const mapped = useMemo(() => seasonList.filter((f) => f.geometry), [seasonList])
   const [search] = useSearchParams()
   /**
    * A field can be named in the URL — that is how "Open <field>" on a work

@@ -53,6 +53,46 @@ export interface FieldChecklistCell {
   syncedAt: string | null
 }
 
+/**
+ * A field as a PLACE (migration 0041). Created once, kept for good: the name is
+ * its identity and the boundary is the part of its geometry that does not
+ * change from year to year.
+ */
+export interface PollinationField {
+  id: string
+  name: string
+  grower: string
+  region: string
+  lld: string
+  /** `{boundary_polygon}` for a drawn field, `{PP_*, Radius}` for a pivot. */
+  boundary: Record<string, unknown>
+  notes: string
+  archivedAt: string | null
+}
+
+export type SeasonStatus = 'planned' | 'active' | 'complete' | 'dropped'
+
+/**
+ * One field's plan for one year: what intake captures each spring, plus the
+ * placement geometry, which — unlike the boundary — does change every season.
+ */
+export interface FieldSeason {
+  id: string
+  fieldId: string
+  year: string
+  company: string
+  crop: string
+  acres: number | null
+  plannedShelters: number | null
+  status: SeasonStatus
+  geometry: Record<string, unknown>
+  /** The season this was copied from, so "same as last year" is answerable. */
+  copiedFrom: string | null
+  notes: string
+  /** Joined for display — the season list is always read with its field. */
+  field?: PollinationField
+}
+
 export type IncubatorStatus = 'active' | 'idle'
 
 /** A leafcutter-bee incubator (Incubation section). */

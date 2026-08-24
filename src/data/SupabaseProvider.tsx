@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  FieldSeason,
+  PollinationField,
   FieldChecklistCell,
   Block,
   BlockPlacement,
@@ -44,6 +46,8 @@ interface WeatherCacheRow {
   daily: unknown
 }
 import {
+  toFieldSeason,
+  toPollinationField,
   toFieldChecklistCell,
   toBlock,
   toBlockPlacement,
@@ -88,7 +92,9 @@ import {
   toFieldAnalysis,
   type FieldAnalysisRow,
 } from './mappers'
-import type { FieldChecklistRow } from './mappers'
+import type {
+  FieldSeasonRow,
+  PollinationFieldRow, FieldChecklistRow } from './mappers'
 
 /**
  * Live Supabase backend. Implements the SAME `DataContextValue` seam as
@@ -216,6 +222,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>([])
   const [fieldChecklist, setFieldChecklist] = useState<FieldChecklistCell[]>([])
+  const [pollinationFields, setPollinationFields] = useState<PollinationField[]>([])
+  const [fieldSeasons, setFieldSeasons] = useState<FieldSeason[]>([])
+  const [seasonsLoading, setSeasonsLoading] = useState(false)
   const [fieldChecklistLoading, setFieldChecklistLoading] = useState(false)
   /**
    * Starts TRUE: nothing has been fetched yet, and "no rows" and "not asked
@@ -265,6 +274,41 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const blocksPromiseRef = useRef<Map<number, Promise<void>>>(new Map())
   /** And for the analysis rows — every analysis tab calls loadFieldAnalysis(). */
   const analysisPromiseRef = useRef<Promise<void> | null>(null)
+  /** One in-flight guard per season for the intake list. */
+  const seasonsPromiseRef = useRef<Map<string, Promise<void>>>(new Map())
+
+  /**
+   * Read one season's field list, with each season's field joined on.
+   *
+   * Joined here rather than in the screens: a season without its field is a row
+   * with no name, and every caller would otherwise repeat the same lookup to
+   * show anything at all.
+   */
+  const readSeasonYear = useCallback(async (year: string) => {
+    if (!supabase) return
+    const seasons = await supabase.from('field_seasons').select('*').eq('year', year)
+    if (seasons.error) {
+      console.error('[data] readSeasonYear:', seasons.error.message)
+      throw seasons.error
+    }
+    let known: PollinationField[] = []
+    const places = await supabase.from('pollination_fields').select('*')
+    if (places.error) {
+      console.error('[data] readSeasonYear/places:', places.error.message)
+      throw places.error
+    }
+    known = ((places.data as PollinationFieldRow[]) ?? []).map(toPollinationField)
+    setPollinationFields(known)
+    const byId = new Map(known.map((f) => [f.id, f]))
+    setFieldSeasons((old) => [
+      ...old.filter((s) => s.year !== year),
+      ...((seasons.data as FieldSeasonRow[]) ?? []).map((r) => ({
+        ...toFieldSeason(r),
+        field: byId.get(r.field_id),
+      })),
+    ])
+  }, [])
+
   /** One in-flight guard PER SEASON for the Overall Checklist, like blocks. */
   const checklistPromiseRef = useRef<Map<string, Promise<void>>>(new Map())
   /**
@@ -1424,6 +1468,123 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       },
 
       // ── Season analysis ───────────────────────────────────────────────────
+      // -- Season field list ------------------------------------------------
+      pollinationFields,
+      fieldSeasons,
+      seasonsLoading,
+      loadFieldSeasons: (year) => {
+        const inFlight = seasonsPromiseRef.current.get(year)
+        if (inFlight) return inFlight
+        if (!supabase) return Promise.resolve()
+        setSeasonsLoading(true)
+        const run = (async () => {
+          try {
+            await readSeasonYear(year)
+          } catch {
+            seasonsPromiseRef.current.delete(year) // let it retry
+          }
+          setSeasonsLoading(false)
+        })()
+        seasonsPromiseRef.current.set(year, run)
+        return run
+      },
+      addFieldSeason: async (input) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const name = input.name.trim()
+        if (!name) return { ok: false, error: 'A field needs a name.' }
+
+        // The FIELD is created once and kept; only its season is per year. An
+        // existing name is reused rather than duplicated -- the name IS the
+        // identity, so two rows for one name would be two of the same place.
+        const found = await supabase.from('pollination_fields').select('*').ilike('name', name).maybeSingle()
+        let field = found.data as PollinationFieldRow | null
+        if (!field) {
+          const made = await supabase
+            .from('pollination_fields')
+            .insert({ name, grower: input.grower ?? '', region: input.region ?? '', lld: input.lld ?? '' })
+            .select()
+            .single()
+          if (made.error) return { ok: false, error: made.error.message }
+          field = made.data as PollinationFieldRow
+        }
+        const place = toPollinationField(field)
+
+        const { data, error } = await supabase
+          .from('field_seasons')
+          .insert({
+            field_id: place.id,
+            year: input.year,
+            company: input.company ?? '',
+            crop: input.crop ?? '',
+            acres: input.acres ?? null,
+            planned_shelters: input.plannedShelters ?? null,
+          })
+          .select()
+          .single()
+        if (error) {
+          // The unique (field_id, year) doing its job.
+          if (error.code === '23505') return { ok: false, error: name + ' is already in ' + input.year + '.' }
+          return { ok: false, error: error.message }
+        }
+        const season = { ...toFieldSeason(data as FieldSeasonRow), field: place }
+        setFieldSeasons((prev) => [...prev, season])
+        setPollinationFields((prev) => (prev.some((f) => f.id === place.id) ? prev : [...prev, place]))
+        return { ok: true, season }
+      },
+      saveFieldSeason: async (id, patch) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        const row: Record<string, unknown> = {}
+        if ('company' in patch) row.company = patch.company
+        if ('crop' in patch) row.crop = patch.crop
+        if ('acres' in patch) row.acres = patch.acres
+        if ('plannedShelters' in patch) row.planned_shelters = patch.plannedShelters
+        if ('status' in patch) row.status = patch.status
+        if ('notes' in patch) row.notes = patch.notes
+        if (Object.keys(row).length === 0) return { ok: true }
+        const { data, error } = await supabase.from('field_seasons').update(row).eq('id', id).select().single()
+        if (error) return { ok: false, error: error.message }
+        const saved = toFieldSeason(data as FieldSeasonRow)
+        setFieldSeasons((prev) => prev.map((s) => (s.id === id ? { ...saved, field: s.field } : s)))
+        return { ok: true }
+      },
+      removeFieldSeason: async (id) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        // Only this year's plan. The field itself is a place and stays.
+        const { error } = await supabase.from('field_seasons').delete().eq('id', id)
+        if (error) return { ok: false, error: error.message }
+        setFieldSeasons((prev) => prev.filter((s) => s.id !== id))
+        return { ok: true }
+      },
+      copySeasonForward: async ({ fromYear, toYear, fieldIds }) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.', created: 0 }
+        const from = await supabase.from('field_seasons').select('*').eq('year', fromYear).in('field_id', fieldIds)
+        if (from.error) return { ok: false, error: from.error.message, created: 0 }
+        const existing = await supabase.from('field_seasons').select('field_id').eq('year', toYear)
+        if (existing.error) return { ok: false, error: existing.error.message, created: 0 }
+        const already = new Set((existing.data ?? []).map((r) => (r as { field_id: string }).field_id))
+
+        const rows = ((from.data as FieldSeasonRow[]) ?? [])
+          .filter((r) => !already.has(r.field_id))
+          .map((r) => ({
+            field_id: r.field_id,
+            year: toYear,
+            company: r.company,
+            crop: r.crop,
+            acres: r.acres,
+            planned_shelters: r.planned_shelters,
+            status: 'planned',
+            // Geometry is deliberately NOT copied: whether last year's layout
+            // still applies is its own question, asked per field with a preview.
+            geometry: {},
+            copied_from: r.id,
+          }))
+        if (rows.length === 0) return { ok: true, created: 0 }
+        const { data, error } = await supabase.from('field_seasons').insert(rows).select()
+        if (error) return { ok: false, error: error.message, created: 0 }
+        await readSeasonYear(toYear)
+        return { ok: true, created: ((data as FieldSeasonRow[]) ?? []).length }
+      },
+
       // ── Overall Checklist ───────────────────────────────────────────────
       fieldChecklist,
       fieldChecklistLoading,
@@ -2202,6 +2363,10 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fieldChecklist,
       fieldChecklistLoading,
       readChecklistYear,
+      pollinationFields,
+      fieldSeasons,
+      seasonsLoading,
+      readSeasonYear,
       fieldWeather,
       blockSeasons,
       earlierInspectionsLoaded,

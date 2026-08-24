@@ -7,6 +7,8 @@
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
 import type {
+  FieldSeason,
+  PollinationField,
   FieldChecklistCell,
   Block,
   BlockPlacement,
@@ -771,5 +773,65 @@ export function toFieldChecklistCell(r: FieldChecklistRow): FieldChecklistCell {
     note: r.note ?? '',
     updatedAt: r.updated_at,
     syncedAt: r.synced_at ?? null,
+  }
+}
+
+/** `pollination_fields` row → the seam type (migration 0041). */
+export interface PollinationFieldRow {
+  id: string
+  name: string
+  grower: string | null
+  region: string | null
+  lld: string | null
+  boundary: Record<string, unknown> | null
+  notes: string | null
+  archived_at: string | null
+}
+
+export function toPollinationField(r: PollinationFieldRow): PollinationField {
+  return {
+    id: r.id,
+    name: r.name,
+    grower: r.grower ?? '',
+    region: r.region ?? '',
+    lld: r.lld ?? '',
+    boundary: r.boundary ?? {},
+    notes: r.notes ?? '',
+    archivedAt: r.archived_at,
+  }
+}
+
+/** `field_seasons` row → the seam type. */
+export interface FieldSeasonRow {
+  id: string
+  field_id: string
+  year: string
+  company: string | null
+  crop: string | null
+  acres: string | number | null
+  planned_shelters: number | null
+  status: string
+  geometry: Record<string, unknown> | null
+  copied_from: string | null
+  notes: string | null
+}
+
+export function toFieldSeason(r: FieldSeasonRow): FieldSeason {
+  return {
+    id: r.id,
+    fieldId: r.field_id,
+    year: String(r.year),
+    company: r.company ?? '',
+    crop: r.crop ?? '',
+    // numeric comes back as a string from PostgREST; '' and null both mean
+    // "not recorded", which is different from 0 acres.
+    acres: r.acres === null || r.acres === '' ? null : Number(r.acres),
+    plannedShelters: r.planned_shelters,
+    status: (['planned', 'active', 'complete', 'dropped'].includes(r.status)
+      ? r.status
+      : 'planned') as FieldSeason['status'],
+    geometry: r.geometry ?? {},
+    copiedFrom: r.copied_from,
+    notes: r.notes ?? '',
   }
 }

@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
     module: 'maps',
     children: [
       { to: '/maps', label: 'Fields', end: true },
+      { to: '/maps/season', label: 'Season Setup' },
       { to: '/maps/costs', label: 'Costs' },
     ],
   },

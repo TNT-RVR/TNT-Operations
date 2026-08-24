@@ -2,6 +2,8 @@ import { createContext, useContext } from 'react'
 import type { BeePurchase } from '@/domain/beePurchases'
 import type { CrewTask } from '@/domain/supplies'
 import type {
+  FieldSeason,
+  PollinationField,
   FieldChecklistCell,
   Block,
   BlockPlacement,
@@ -439,6 +441,45 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * One row per field per season, for after-harvest analysis. NOT loaded on
    * mount — only the Analysis section reads them. Call `loadFieldAnalysis()`.
    */
+  // ── Season field list (the intake that feeds everything else) ────────────
+  /** Every field on record, place-level. Loaded once. */
+  pollinationFields: PollinationField[]
+  /** The seasons loaded so far, newest request last. Keyed by year in-app. */
+  fieldSeasons: FieldSeason[]
+  seasonsLoading: boolean
+  loadFieldSeasons: (year: string) => Promise<void>
+  /**
+   * Add a field to a season, creating the FIELD itself if the name is new.
+   * Returns the season row so the caller can keep editing it.
+   */
+  addFieldSeason: (input: {
+    year: string
+    name: string
+    grower?: string
+    region?: string
+    lld?: string
+    company?: string
+    crop?: string
+    acres?: number | null
+    plannedShelters?: number | null
+  }) => Promise<{ ok: boolean; error?: string; season?: FieldSeason }>
+  /** Edit one season's intake. Only the keys passed are written. */
+  saveFieldSeason: (
+    id: string,
+    patch: Partial<Pick<FieldSeason, 'company' | 'crop' | 'acres' | 'plannedShelters' | 'status' | 'notes'>>,
+  ) => Promise<{ ok: boolean; error?: string }>
+  /** Drop a field from a season. The FIELD stays; only this year's plan goes. */
+  removeFieldSeason: (id: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Copy fields forward into a new season. Geometry is deliberately NOT copied
+   * here — that is its own question, asked per field with a preview.
+   */
+  copySeasonForward: (input: {
+    fromYear: string
+    toYear: string
+    fieldIds: string[]
+  }) => Promise<{ ok: boolean; error?: string; created: number }>
+
   // ── Overall Checklist (field × season step) ──────────────────────────────
   /** Marks for the loaded season. Loaded per year, like blocks. */
   fieldChecklist: FieldChecklistCell[]

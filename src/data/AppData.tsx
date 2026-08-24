@@ -2,6 +2,8 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  FieldSeason,
+  PollinationField,
   FieldChecklistCell,
   Block,
   BlockPlacement,
@@ -155,6 +157,16 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [grantTasks, setGrantTasks] = useState<GrantTask[]>([])
   const [fieldAnalysis, setFieldAnalysis] = useState<FieldAnalysis[]>(seedFieldAnalysis)
   const [fieldChecklist, setFieldChecklist] = useState<FieldChecklistCell[]>([])
+  /**
+   * Mock season list, seeded from the demo fields so the intake screen works
+   * without a backend.
+   *
+   * Each season carries its FIELD joined on, exactly as the Supabase provider
+   * returns it: a season without its field is a row with no name, which is what
+   * the first version of this rendered.
+   */
+  const [pollinationFields, setPollinationFields] = useState<PollinationField[]>(() => SEED_PLACES)
+  const [fieldSeasons, setFieldSeasons] = useState<FieldSeason[]>(() => SEED_SEASONS)
   const [fieldWeather, setFieldWeather] = useState<Record<string, FieldWeather>>({})
   const nowIso = () => new Date().toISOString()
   // Sales lives in its own hook — this file is long enough, and the slice has
@@ -752,6 +764,73 @@ function MockProvider({ children }: { children: ReactNode }) {
       },
 
       // ── Season analysis ─────────────────────────────────────────────────
+      // ── Season field list ───────────────────────────────────────────────
+      // In memory: mock mode has no backend, but the screens must still work.
+      pollinationFields,
+      fieldSeasons,
+      seasonsLoading: false,
+      loadFieldSeasons: () => Promise.resolve(),
+      addFieldSeason: async (input) => {
+        const existing = pollinationFields.find(
+          (f) => f.name.trim().toLowerCase() === input.name.trim().toLowerCase(),
+        )
+        const field = existing ?? {
+          id: `pf_${Date.now()}`,
+          name: input.name.trim(),
+          grower: input.grower ?? '',
+          region: input.region ?? '',
+          lld: input.lld ?? '',
+          boundary: {},
+          notes: '',
+          archivedAt: null,
+        }
+        if (!existing) setPollinationFields((prev) => [...prev, field])
+        if (fieldSeasons.some((s) => s.fieldId === field.id && s.year === input.year)) {
+          return { ok: false, error: `${field.name} is already in ${input.year}.` }
+        }
+        const season: FieldSeason = {
+          id: `fs_${Date.now()}`,
+          fieldId: field.id,
+          year: input.year,
+          company: input.company ?? '',
+          crop: input.crop ?? '',
+          acres: input.acres ?? null,
+          plannedShelters: input.plannedShelters ?? null,
+          status: 'planned',
+          geometry: {},
+          copiedFrom: null,
+          notes: '',
+          field,
+        }
+        setFieldSeasons((prev) => [...prev, season])
+        return { ok: true, season }
+      },
+      saveFieldSeason: async (id, patch) => {
+        setFieldSeasons((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+        return { ok: true }
+      },
+      removeFieldSeason: async (id) => {
+        setFieldSeasons((prev) => prev.filter((s) => s.id !== id))
+        return { ok: true }
+      },
+      copySeasonForward: async ({ fromYear, toYear, fieldIds }) => {
+        const wanted = new Set(fieldIds)
+        const already = new Set(fieldSeasons.filter((s) => s.year === toYear).map((s) => s.fieldId))
+        const made = fieldSeasons
+          .filter((s) => s.year === fromYear && wanted.has(s.fieldId) && !already.has(s.fieldId))
+          .map((s, i) => ({
+            ...s,
+            id: `fs_${Date.now()}_${i}`,
+            year: toYear,
+            status: 'planned' as const,
+            // Geometry is its own decision, asked per field with a preview.
+            geometry: {},
+            copiedFrom: s.id,
+          }))
+        setFieldSeasons((prev) => [...prev, ...made])
+        return { ok: true, created: made.length }
+      },
+
       // ── Overall Checklist ───────────────────────────────────────────────
       // In memory, so the grid works on mock data with no backend.
       fieldChecklist,
@@ -910,6 +989,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       grantTasks,
       fieldAnalysis,
       fieldChecklist,
+      pollinationFields,
+      fieldSeasons,
       modeEvents,
       fieldWeather,
       sales,
@@ -926,6 +1007,37 @@ function MockProvider({ children }: { children: ReactNode }) {
  * mock — with a warning — when `supabase` is requested but the client isn't
  * configured (missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).
  */
+/**
+ * The demo fields split the way the live tables do: a PLACE that persists, and
+ * one SEASON of plan for it. Module-level so both pieces of state start from the
+ * same objects and a season's `field` IS the row in the field list.
+ */
+const SEED_PLACES: PollinationField[] = seedFields.map((f) => ({
+  id: `pf_${f.id}`,
+  name: f.name,
+  grower: f.client,
+  region: f.region,
+  lld: String(f.geometry?.lld ?? ''),
+  boundary: {},
+  notes: '',
+  archivedAt: null,
+}))
+
+const SEED_SEASONS: FieldSeason[] = seedFields.map((f, i) => ({
+  id: `fs_${f.id}`,
+  fieldId: SEED_PLACES[i].id,
+  year: String(f.geometry?.year ?? new Date().getFullYear()),
+  company: String(f.geometry?.company ?? f.client),
+  crop: String(f.geometry?.crop ?? ''),
+  acres: Number(f.geometry?.acres) || null,
+  plannedShelters: f.shelterCount || null,
+  status: 'active' as const,
+  geometry: {},
+  copiedFrom: null,
+  notes: '',
+  field: SEED_PLACES[i],
+}))
+
 export function DataProvider({ children }: { children: ReactNode }) {
   const source = import.meta.env.VITE_DATA_SOURCE ?? 'mock'
   if (source === 'supabase') {

@@ -70,6 +70,21 @@ export interface PollinationField {
   archivedAt: string | null
 }
 
+/**
+ * A name some other system uses for a field (migration 0041).
+ *
+ * The Checklist workbook calls a field "Proven Seeds SE 14-9-15"; the map
+ * calls it "SE 14-9-15". Recording that is what stops every consumer
+ * re-inventing a fuzzy match and getting it wrong in a different way.
+ */
+export interface FieldAlias {
+  id: string
+  fieldId: string
+  alias: string
+  /** 'sheet' = the Checklist workbook, 'analysis' = the season export. */
+  source: string
+}
+
 export type SeasonStatus = 'planned' | 'active' | 'complete' | 'dropped'
 
 /**
@@ -88,6 +103,12 @@ export interface FieldSeason {
   geometry: Record<string, unknown>
   /** The season this was copied from, so "same as last year" is answerable. */
   copiedFrom: string | null
+  /**
+   * The `shelter_fields` row this season was backfilled from, while both models
+   * coexist. It is how a season finds checklist marks, which are still keyed to
+   * the map's field id — and it goes away when the map moves over too.
+   */
+  shelterFieldId: string | null
   notes: string
   /** Joined for display — the season list is always read with its field. */
   field?: PollinationField

@@ -767,6 +767,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       // ── Season field list ───────────────────────────────────────────────
       // In memory: mock mode has no backend, but the screens must still work.
       pollinationFields,
+      // Mock mode has one spelling of every field, so nothing to alias.
+      fieldAliases: [],
       fieldSeasons,
       seasonsLoading: false,
       loadFieldSeasons: () => Promise.resolve(),
@@ -799,6 +801,7 @@ function MockProvider({ children }: { children: ReactNode }) {
           status: 'planned',
           geometry: {},
           copiedFrom: null,
+          shelterFieldId: null,
           notes: '',
           field,
         }
@@ -1043,6 +1046,7 @@ const SEED_SEASONS: FieldSeason[] = seedFields.map((f, i) => ({
   // Last season's placement settings, which is what the preview offers to reuse.
   geometry: (f.geometry ?? {}) as Record<string, unknown>,
   copiedFrom: null,
+  shelterFieldId: null,
   notes: '',
   field: SEED_PLACES[i],
 }))

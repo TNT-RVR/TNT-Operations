@@ -53,8 +53,17 @@ function shortDate(iso: string | null): string {
 }
 
 export default function OverallChecklist() {
-  const { fields, fieldChecklist, fieldChecklistLoading, loadFieldChecklist, saveChecklistCell, syncChecklistSheet } =
-    useData()
+  const {
+    fields,
+    fieldChecklist,
+    fieldChecklistLoading,
+    loadFieldChecklist,
+    saveChecklistCell,
+    syncChecklistSheet,
+    fieldSeasons,
+    fieldAliases,
+    loadFieldSeasons,
+  } = useData()
   const session = useSession()
   const canEdit = session.can('tasks', 'edit')
   // A crew tablet has Tasks but not Shelter Maps, so the name is a link only
@@ -102,6 +111,11 @@ export default function OverallChecklist() {
   useEffect(() => {
     void loadFieldChecklist(year)
   }, [loadFieldChecklist, year])
+  // Season Setup is the field list now; a year it has not been used for
+  // simply returns nothing and the map's list is used instead.
+  useEffect(() => {
+    void loadFieldSeasons(year)
+  }, [loadFieldSeasons, year])
 
   /**
    * Seasons offered: whatever the fields carry, this one, and the NEXT one.
@@ -112,12 +126,13 @@ export default function OverallChecklist() {
    */
   const years = useMemo(() => {
     const ys = new Set<string>([thisYear, String(Number(thisYear) + 1)])
+    for (const s of fieldSeasons) ys.add(s.year)
     for (const f of fields) {
       const y = String(f.geometry?.year ?? '').trim()
       if (y) ys.add(y)
     }
     return [...ys].sort().reverse()
-  }, [fields, thisYear])
+  }, [fields, fieldSeasons, thisYear])
 
   const mapped = useMemo(
     () =>
@@ -137,48 +152,63 @@ export default function OverallChecklist() {
     return stamps.length ? stamps.sort().at(-1)! : null
   }, [cells])
   /**
-   * The name a field's marks are filed under.
+   * The rows: the season's fields, then any marks belonging to no field.
    *
-   * The spreadsheet names a field by company AND description ("Proven Seeds SE
-   * 14-9-15"); the map names it by the description alone and keeps the company
-   * separately. So an imported mark does not sit under the map's name — but the
-   * import linked it to the field, and that link is the authority here.
+   * Fields come from SEASON SETUP (`field_seasons`) when that season has been
+   * set up, and fall back to the map's own list otherwise. That fallback is the
+   * whole migration strategy in one expression: 2027 is declared in Season
+   * Setup and reads from it, while a season nobody has set up yet keeps working
+   * exactly as before.
    *
-   * Every read AND write for the row then uses the name the mark already
-   * carries. Writing under the map's name instead would create a second row for
-   * the same work, and the sheet would grow a duplicate line the next time it
-   * synced.
-   */
-  const filedAs = useMemo(() => {
-    const byField = new Map<string, string>()
-    for (const c of cells) if (c.shelterFieldId) byField.set(c.shelterFieldId, c.fieldName)
-    return byField
-  }, [cells])
-  /**
-   * The rows: this season's mapped fields, then any marks that belong to no
-   * mapped field.
+   * The name a row's marks are FILED under is resolved in three steps, most
+   * proven first:
+   *   1. a mark already linked to this field — whatever it is filed as, that is
+   *      what the sheet calls it, and it is a fact rather than a guess;
+   *   2. a registered sheet ALIAS for the field;
+   *   3. the field's own name.
    *
-   * Without that second group a past season shows an empty grid — 2024 has 74
-   * completed steps recorded and no fields still stamped 2024 on the map, so
-   * every one of them would be invisible. The same happens to a 2026 name the
-   * import could not link. History that exists and cannot be seen is worse than
-   * history that was never imported, because nothing tells you it is there.
+   * Writing under anything else would create a second row for the same work and
+   * grow a duplicate line in the spreadsheet on the next sync.
    */
   const rows = useMemo(() => {
-    const onMap = mapped.map((f) => ({
-      key: f.id,
-      label: f.name,
-      filed: filedAs.get(f.id) ?? f.name,
-      fieldId: f.id as string | null,
-      onMap: true,
-    }))
+    const seasonRows = fieldSeasons.filter((s) => s.year === year && s.field)
+    const aliasFor = new Map<string, string>()
+    for (const a of fieldAliases) if (a.source === 'sheet') aliasFor.set(a.fieldId, a.alias)
+
+    // Marks carry the map's field id, so a season is matched to them through
+    // the map row it was backfilled from.
+    const markNameByMapField = new Map<string, string>()
+    for (const c of cells) if (c.shelterFieldId) markNameByMapField.set(c.shelterFieldId, c.fieldName)
+
+    const onMap =
+      seasonRows.length > 0
+        ? seasonRows
+            .map((s) => ({
+              key: s.id,
+              label: s.field!.name,
+              filed:
+                (s.shelterFieldId ? markNameByMapField.get(s.shelterFieldId) : undefined) ??
+                aliasFor.get(s.fieldId) ??
+                s.field!.name,
+              fieldId: s.shelterFieldId ?? null,
+              onMap: true,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label))
+        : mapped.map((f) => ({
+            key: f.id,
+            label: f.name,
+            filed: markNameByMapField.get(f.id) ?? f.name,
+            fieldId: f.id as string | null,
+            onMap: true,
+          }))
+
     const covered = new Set(onMap.map((r) => r.filed))
     const orphans = [...new Set(cells.map((c) => c.fieldName))]
       .filter((n) => !covered.has(n))
       .sort()
       .map((n) => ({ key: `name:${n}`, label: n, filed: n, fieldId: null, onMap: false }))
     return [...onMap, ...orphans]
-  }, [mapped, filedAs, cells])
+  }, [mapped, fieldSeasons, fieldAliases, cells, year])
 
   const byKey = useMemo(() => indexCells(cells as ChecklistCell[]), [cells])
   const progress = useMemo(

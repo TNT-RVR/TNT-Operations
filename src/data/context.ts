@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react'
 import type { BeePurchase } from '@/domain/beePurchases'
 import type { CrewTask } from '@/domain/supplies'
 import type {
+  FieldAlias,
   FieldSeason,
   PollinationField,
   FieldChecklistCell,
@@ -444,6 +445,8 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   // ── Season field list (the intake that feeds everything else) ────────────
   /** Every field on record, place-level. Loaded once. */
   pollinationFields: PollinationField[]
+  /** What other systems call those fields. Loaded with them. */
+  fieldAliases: FieldAlias[]
   /** The seasons loaded so far, newest request last. Keyed by year in-app. */
   fieldSeasons: FieldSeason[]
   seasonsLoading: boolean

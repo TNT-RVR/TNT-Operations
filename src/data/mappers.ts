@@ -7,6 +7,7 @@
  * `Number()` here to be safe. snake_case columns → camelCase app fields.
  */
 import type {
+  FieldAlias,
   FieldSeason,
   PollinationField,
   FieldChecklistCell,
@@ -813,6 +814,7 @@ export interface FieldSeasonRow {
   status: string
   geometry: Record<string, unknown> | null
   copied_from: string | null
+  shelter_field_id: string | null
   notes: string | null
 }
 
@@ -832,6 +834,19 @@ export function toFieldSeason(r: FieldSeasonRow): FieldSeason {
       : 'planned') as FieldSeason['status'],
     geometry: r.geometry ?? {},
     copiedFrom: r.copied_from,
+    shelterFieldId: r.shelter_field_id,
     notes: r.notes ?? '',
   }
+}
+
+/** `field_aliases` row → the seam type. */
+export interface FieldAliasRow {
+  id: string
+  field_id: string
+  alias: string
+  source: string
+}
+
+export function toFieldAlias(r: FieldAliasRow): FieldAlias {
+  return { id: r.id, fieldId: r.field_id, alias: r.alias, source: r.source }
 }

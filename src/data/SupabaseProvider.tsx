@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
 import type {
+  FieldAlias,
   FieldSeason,
   PollinationField,
   FieldChecklistCell,
@@ -46,6 +47,7 @@ interface WeatherCacheRow {
   daily: unknown
 }
 import {
+  toFieldAlias,
   toFieldSeason,
   toPollinationField,
   toFieldChecklistCell,
@@ -93,6 +95,7 @@ import {
   type FieldAnalysisRow,
 } from './mappers'
 import type {
+  FieldAliasRow,
   FieldSeasonRow,
   PollinationFieldRow, FieldChecklistRow } from './mappers'
 
@@ -224,6 +227,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [fieldChecklist, setFieldChecklist] = useState<FieldChecklistCell[]>([])
   const [pollinationFields, setPollinationFields] = useState<PollinationField[]>([])
   const [fieldSeasons, setFieldSeasons] = useState<FieldSeason[]>([])
+  const [fieldAliases, setFieldAliases] = useState<FieldAlias[]>([])
   const [seasonsLoading, setSeasonsLoading] = useState(false)
   const [fieldChecklistLoading, setFieldChecklistLoading] = useState(false)
   /**
@@ -299,6 +303,12 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     }
     known = ((places.data as PollinationFieldRow[]) ?? []).map(toPollinationField)
     setPollinationFields(known)
+
+    // Aliases are global, not per season: one sheet name belongs to a field
+    // for every year the sheet has used it.
+    const aliases = await supabase.from('field_aliases').select('*')
+    if (aliases.error) console.warn('[data] field_aliases:', aliases.error.message)
+    else setFieldAliases(((aliases.data as FieldAliasRow[]) ?? []).map(toFieldAlias))
     const byId = new Map(known.map((f) => [f.id, f]))
     setFieldSeasons((old) => [
       ...old.filter((s) => s.year !== year),
@@ -1470,6 +1480,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       // ── Season analysis ───────────────────────────────────────────────────
       // -- Season field list ------------------------------------------------
       pollinationFields,
+      fieldAliases,
       fieldSeasons,
       seasonsLoading,
       loadFieldSeasons: (year) => {
@@ -2365,6 +2376,7 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       fieldChecklistLoading,
       readChecklistYear,
       pollinationFields,
+      fieldAliases,
       fieldSeasons,
       seasonsLoading,
       readSeasonYear,

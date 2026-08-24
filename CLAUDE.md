@@ -363,12 +363,23 @@ _Last reviewed 2026-08-17._
         boundary from the field, layout from the season, and the FIELD's
         boundary winning, matching `layoutDict` so the layout preview and the
         crew map cannot draw different shapes.
-        **KNOWN GAP:** crew tables (`block_placements`, shelter scans, work
-        orders) still key on `shelter_fields.id`, so creating a season also
+        Crew tables still key on `shelter_fields.id`, so creating a season also
         creates a map row (`ensureMapRow`) and copy-forward reuses last
-        season's. That means two seasons of one field share a map row, and
-        placements are told apart only by date — fine while coexisting, and the
-        reason to move those tables onto `field_seasons` next.
+        season's — two seasons of one field share that row. `0042` is what
+        makes that safe: `block_placements`, `placed_shelters`,
+        `calendar_events` and `experiment_notes` each gained
+        `field_season_id`, backfilled (2,035 placements: 1,777 attributed, 258
+        scanned outside any boundary so they have no field at all) and kept
+        filled by a TRIGGER per table rather than by app code. The trigger is
+        deliberate: a write path that got missed would produce rows with no
+        season and nobody would notice until a report came up short.
+        `fn_season_for(field_id, when)` resolves the field's season for the
+        year the work happened, Edmonton time, and returns NULL rather than
+        guessing at the nearest season — work attributed to the wrong year is
+        worse than work attributed to none, because it gets counted.
+        **So: scan a field in a season that has not been set up yet and the row
+        gets no season.** Re-running 0042's four UPDATE statements is idempotent
+        and repairs them once the season exists.
       - **Overall Checklist** (`/tasks/overall`, `0039_field_checklist.sql`) —
         the field × season-step grid ported from the "Checklist" spreadsheet
         (one sheet per year since 2023). ROWS ARE NOT STORED: they are the

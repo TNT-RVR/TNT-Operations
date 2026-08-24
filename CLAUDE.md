@@ -77,6 +77,13 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   one. To avoid colliding with that app's `public.fields` (company/year/name +
   jsonb), TNT's fields table is `public.shelter_fields`. All other TNT tables
   don't collide. Never DROP/ALTER the old app's tables (crews/scans/fields/…).
+  **Use plain `create table`, never `create table if not exists`, for a new
+  table here.** `if not exists` turns a name collision into SILENCE: a
+  migration adding `public.fields` (2026-08-24) no-oped on the old app's table
+  of that name and then aimed its RLS policies, trigger and foreign keys at
+  THEIR table. Only the Management API running the file in one transaction —
+  and a later statement failing — prevented it. TNT's own is
+  `public.pollination_fields`.
 
 ## Migration status (porting the two Python apps)
 _Last reviewed 2026-08-17._
@@ -338,6 +345,16 @@ _Last reviewed 2026-08-17._
         `cool_date` → `in_date`. `samples.import_date` is the import timestamp,
         NOT the season — never use it for year.
 - [x] Phase 8 — beyond the original port (new modules):
+      - **Season field list** (`0041_field_seasons.sql`, applied 2026-08-24) —
+        `pollination_fields` (the place: name is identity, carries the BOUNDARY,
+        which does not change year to year), `field_seasons` (the plan for one
+        year: company, crop, acres, and the placement geometry, which DOES),
+        and `field_aliases` (what other systems call it — the checklist import
+        matched 0 of 14 sheet names against the map, so this is data rather
+        than a fuzzy rule that guesses). Backfilled: 18 fields, 18 seasons
+        (2026), 14 aliases. NOTHING reads it yet — `shelter_fields` is still
+        the live source and keeps its foreign keys (1,747 block placements).
+        The plan is to build 2027 on the new tables first.
       - **Overall Checklist** (`/tasks/overall`, `0039_field_checklist.sql`) —
         the field × season-step grid ported from the "Checklist" spreadsheet
         (one sheet per year since 2023). ROWS ARE NOT STORED: they are the

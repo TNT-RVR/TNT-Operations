@@ -67,6 +67,14 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   - **Voice.** Confident, technical, plain-spoken; active voice, verbs lead;
     numbers with units in mono. No bee puns, no hype, no emoji (status = colour +
     dot + label). Company is "TNT"; address the grower as "you".
+- **A new view is offered as a phone shortcut, or is deliberately not.** When
+  you add a route, add it to `HOME_TILES` (`src/domain/homeTiles.ts`) so it can
+  be put on someone's home screen, or list it in `NOT_A_SHORTCUT` in
+  `homeTilesCoverage.test.ts` with the reason. That test FAILS on a route that
+  does neither — a note here would have held for about two features, which is
+  what happened to "never fetch a scheduled function" before it became a test
+  too. Tiles are per person, permission-filtered, and ordered by their owner;
+  the settings panel is Users & Settings → Account.
 - Gate sections with `s.can('<module>', 'edit')`; route gating is in
   `src/components/Protected.tsx`. Section keys live in `MODULES` (`auth/session.tsx`).
 - Secrets never go in the repo or in any `VITE_`-prefixed var except the public

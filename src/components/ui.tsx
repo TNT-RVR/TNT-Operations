@@ -101,7 +101,7 @@ export function IconButton({ label, children, onClick, disabled = false, classNa
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className={`inline-grid h-9 w-9 place-items-center rounded-sm text-secondary outline-none transition hover:bg-[color:var(--hover-wash)] hover:text-primary focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-50 ${className}`}
+      className={`icon-btn inline-grid h-9 w-9 place-items-center rounded-sm text-secondary outline-none transition hover:bg-[color:var(--hover-wash)] hover:text-primary focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-50 ${className}`}
     >
       {children}
     </button>

@@ -175,8 +175,9 @@ function NotifBell() {
     <NavLink
       to="/notifications"
       title="Notifications"
+      aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
       className={({ isActive }) =>
-        `relative rounded-sm p-2 transition ${isActive ? 'bg-brand-subtle text-brand' : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-primary'}`
+        `icon-btn relative inline-grid place-items-center rounded-sm p-2 transition ${isActive ? 'bg-brand-subtle text-brand' : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-primary'}`
       }
     >
       <Bell size={20} />
@@ -285,7 +286,7 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-subtle bg-surface px-4 py-2.5 md:px-6">
+      <header className="safe-top flex items-center justify-between border-b border-subtle bg-surface px-4 py-2.5 md:px-6">
         <div className="flex min-w-0 items-center gap-2">
           {/* Desktop only — the phone has never had a sidebar to hide. */}
           <button
@@ -372,7 +373,7 @@ export default function Layout() {
                   to={c.to}
                   end={c.end}
                   className={({ isActive }) =>
-                    `shrink-0 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition ${
+                    `tap-target shrink-0 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition inline-flex items-center ${
                       isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
                     }`
                   }
@@ -390,14 +391,14 @@ export default function Layout() {
 
       {/* Bottom tab bar (mobile). Four primary sections plus More — eight
           labels collide at 375px, which is every phone in the shop. */}
-      <nav className="relative flex items-stretch justify-around border-t border-subtle bg-surface md:hidden">
+      <nav className="safe-bottom relative flex items-stretch justify-around border-t border-subtle bg-surface md:hidden">
         {mobilePrimary.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
             end={n.to === '/'}
             className={({ isActive }) =>
-              `flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${isActive ? 'text-brand' : 'text-muted'}`
+              `tap-target flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] ${isActive ? 'text-brand' : 'text-muted'}`
             }
           >
             <n.icon size={20} />

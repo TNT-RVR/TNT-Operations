@@ -373,10 +373,10 @@ export default function OverallChecklist() {
                                   ? // Solid blue with white text — the spreadsheet's own convention
                                     // for a finished step, and what makes it readable at a glance
                                     // down fourteen rows.
-                                    'rounded-sm border border-transparent px-2 py-1 text-xs font-semibold'
+                                    'tap-cell rounded-sm border border-transparent px-2 py-1 text-xs font-semibold'
                                   : state === 'planned'
-                                    ? 'rounded-sm border border-dashed border-default px-2 py-1 text-xs text-muted'
-                                    : 'rounded-sm border border-transparent px-2 py-1 text-xs text-faint hover:border-subtle'
+                                    ? 'tap-cell rounded-sm border border-dashed border-default px-2 py-1 text-xs text-muted'
+                                    : 'tap-cell rounded-sm border border-transparent px-2 py-1 text-xs text-faint hover:border-subtle'
                               }
                               style={
                                 state === 'done'
@@ -409,7 +409,7 @@ export default function OverallChecklist() {
                                 title={`Mark done today`}
                                 disabled={busy === key}
                                 onClick={() => void save(filed, s.key, { completedDate: todayInTz() })}
-                                className="rounded-sm p-1 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-info disabled:opacity-50"
+                                className="icon-btn inline-grid place-items-center rounded-sm p-1 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-info disabled:opacity-50"
                               >
                                 <Check size={14} />
                               </button>

@@ -35,7 +35,7 @@ export function SettingsChrome({ actions, children }: { actions?: ReactNode; chi
               to={t.to}
               end={t.end}
               className={({ isActive }) =>
-                `-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${
+                `tap-target -mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium ${
                   isActive ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
                 }`
               }

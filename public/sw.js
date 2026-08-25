@@ -92,8 +92,10 @@ self.addEventListener('push', (e) => {
   e.waitUntil(
     self.registration.showNotification(title, {
       body: d.body || '',
-      icon: '/bee-dark.png',
-      badge: '/bee-dark.png',
+      // The generated 192px icon, not the 3000px source: a push notification
+      // draws this at about 48px and the phone should not fetch 133 KB for it.
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
       // Same tag replaces an earlier notice for the same incubator instead of
       // stacking six of them; renotify still buzzes so it isn't missed.
       tag: d.tag || 'tnt-alert',

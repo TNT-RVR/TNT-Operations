@@ -62,6 +62,58 @@ input[type='checkbox'] {
   accent-color: var(--brand);
 }
 
+/*
+ * Installed on a phone: keep the app out from under the notch and the home bar.
+ *
+ * index.html sets `viewport-fit=cover`, so a standalone install draws edge to
+ * edge — which is what makes it feel like an app, and what puts the bottom tab
+ * bar underneath the home indicator unless the inset is added back.
+ */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/*
+ * Touch devices: no form control below 16px, and nothing tappable below 44.
+ *
+ * iOS Safari ZOOMS the page when a control smaller than 16px takes focus, and
+ * does not zoom back — tap a box on a phone and the app is left magnified and
+ * scrolled sideways. The base rule above already sets 16px, but a Tailwind
+ * `text-sm` on any individual control out-specifies it (0,1,0 beats 0,0,1), so
+ * on touch this has to win outright. `!important` is deliberate: this is a
+ * device constraint, not a style preference.
+ *
+ * 44px is Apple's minimum tap target and about the width of an adult finger;
+ * below that a crew member in gloves hits the wrong row.
+ */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  .icon-btn,
+  .tap-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /*
+   * Cells in a dense grid get 40, not 44: the checklist is five step columns
+   * against a list of fields, and at 44 each row is tall enough that a phone
+   * shows three fields. 40 is still a reliable target with a gloved thumb and
+   * keeps a season readable.
+   */
+  .tap-cell {
+    min-height: 40px;
+    /* Width counts as much as height: an empty cell is a dash in a 30px box,
+       and the whole point of the grid is ticking the empty ones. */
+    min-width: 44px;
+  }
+}
+
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-sm px-4 font-semibold min-h-touch outline-none;

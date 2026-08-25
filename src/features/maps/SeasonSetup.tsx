@@ -250,7 +250,7 @@ export default function SeasonSetup() {
                     {canEdit && (
                       <td className="px-2 py-1 text-right">
                         <button
-                          className="rounded-sm p-1.5 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-danger"
+                          className="icon-btn inline-grid place-items-center rounded-sm p-1.5 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-danger"
                           aria-label={`Remove ${s.field?.name ?? 'field'} from ${year}`}
                           onClick={() => void drop(s)}
                         >

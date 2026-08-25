@@ -253,13 +253,13 @@ export default function CalendarHome() {
         <>
             {/* Month controls */}
             <div className="flex flex-wrap items-center gap-2">
-              <button className="btn-ghost px-2 py-1" onClick={() => step(-1)} aria-label="Previous month">
+              <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(-1)} aria-label="Previous month">
                 <ChevronLeft size={18} />
               </button>
               <span className="min-w-44 text-center font-display text-lg font-bold text-primary">
                 {MONTHS[month0]} {year}
               </span>
-              <button className="btn-ghost px-2 py-1" onClick={() => step(1)} aria-label="Next month">
+              <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(1)} aria-label="Next month">
                 <ChevronRight size={18} />
               </button>
               <button

@@ -51,9 +51,6 @@ const NOT_A_SHORTCUT: Record<string, string> = {
   'users/archive': 'Settings sub-tab',
   'users/company': 'Settings sub-tab',
   'users/integrations': 'Settings sub-tab',
-
-  // Built by another session; left to its owner to decide.
-  experiments: 'new section, tile not yet decided',
 }
 
 function routesFromApp(): string[] {

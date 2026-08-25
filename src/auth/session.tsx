@@ -32,6 +32,14 @@ export interface User {
   role: Role
   /** Profile photo as a data URL, or null. Public — it shows on task rows. */
   avatar?: string | null
+  /**
+   * Ordered home-screen tile keys (`domain/homeTiles.ts`).
+   *
+   * `null`/absent means never chosen, which shows the defaults; an empty
+   * array means deliberately cleared, which shows none. Those are different
+   * answers and the launcher treats them differently.
+   */
+  homeTiles?: string[] | null
 }
 
 /**
@@ -147,6 +155,8 @@ export interface SessionValue {
    * migration 0001, not by this signature.
    */
   updateUserAvatar: (userId: string, avatar: string | null) => Promise<{ ok: boolean; error?: string }>
+  /** Set YOUR OWN home-screen tiles. Everyone chooses their own. */
+  setHomeTiles: (keys: string[]) => Promise<{ ok: boolean; error?: string }>
   /**
    * Admins destroy an account permanently — the login in `auth.users`, not
    * just the profile row. Deleting the profile alone left a working password
@@ -244,6 +254,10 @@ function MockSessionProvider({ children }: { children: ReactNode }) {
         setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, avatar } : u)))
         return { ok: true }
       },
+      setHomeTiles: async (keys) => {
+        setUsers((prev) => prev.map((u) => (u.id === user.id ? { ...u, homeTiles: keys } : u)))
+        return { ok: true }
+      },
       deleteUser: async (uid) => {
         if (uid === user.id) return { ok: false, error: 'You cannot delete your own account.' }
         setUsers((prev) => prev.filter((u) => u.id !== uid))
@@ -297,6 +311,7 @@ interface ProfileRow {
   name: string
   email: string
   role: Role
+  home_tiles?: string[] | null
 }
 
 function mapProfile(row: ProfileRow, fallbackEmail: string): User {
@@ -305,6 +320,7 @@ function mapProfile(row: ProfileRow, fallbackEmail: string): User {
     name: row.name || fallbackEmail || 'User',
     email: row.email || fallbackEmail || '',
     role: row.role,
+    homeTiles: row.home_tiles ?? null,
   }
 }
 
@@ -435,6 +451,15 @@ function SupabaseSessionProvider({ children }: { children: ReactNode }) {
             }
             setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
           })
+      },
+      setHomeTiles: async (keys) => {
+        const { error } = await sb.from('profiles').update({ home_tiles: keys }).eq('id', user.id)
+        if (error) return { ok: false, error: error.message }
+        // Update the signed-in user too, or the launcher keeps the old set
+        // until the next sign-in.
+        setUser((u) => (u ? { ...u, homeTiles: keys } : u))
+        setUsers((prev) => prev.map((x) => (x.id === user.id ? { ...x, homeTiles: keys } : x)))
+        return { ok: true }
       },
       updateUserAvatar: async (userId, avatar) => {
         if (!supabase) return { ok: false, error: 'Not connected' }

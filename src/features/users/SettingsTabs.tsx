@@ -32,6 +32,7 @@ import type { CompanyDetails } from '@/data/types'
 import { MAX_SIGNATURE_BYTES, checkSignatureImage } from '@/domain/signature'
 import { AvatarPicker } from './AvatarPicker'
 import { MfaCard } from './MfaCard'
+import { HomeTilesSettings } from './HomeTilesSettings'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 const ALL_ROLES: Role[] = [...ASSIGNABLE_ROLES, 'pending']
@@ -471,6 +472,10 @@ export function AccountTab() {
             />
           </label>
         </div>
+
+        {/* Before security and signatures: this is the one people come
+            looking for after installing it on a phone. */}
+        <HomeTilesSettings />
 
         <MfaCard />
 

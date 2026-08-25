@@ -5,6 +5,7 @@ import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { incubationProgress, incubatorDisplay } from '@/domain/incubation'
 import { BoundaryMap } from '@/features/maps/BoundaryMap'
+import { HomeTiles } from './HomeTiles'
 
 export default function Dashboard() {
   const { fields, incubators, latestReading } = useData()
@@ -40,6 +41,9 @@ export default function Dashboard() {
     <div>
       <PageHeader title="Dashboard" subtitle="TNT Operations — pollination overview" />
       <div className="space-y-6 p-4 md:p-6">
+        {/* Phone first: the shortcuts someone chose, before the read-outs. */}
+        <HomeTiles />
+
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Running incubators" value={running.length} hint={`${incubators.length} total`} tone="good" />
           <StatTile label="Incubating" value={incubating.length} hint="in incubation mode" />

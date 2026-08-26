@@ -179,6 +179,26 @@ export function missingSpecs(
     .sort((a, b) => a.item.localeCompare(b.item))
 }
 
+/**
+ * Products that never say how they ship.
+ *
+ * A null `shipItem` is NOT automatically wrong — a service has nothing to put
+ * on a pallet — so this is reported apart from `missingSpecs` and worded as a
+ * question rather than a fault. But it is not harmless either: the packer falls
+ * back to the line's DESCRIPTION, so a Bee Shelter with no shipping item is
+ * looked up as an item called "Bee Shelter", finds nothing, and lands in
+ * `unspecced` — where it blocks the freight quote with a message about weights
+ * rather than about the missing link that caused it.
+ *
+ * Which is exactly the state the live catalogue is in: three of five active
+ * products name no shipping item, and the one real order line is one of them.
+ */
+export function unshippedProducts(
+  products: Array<{ name: string; shipItem: string | null; active: boolean }>,
+): string[] {
+  return products.filter((p) => p.active && !p.shipItem).map((p) => p.name)
+}
+
 /** Which products ship as a given spec — shown so a change's blast radius is visible. */
 export function productsShippingAs(
   products: Array<{ name: string; shipItem: string | null }>,

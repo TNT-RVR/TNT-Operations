@@ -7,6 +7,7 @@ import {
   missingSpecs,
   productsShippingAs,
   specProblems,
+  unshippedProducts,
 } from './itemSpecs'
 
 const TOPS = DEFAULT_ITEM_SPECS.find((s) => s.item === 'Tray Tops')!
@@ -128,5 +129,32 @@ describe('the loaded-pallet check', () => {
   it('does not try to measure a pallet it cannot build', () => {
     const p = specProblems(at({ weightLbs: 0, maxItemsOnPallet: 9999 }))
     expect(p.every((x) => x.severity === 'blocking')).toBe(true)
+  })
+})
+
+describe('unshippedProducts', () => {
+  const products = [
+    { name: 'Bee Shelter', shipItem: null, active: true },
+    { name: 'Tray Set (top + bottom)', shipItem: null, active: true },
+    { name: 'Tray Top (air)', shipItem: 'Tray Tops', active: true },
+    { name: 'Retired thing', shipItem: null, active: false },
+  ]
+
+  // The packer falls back to the DESCRIPTION, so these do not fail loudly —
+  // they fail at quote time with a message about weights rather than links.
+  it('names the active products that never say what they ship as', () => {
+    expect(unshippedProducts(products)).toEqual(['Bee Shelter', 'Tray Set (top + bottom)'])
+  })
+
+  it('leaves retired products out of it', () => {
+    expect(unshippedProducts(products)).not.toContain('Retired thing')
+  })
+
+  // Kept separate from missingSpecs on purpose: one is a broken link, the other
+  // may simply be a service with nothing to pallet.
+  it('does not double-report a product that names a missing spec', () => {
+    const withGap = [{ name: 'Shelter Corners', shipItem: 'Corners', active: true }]
+    expect(unshippedProducts(withGap)).toEqual([])
+    expect(missingSpecs(withGap, [])).toHaveLength(1)
   })
 })

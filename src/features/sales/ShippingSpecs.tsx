@@ -36,6 +36,7 @@ import {
   missingSpecs,
   productsShippingAs,
   specProblems,
+  unshippedProducts,
 } from '@/domain/itemSpecs'
 import { SalesChrome, fmtNum } from './SalesChrome'
 import { toItemSpec } from './useOrderPricing'
@@ -46,10 +47,12 @@ export function ShippingSpecsHome() {
   const canEdit = s.can('sales', 'edit')
   const [editing, setEditing] = useState<{ spec: ItemSpec; isNew: boolean } | null>(null)
 
-  const gaps = useMemo(
-    () => missingSpecs(products.map((p) => ({ name: p.name, shipItem: p.shipItem, active: p.active })), itemSpecs),
-    [products, itemSpecs],
+  const forGap = useMemo(
+    () => products.map((p) => ({ name: p.name, shipItem: p.shipItem, active: p.active })),
+    [products],
   )
+  const gaps = useMemo(() => missingSpecs(forGap, itemSpecs), [forGap, itemSpecs])
+  const unshipped = useMemo(() => unshippedProducts(forGap), [forGap])
 
   return (
     <SalesChrome
@@ -87,6 +90,30 @@ export function ShippingSpecsHome() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/*
+        Reported apart from the panel above, and worded as a question. A product
+        with no shipping item may simply be a service. But the packer falls back
+        to the line's DESCRIPTION, so a physical one lands in `unspecced` and
+        blocks its freight quote with a message about missing weights rather
+        than about the missing link that caused it.
+      */}
+      {unshipped.length > 0 && (
+        <div className="mb-4 rounded border border-subtle p-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">
+            {unshipped.length} product{unshipped.length === 1 ? '' : 's'} do not say how they ship
+          </p>
+          <p className="text-xs text-secondary">
+            {unshipped.join(', ')} — no “Ships as” on the product, so nothing here can be matched to{' '}
+            {unshipped.length === 1 ? 'it' : 'them'}. Fine for anything that never goes on a pallet; if it does
+            ship, set “Ships as” on the product in{' '}
+            <a className="underline decoration-dotted underline-offset-2 text-brand" href="/sales/products">
+              Products
+            </a>{' '}
+            to one of the names below, or its quote will refuse for want of a weight.
+          </p>
         </div>
       )}
 

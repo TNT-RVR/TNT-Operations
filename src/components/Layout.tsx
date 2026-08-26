@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Banknote, Bell, Boxes, Bug, CalendarDays, ChartScatter, FlaskConical, LayoutDashboard, ListChecks, Map, Moon, MoreHorizontal, Navigation, PanelLeftClose, PanelLeftOpen, Receipt, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
 import { useSession, type Module, type Role } from '@/auth/session'
+import { launchRedirect } from '@/domain/launchRoute'
 import { useData } from '@/data/context'
 import { useTheme } from '@/styles/theme'
 import { Avatar, IconButton } from './ui'
@@ -245,6 +246,7 @@ function UserSwitcher() {
 
 export default function Layout() {
   const s = useSession()
+  const navigate = useNavigate()
   const { pathname } = useLocation()
   const items = NAV.filter((n) => s.can(n.module, 'view'))
   const currentLabel = NAV.find((n) => n.to === pathname)?.label
@@ -270,6 +272,31 @@ export default function Layout() {
    * the phone has never had a sidebar.
    */
   const [navHidden, setNavHidden] = useState(() => localStorage.getItem('nav.hidden') === '1')
+
+  /**
+   * An installed app launched at an old `start_url` lands where it should.
+   *
+   * The manifest said `/field` for its first year and a phone records that at
+   * install time — iOS bookmarks the page it was added from, Android caches the
+   * WebAPK — so an icon already on a home screen keeps opening Field Mode however
+   * many times the manifest is corrected. Reinstalling did not shift it.
+   *
+   * Runs once, only for a launch (nothing navigated yet), only in standalone,
+   * and only for someone who has a dashboard to be sent to — so a crew tablet,
+   * which has no dashboard, is untouched. See domain/launchRoute.ts.
+   */
+  useEffect(() => {
+    const to = launchRedirect({
+      path: location.pathname,
+      standalone: window.matchMedia('(display-mode: standalone)').matches,
+      historyLength: window.history.length,
+      canDashboard: s.can('dashboard'),
+    })
+    if (to) navigate(to, { replace: true })
+    // Launch only: deliberately not re-run as the person moves around.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const toggleNav = () => {
     setNavHidden((v) => {
       try {

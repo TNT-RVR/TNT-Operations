@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react'
-import { forwardRef } from 'react'
+import type { HelpNote } from '@/domain/docHelp'
+import { useState,forwardRef } from 'react'
 import { Search, X, Lock } from 'lucide-react'
 import { BeeMark } from './BeeMark'
 import { AVATAR_SIZES, type AvatarSize, initialsOf } from '@/domain/avatar'
@@ -105,6 +106,50 @@ export function IconButton({ label, children, onClick, disabled = false, classNa
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * A small "what is this?" button that opens an explanation.
+ *
+ * Used all over the shipping paperwork, where a person is signing for the
+ * accuracy of terms like freight class, INCOTERM and country of origin. The
+ * explanation is a popover rather than a tooltip on purpose: a tooltip cannot
+ * be read on a phone, and cannot hold three sentences.
+ *
+ * Content lives in `domain/docHelp.ts`, so the same words appear wherever the
+ * same field does.
+ */
+export function InfoDot({ note, className = '' }: { note: HelpNote | null; className?: string }) {
+  const [open, setOpen] = useState(false)
+  if (!note) return null
+  return (
+    <span className={`relative inline-flex ${className}`}>
+      <button
+        type="button"
+        aria-label={`What is ${note.title}?`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-grid h-5 w-5 place-items-center rounded-full border border-default text-[10px] font-bold text-muted transition hover:border-brand hover:text-brand"
+      >
+        i
+      </button>
+      {open && (
+        <>
+          {/* A click anywhere else closes it — on a phone there is no Escape key
+              and no cursor to move away. */}
+          <span className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <span className="absolute left-0 top-6 z-40 w-64 rounded-lg border border-default bg-raised p-3 text-left shadow-lg sm:w-80">
+            <span className="mb-1 block text-sm font-semibold text-primary">{note.title}</span>
+            {note.body.map((p) => (
+              <span key={p} className="mb-1.5 block text-xs leading-relaxed text-secondary last:mb-0">
+                {p}
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+    </span>
   )
 }
 

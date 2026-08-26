@@ -33,6 +33,7 @@ import { MAX_SIGNATURE_BYTES, checkSignatureImage } from '@/domain/signature'
 import { AvatarPicker } from './AvatarPicker'
 import { MfaCard } from './MfaCard'
 import { HomeTilesSettings } from './HomeTilesSettings'
+import { InstallCard } from './InstallCard'
 import { SettingsChrome, relativeDays } from './SettingsChrome'
 
 const ALL_ROLES: Role[] = [...ASSIGNABLE_ROLES, 'pending']
@@ -473,8 +474,12 @@ export function AccountTab() {
           </label>
         </div>
 
-        {/* Before security and signatures: this is the one people come
-            looking for after installing it on a phone. */}
+        {/* Installing comes before choosing what is on the home screen:
+            one is no use without the other, and this is the step people
+            ask for help with. */}
+        <InstallCard />
+
+        {/* Then what sits on it. */}
         <HomeTilesSettings />
 
         <MfaCard />

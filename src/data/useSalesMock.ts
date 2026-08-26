@@ -358,6 +358,11 @@ export function useSalesMock(): SalesSlice {
     return { ok: true }
   }, [])
 
+  const deleteItemSpec = useCallback(async (item: string): Promise<SalesResult> => {
+    setItemSpecs((prev) => prev.filter((s) => s.item !== item))
+    return { ok: true }
+  }, [])
+
   const addBeePurchase = useCallback(async (input: Partial<BeePurchase>) => {
     const id = nextId('bp')
     const date = input.date ?? new Date().toISOString().slice(0, 10)
@@ -425,6 +430,7 @@ export function useSalesMock(): SalesSlice {
       adjustStock,
       setReorderPoint,
       saveItemSpec,
+      deleteItemSpec,
     }),
     [
       products,

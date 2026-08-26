@@ -673,6 +673,14 @@ export interface SalesSlice {
   setReorderPoint: (productId: string, reorderPoint: number | null) => Promise<SalesResult>
   /** Add or update a shipping spec — how an item pallets and what it weighs. */
   saveItemSpec: (item: string, patch: Partial<ItemSpecRow>) => Promise<SalesResult>
+  /**
+   * Remove a shipping spec.
+   *
+   * Only really for a name typed wrong: deleting one a product still ships as
+   * does not break anything loudly, it just drops that item off every future
+   * freight table. The screen warns before it lets that happen.
+   */
+  deleteItemSpec: (item: string) => Promise<SalesResult>
 }
 
 export const DataContext = createContext<DataContextValue | null>(null)

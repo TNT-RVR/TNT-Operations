@@ -45,6 +45,7 @@ const NOT_A_SHORTCUT: Record<string, string> = {
   'incubation/lineage': 'Incubation sub-tab, browsed from a sample or tray',
   'sales/customers': 'Sales sub-tab',
   'sales/products': 'Sales sub-tab',
+  'sales/shipping': 'Sales sub-tab — reference figures, edited when an item is new',
   'tasks/checklists': 'Tasks sub-tab — templates, not the daily list',
   'users/access': 'Settings sub-tab',
   'users/account': 'Settings sub-tab — and where the tiles themselves are chosen',

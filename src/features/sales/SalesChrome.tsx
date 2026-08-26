@@ -15,6 +15,7 @@ const TABS = [
   { to: '/sales/invoices', label: 'Invoices' },
   { to: '/sales/inventory', label: 'Inventory' },
   { to: '/sales/products', label: 'Products' },
+  { to: '/sales/shipping', label: 'Shipping specs' },
   { to: '/sales/customers', label: 'Customers' },
   { to: '/sales/bees', label: 'Bee purchases' },
 ]

@@ -9,6 +9,7 @@ import OverallChecklist from './features/tasks/OverallChecklist'
 import { EstimatesHome, InvoicesHome } from './features/sales/SalesOrders'
 import { InventoryHome } from './features/sales/SalesInventory'
 import { CustomersHome, ProductsHome } from './features/sales/SalesCatalogue'
+import { ShippingSpecsHome } from './features/sales/ShippingSpecs'
 import QuickBooksHome from './features/sales/QuickBooksHome'
 import BeePurchases from './features/sales/BeePurchases'
 import { AccessTab, AccountTab, ArchiveTab, CompanyTab, IntegrationsTab } from './features/users/SettingsTabs'
@@ -136,6 +137,7 @@ export default function App() {
         <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
         <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
         <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
+        <Route path="sales/shipping" element={<Protected module="sales"><ShippingSpecsHome /></Protected>} />
         <Route path="sales/bees" element={<Protected module="sales"><BeePurchases /></Protected>} />
         <Route path="sales/quickbooks" element={<RedirectKeepingQuery to="/users/integrations/quickbooks" />} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />

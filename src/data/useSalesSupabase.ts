@@ -745,6 +745,14 @@ function toBeePurchase(r: Row): BeePurchase {
     return { ok: true }
   }, [])
 
+  const deleteItemSpec = useCallback(async (item: string): Promise<SalesResult> => {
+    if (!supabase) return { ok: false, error: 'Not connected' }
+    const { error } = await supabase.from('sales_item_specs').delete().eq('item', item)
+    if (error) return { ok: false, error: error.message }
+    setItemSpecs((prev) => prev.filter((s) => s.item !== item))
+    return { ok: true }
+  }, [])
+
   const refreshBees = useCallback(async () => {
     if (!supabase) return
     const r = await supabase.from('bee_purchases').select('*').order('purchase_date', { ascending: false })
@@ -866,13 +874,14 @@ function toBeePurchase(r: Row): BeePurchase {
       adjustStock,
       setReorderPoint,
       saveItemSpec,
+      deleteItemSpec,
     }),
     [
       products, itemSpecs, salesCustomers, suppliers, salesOrders, shipments, inventory,
       stockMovements, salesLoading, loadSales, saveProduct, saveSalesCustomer, addSalesCustomer,
       beePurchases, addBeePurchase, saveBeePurchase, deleteBeePurchase, syncBeePurchases,
       createOrder, saveOrder, deleteOrder, convertEstimateToInvoice, markShipped, adjustStock,
-      setReorderPoint, saveItemSpec,
+      setReorderPoint, saveItemSpec, deleteItemSpec,
     ],
   )
 }

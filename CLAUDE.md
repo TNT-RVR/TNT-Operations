@@ -389,6 +389,25 @@ _Last reviewed 2026-08-17._
         `visibility: hidden` (hidden elements keep their space, which printed
         four blank pages before the document). `:has()` unclips the scrolling
         modal around the sheet, and the dark theme is forced to ink.
+      - **Shipping specs have an editor** (`/sales/shipping`,
+        `ShippingSpecs.tsx` + `domain/itemSpecs.ts`). It leads with the GAP,
+        not the list: `missingSpecs` names every active product whose
+        `shipItem` has no spec, because such a product looks healthy right up
+        until a freight quote leaves it off the table. `specProblems` splits
+        `blocking` (the figures `packLine` cannot make a pallet without — zero
+        is treated as unmeasured, not as a measurement) from `check` (numbers
+        that work but look wrong). The editor shows ONE FULL PALLET live as
+        the figures change — seven boxes cannot be checked, "125 tops, 4
+        stacks, 83 in, 425 lb" can be walked out to and measured.
+        Deliberately NO even-stacks rule: 125 tops in 4 stacks is 31.25 a
+        stack and the real Estes BOL agrees with the averaged height, so a
+        rule firing on the primary item would be noise. There IS a loaded-
+        height check at `SANE_PALLET_HEIGHT_IN` (96), which is what catches a
+        spec whose boxes are each plausible — 300 anchors, one stack, 1.5 in
+        each, and a 456 in pallet.
+        **The item name is the join** and nothing matches loosely, so renaming
+        writes a NEW row and the editor says so rather than silently orphaning
+        the products pointing at the old one.
 - [x] Phase 8 — beyond the original port (new modules):
       - **Season field list** (`0041_field_seasons.sql`, applied 2026-08-24) —
         `pollination_fields` (the place: name is identity, carries the BOUNDARY,
@@ -519,12 +538,6 @@ _Last reviewed 2026-08-17._
   global "recent" query only covers whichever incubators logged last, so every
   card would not get its latest reading); trays load lazily via `loadTrays()`,
   guarded by a promise ref, and only from screens that need them.
-- **Item shipping specs have no editor.** `sales_item_specs` (weight, pallet
-  fit, stack height, and now `freight_class` / `nmfc`) is seeded and imported
-  by script; nothing in the UI creates or edits a row. The freight quote can
-  push a settled class onto an item ("always use for X"), which is the only
-  in-app write, so a NEW item still needs a SQL insert before it can be
-  quoted — it shows up as `unspecced` and blocks the quote until then.
 - **Google Calendar two-way sync is half-built:** migration `0024` is NOT
   applied (`gcal_connection` / `gcal_synced_events` do not exist), and there is
   no UI to connect an account. `gcal-sync` was scheduled hourly against those

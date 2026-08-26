@@ -1,0 +1,205 @@
+/**
+ * What makes a shipping spec usable, and what a bad one costs.
+ *
+ * `packing.ts` does the pallet arithmetic and refuses to guess: an item with no
+ * spec comes back as `unspecced` and is left out of every total rather than
+ * being counted as weightless. That is the right behaviour, and it means the
+ * specs list is load-bearing — a missing or half-filled row silently stops a
+ * product being quotable.
+ *
+ * This module is the other half of that bargain: it says which rows are
+ * incomplete, which products point at a spec that does not exist, and what one
+ * full pallet of an item actually works out to, so a spec can be checked
+ * against a tape measure before a quote depends on it.
+ *
+ * Pure functions — no React, no DB.
+ */
+import { DEFAULT_PALLET_DECK_IN, type ItemSpec, type PackedLine, packLine } from './packing'
+
+export interface SpecProblem {
+  field: keyof ItemSpec | 'item'
+  /** What is wrong, and what it does to a quote. */
+  message: string
+  /**
+   * `blocking` means the spec cannot produce a pallet, so anything shipping as
+   * this item is missing from the freight table. `check` means the numbers work
+   * but look wrong, which is worth a second look and not worth refusing.
+   */
+  severity: 'blocking' | 'check'
+}
+
+/**
+ * Everything wrong with one spec.
+ *
+ * The blocking set is exactly what `packLine` needs to produce a pallet: a
+ * name, a weight, three dimensions, a per-pallet count and a stack count. Zero
+ * is treated as missing rather than as a measurement — nothing that ships
+ * weighs nothing, and a zero here is a field somebody never filled in.
+ */
+/**
+ * A practical ceiling on a loaded pallet, inches.
+ *
+ * A dry van is about 110 in inside and a forklift needs room to place the load,
+ * so a stack much past this is not something a carrier will take. It is a CHECK
+ * and not a refusal: TNT does ship 83 in pallets, an oversize load is a real
+ * thing that gets quoted specially, and the app has no business declaring one
+ * impossible. What it can say is that 456 in is not a pallet.
+ */
+export const SANE_PALLET_HEIGHT_IN = 96
+
+/**
+ * The figures `packLine` cannot produce a pallet without.
+ *
+ * Separate from `specProblems` so the pallet preview can ask whether it is safe
+ * to compute one without calling back into the function that computes it.
+ */
+function blockingProblems(spec: ItemSpec): SpecProblem[] {
+  const out: SpecProblem[] = []
+  const need = (
+    field: keyof ItemSpec,
+    value: number,
+    message: string,
+    severity: SpecProblem['severity'] = 'blocking',
+  ) => {
+    if (!Number.isFinite(value) || value <= 0) out.push({ field, message, severity })
+  }
+
+  if (!spec.item.trim()) {
+    out.push({
+      field: 'item',
+      message: 'A spec needs a name, and it must match what a product ships as.',
+      severity: 'blocking',
+    })
+  }
+
+  need('weightLbs', spec.weightLbs, 'No weight, so the load has no weight. Carriers reweigh and rebill the difference.')
+  need('lengthIn', spec.lengthIn, 'No length, so nothing can be measured for density or freight class.')
+  need('widthIn', spec.widthIn, 'No width, so nothing can be measured for density or freight class.')
+  need('heightIn', spec.heightIn, 'No height for a single item.')
+  need('maxItemsOnPallet', spec.maxItemsOnPallet, 'Nothing fits on a pallet, so no pallet count can be worked out.')
+  need('stacksPerPallet', spec.stacksPerPallet, 'No stacks, so the pallet has no height.')
+
+  /*
+   * The nested height is the one people get wrong, because the obvious number
+   * to type is the one on the tape measure. A tray top stands 3.5 in tall and
+   * nests into 2.48 in, and using the standing height puts a pallet 40% over.
+   */
+  need(
+    'stackedHeightIn',
+    spec.stackedHeightIn,
+    'No nested height. This is how much each ADDITIONAL item adds to a stack, not how tall one stands.',
+  )
+  return out
+}
+
+/** Everything wrong with one spec: what stops it working, then what looks off. */
+export function specProblems(spec: ItemSpec): SpecProblem[] {
+  const out = blockingProblems(spec)
+
+  if (spec.stackedHeightIn > spec.heightIn && spec.heightIn > 0) {
+    out.push({
+      field: 'stackedHeightIn',
+      message:
+        `Nested height (${spec.stackedHeightIn} in) is more than the item standing up (${spec.heightIn} in). ` +
+        'Nesting cannot add more than the whole item, so one of the two is wrong.',
+      severity: 'check',
+    })
+  }
+
+  /*
+   * There is deliberately NO check that the per-pallet count divides evenly
+   * into the stacks. It does not on the item TNT ships most: 125 tray tops go
+   * on a pallet in 4 stacks, which is 31.25 a stack. `packLine` averages, the
+   * real Estes bill of lading agrees with the averaged height, and a rule that
+   * fires on the primary item in the catalogue is noise rather than a check.
+   */
+
+  /*
+   * What a full pallet would come to. This is the check that catches a spec
+   * whose figures are each individually plausible: 300 anchors in one stack at
+   * 1.5 in apiece is a 456 in pallet, and no single box on the form looks wrong.
+   */
+  const pallet = out.length === 0 ? packLine({ item: spec.item, qty: spec.maxItemsOnPallet }, spec) : null
+  if (pallet && pallet.outsideHeightIn > SANE_PALLET_HEIGHT_IN) {
+    out.push({
+      field: 'maxItemsOnPallet',
+      message:
+        `A full pallet of ${spec.maxItemsOnPallet} comes to ${pallet.outsideHeightIn} in tall, over the ` +
+        `${SANE_PALLET_HEIGHT_IN} in a carrier will normally take. Either fewer fit on a pallet than this says, ` +
+        'or they go in more stacks than one.',
+      severity: 'check',
+    })
+  }
+
+  return out
+}
+
+/** A spec that can produce a pallet. Anything else is missing from a quote. */
+export function isSpecUsable(spec: ItemSpec): boolean {
+  return blockingProblems(spec).length === 0
+}
+
+/**
+ * One full pallet of an item, as the freight documents would describe it.
+ *
+ * Shown beside the editor so a spec can be checked against something physical
+ * — "125 tops, four stacks, 83 in tall, 465 lb" is a thing somebody can walk
+ * out and look at, in a way that seven separate numbers are not.
+ */
+export function fullPalletPreview(spec: ItemSpec, deckIn: number = DEFAULT_PALLET_DECK_IN): PackedLine | null {
+  if (blockingProblems(spec).length > 0) return null
+  return packLine({ item: spec.item, qty: spec.maxItemsOnPallet }, spec, deckIn)
+}
+
+/**
+ * Products that name a shipping item nothing has a spec for.
+ *
+ * This is the gap that reads as a working system right up until someone builds
+ * a quote: the product exists, the price is right, and the item simply is not
+ * on the freight table. Returned as one entry per missing NAME, with the
+ * products waiting on it, because the fix is one new spec rather than one per
+ * product.
+ */
+export function missingSpecs(
+  products: Array<{ name: string; shipItem: string | null; active: boolean }>,
+  specs: Array<{ item: string }>,
+): Array<{ item: string; products: string[] }> {
+  const known = new Set(specs.map((s) => s.item))
+  const byItem = new Map<string, string[]>()
+  for (const p of products) {
+    // An inactive product cannot reach a new estimate, so a gap behind one is
+    // not a problem to put in front of anybody.
+    if (!p.active || !p.shipItem || known.has(p.shipItem)) continue
+    const list = byItem.get(p.shipItem) ?? []
+    list.push(p.name)
+    byItem.set(p.shipItem, list)
+  }
+  return [...byItem.entries()]
+    .map(([item, products]) => ({ item, products }))
+    .sort((a, b) => a.item.localeCompare(b.item))
+}
+
+/** Which products ship as a given spec — shown so a change's blast radius is visible. */
+export function productsShippingAs(
+  products: Array<{ name: string; shipItem: string | null }>,
+  item: string,
+): string[] {
+  return products.filter((p) => p.shipItem === item).map((p) => p.name)
+}
+
+/** A blank spec, for the "new item" form. */
+export function emptySpec(item = ''): ItemSpec {
+  return {
+    item,
+    weightLbs: 0,
+    lengthIn: 0,
+    widthIn: 0,
+    heightIn: 0,
+    stackedHeightIn: 0,
+    maxItemsOnPallet: 0,
+    palletSize: '48x40',
+    // One stack is the honest default: an item nobody has told us nests is an
+    // item that goes on the deck once.
+    stacksPerPallet: 1,
+  }
+}

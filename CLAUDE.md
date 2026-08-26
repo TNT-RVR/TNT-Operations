@@ -359,6 +359,36 @@ _Last reviewed 2026-08-17._
       - "Year" has NO column: it's derived in-app from tray `out_date` →
         `cool_date` → `in_date`. `samples.import_date` is the import timestamp,
         NOT the season — never use it for year.
+- [x] Shipping paperwork (beyond the original port):
+      - `salesDocs.ts` builds the four customs/carrier documents; `packing.ts`
+        does the pallet math; `freightClass.ts` computes class from density;
+        `freightQuote.ts` composes the three into the Cole International
+        quote request, which `FreightQuoteView.tsx` renders as an editable form.
+        `docHelp.ts` holds the plain-words explanation behind every info button
+        — a test enforces that each note says what goes WRONG, not just what
+        the field is.
+      - **Pallet height is derived, and stacks are asked.** Items-per-stack ×
+        nested height + the pallet deck (`DEFAULT_PALLET_DECK_IN`, 5.5 in).
+        Stacks per pallet is per-SHIPMENT (`shipping_logistics.perItem`), not a
+        property of the item. Checked against the real Estes BOL: 125 tops in 4
+        stacks computes to 83 in against the 82 written; the deck is the
+        unknown and the test says so rather than tuning the constant to match
+        one document.
+      - **Class: computed, overridable, explained.** The density scale is the
+        starting point and `sales_order_lines.freight_class` is the override;
+        NULL is NOT the same as typing the computed number (null keeps
+        following the load when it is packed differently). Estes bills TNT 175
+        on a 4.7 PCF load the scale calls 200, so the override is the normal
+        case, not the exception. `sales_item_specs.freight_class` is the
+        item-level default for a class a carrier has settled.
+      - The BOL prints class/NMFC/dimensions ONLY when a freight table is
+        supplied (`DocContext.freight`). With none it is unchanged — the rule
+        was always that a GUESSED class is worse than none, and that still
+        holds; what changed is that this one is computed from real specs.
+      - **Printing** is `.print-target` / `.print-hide` in `index.css`, NOT
+        `visibility: hidden` (hidden elements keep their space, which printed
+        four blank pages before the document). `:has()` unclips the scrolling
+        modal around the sheet, and the dark theme is forced to ink.
 - [x] Phase 8 — beyond the original port (new modules):
       - **Season field list** (`0041_field_seasons.sql`, applied 2026-08-24) —
         `pollination_fields` (the place: name is identity, carries the BOUNDARY,
@@ -489,6 +519,12 @@ _Last reviewed 2026-08-17._
   global "recent" query only covers whichever incubators logged last, so every
   card would not get its latest reading); trays load lazily via `loadTrays()`,
   guarded by a promise ref, and only from screens that need them.
+- **Item shipping specs have no editor.** `sales_item_specs` (weight, pallet
+  fit, stack height, and now `freight_class` / `nmfc`) is seeded and imported
+  by script; nothing in the UI creates or edits a row. The freight quote can
+  push a settled class onto an item ("always use for X"), which is the only
+  in-app write, so a NEW item still needs a SQL insert before it can be
+  quoted — it shows up as `unspecced` and blocks the quote until then.
 - **Google Calendar two-way sync is half-built:** migration `0024` is NOT
   applied (`gcal_connection` / `gcal_synced_events` do not exist), and there is
   no UI to connect an account. `gcal-sync` was scheduled hourly against those

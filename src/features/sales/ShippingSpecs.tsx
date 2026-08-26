@@ -25,7 +25,7 @@ import { useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { AlertTriangle, Package, Plus, Save, Trash2 } from 'lucide-react'
-import { Badge, Button, EmptyState, InfoDot, Input, Modal } from '@/components/ui'
+import { Badge, Button, EmptyState, InfoDot, Input, Modal, Select } from '@/components/ui'
 import type { ItemSpecRow } from '@/data/types'
 import { helpFor } from '@/domain/docHelp'
 import type { ItemSpec } from '@/domain/packing'
@@ -129,7 +129,7 @@ export function ShippingSpecsHome() {
                 <th className="th text-right">Item size (in)</th>
                 <th className="th text-right">Nested</th>
                 <th className="th text-right">Per pallet</th>
-                <th className="th text-right">Stacks</th>
+                <th className="th text-right">Stacks / height</th>
                 <th className="th text-right">Class</th>
                 <th className="th text-left">Ships</th>
               </tr>
@@ -157,11 +157,23 @@ export function ShippingSpecsHome() {
                     <td className="px-3 py-2 text-right tabular-nums text-secondary">
                       {row.lengthIn}×{row.widthIn}×{row.heightIn}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-secondary">{row.stackedHeightIn}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-secondary">
+                      {row.packMode === 'loose' ? (
+                        <span className="text-faint">loose</span>
+                      ) : (
+                        row.stackedHeightIn
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-secondary">
                       {fmtNum(row.maxItemsOnPallet)}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-secondary">{row.stacksPerPallet}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-secondary">
+                      {row.packMode === 'loose' ? (
+                        <span className="text-faint">{row.looseHeightIn ?? 0} in</span>
+                      ) : (
+                        row.stacksPerPallet
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-secondary">
                       {row.freightClass ?? <span className="text-faint">density</span>}
                     </td>
@@ -212,17 +224,22 @@ function SpecEditor({
   onClose: () => void
 }) {
   const { saveItemSpec, deleteItemSpec, itemSpecs, products } = useData()
+  const stored = itemSpecs.find((s) => s.item === spec.item)
   const [draft, setDraft] = useState<ItemSpecRow>(() => ({
     id: '',
     ...spec,
-    freightClass: itemSpecs.find((s) => s.item === spec.item)?.freightClass ?? null,
-    nmfc: itemSpecs.find((s) => s.item === spec.item)?.nmfc ?? '',
+    packMode: spec.packMode ?? null,
+    looseHeightIn: spec.looseHeightIn ?? null,
+    containerTareLbs: spec.containerTareLbs ?? null,
+    freightClass: stored?.freightClass ?? null,
+    nmfc: stored?.nmfc ?? '',
   }))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const set = (patch: Partial<ItemSpecRow>) => setDraft((d) => ({ ...d, ...patch }))
+  const loose = draft.packMode === 'loose'
   const asSpec = toItemSpec(draft)
   const problems = specProblems(asSpec)
   const blocking = problems.filter((p) => p.severity === 'blocking')
@@ -244,6 +261,9 @@ function SpecEditor({
       maxItemsOnPallet: draft.maxItemsOnPallet,
       palletSize: draft.palletSize,
       stacksPerPallet: draft.stacksPerPallet,
+      packMode: draft.packMode,
+      looseHeightIn: draft.looseHeightIn,
+      containerTareLbs: draft.containerTareLbs,
       freightClass: draft.freightClass,
       nmfc: draft.nmfc,
     })
@@ -299,26 +319,73 @@ function SpecEditor({
             hint="One item on its own, not stacked."
           />
           <Num
-            label="Height nested (in)"
-            value={draft.stackedHeightIn}
-            disabled={!canEdit}
-            onChange={(v) => set({ stackedHeightIn: v })}
-            hint="What each ADDITIONAL one adds to the stack. A tray top stands 3.5 and nests into 2.48."
-          />
-          <Num
             label="Items per pallet"
             value={draft.maxItemsOnPallet}
             disabled={!canEdit}
             onChange={(v) => set({ maxItemsOnPallet: v })}
-            hint="All stacks combined."
+            hint={loose ? 'However many tubs or bins that takes.' : 'All stacks combined.'}
           />
-          <Num
-            label="Stacks per pallet"
-            value={draft.stacksPerPallet}
-            disabled={!canEdit}
-            onChange={(v) => set({ stacksPerPallet: v })}
-            hint="The usual answer. A shipment can say otherwise on its freight quote."
-          />
+
+          {/*
+            The mode decides which of the next two blocks is even answerable.
+            Anchors have no "height one more anchor adds" — they go in a tub —
+            and a number typed to fill that box becomes a made-up pallet height,
+            then a made-up density, then a made-up class on a real document.
+          */}
+          <label className="block">
+            <span className="label">How it packs</span>
+            <Select
+              value={draft.packMode ?? 'stacked'}
+              disabled={!canEdit}
+              onChange={(e) =>
+                set({ packMode: e.target.value === 'loose' ? 'loose' : 'stacked' })
+              }
+            >
+              <option value="stacked">Stacked — they nest into each other</option>
+              <option value="loose">Loose — they go in tubs or bins</option>
+            </Select>
+            <p className="mt-1 text-xs text-faint">
+              {loose
+                ? 'Nothing nests, so the pallet height is measured rather than worked out.'
+                : 'The pallet height is worked out from the stacks and the nested height.'}
+            </p>
+          </label>
+
+          {loose ? (
+            <>
+              <Num
+                label="Loaded pallet height (in)"
+                value={draft.looseHeightIn ?? 0}
+                disabled={!canEdit}
+                onChange={(v) => set({ looseHeightIn: v })}
+                hint="Measure a real full pallet — goods, tubs and wrap. Not counting the pallet itself."
+              />
+              <Num
+                label="Empty containers (lb/pallet)"
+                value={draft.containerTareLbs ?? 0}
+                disabled={!canEdit}
+                onChange={(v) => set({ containerTareLbs: v })}
+                hint="What the tubs weigh on a full pallet. Tubs are not weightless and the carrier bills gross."
+              />
+            </>
+          ) : (
+            <>
+              <Num
+                label="Height nested (in)"
+                value={draft.stackedHeightIn}
+                disabled={!canEdit}
+                onChange={(v) => set({ stackedHeightIn: v })}
+                hint="What each ADDITIONAL one adds to the stack. A tray top stands 3.5 and nests into 2.48."
+              />
+              <Num
+                label="Stacks per pallet"
+                value={draft.stacksPerPallet}
+                disabled={!canEdit}
+                onChange={(v) => set({ stacksPerPallet: v })}
+                hint="The usual answer. A shipment can say otherwise on its freight quote."
+              />
+            </>
+          )}
           <label className="block">
             <span className="label">Pallet size</span>
             <Input
@@ -359,7 +426,7 @@ function SpecEditor({
           {pallet ? (
             <div className="grid gap-3 text-sm sm:grid-cols-4">
               <Readout label="Items" value={fmtNum(pallet.qty)} />
-              <Readout label="Stacks" value={String(pallet.stacksPerPallet)} />
+              <Readout label="Stacks" value={loose ? 'loose' : String(pallet.stacksPerPallet)} />
               <Readout label="Outside height" value={`${pallet.outsideHeightIn} in`} />
               <Readout label="Weight" value={`${fmtNum(Math.round(pallet.totalWeightLbs))} lb`} />
             </div>

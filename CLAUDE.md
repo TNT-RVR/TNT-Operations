@@ -416,6 +416,25 @@ _Last reviewed 2026-08-17._
         maps to one shipping item on purpose, and `Tray Set (top + bottom)`
         cannot be expressed as one. An existing value with no spec is kept in
         the list and labelled rather than dropped.
+      - **Not everything stacks** (`packMode`, migration `0046`). The spec model
+        assumed every shippable thing nests into itself — pallet height came
+        from stacks x the height each ADDITIONAL item adds. Anchors do not
+        stack; they go loose in tubs, and there is no per-item nested height to
+        measure. A figure invented to fill that box becomes a made-up pallet
+        height, then a made-up density, then a made-up freight class on a
+        document a carrier bills against. So `packMode: 'loose'` STATES the
+        loaded pallet height (`looseHeightIn`, measured off a real pallet) and
+        carries `containerTareLbs` for the empty tubs, counted pro rata on a
+        part-full pallet. A loose line reports `stacksPerPallet: 0` — not 1 —
+        so the freight quote shows "loose" rather than a box that looks like it
+        would move the height. NULL `pack_mode` means stacked, so every
+        existing row is untouched.
+      - **Blocking is measured against what `packLine` USES**, and the item's
+        own length/width/height are not in that set: every freight number comes
+        off the PALLET (48x40 by the computed height), and the item dimensions
+        feed only the metric view and the specs list. They were blocking at
+        first, which refused a spec over figures that change no output — that
+        is how a rule stops being believed. They are `check` now.
       - **`lineFreightGap` tells the three causes apart** — the product names
         no shipping item / it names one nothing has measured / the spec exists
         but is unfinished — because they have three different fixes.

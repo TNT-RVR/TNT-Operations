@@ -50,18 +50,19 @@ export const SANE_PALLET_HEIGHT_IN = 96
 /**
  * The figures `packLine` cannot produce a pallet without.
  *
+ * BLOCKING IS MEASURED AGAINST WHAT THE MATH USES, and nothing else. The item's
+ * own length, width and height are not in that set — every freight number comes
+ * off the PALLET (48x40 by the computed height), and the item dimensions feed
+ * only the metric view and this screen's own list. Refusing a spec over a
+ * figure that changes no output is how a rule stops being believed.
+ *
  * Separate from `specProblems` so the pallet preview can ask whether it is safe
  * to compute one without calling back into the function that computes it.
  */
 function blockingProblems(spec: ItemSpec): SpecProblem[] {
   const out: SpecProblem[] = []
-  const need = (
-    field: keyof ItemSpec,
-    value: number,
-    message: string,
-    severity: SpecProblem['severity'] = 'blocking',
-  ) => {
-    if (!Number.isFinite(value) || value <= 0) out.push({ field, message, severity })
+  const need = (field: keyof ItemSpec, value: number, message: string) => {
+    if (!Number.isFinite(value) || value <= 0) out.push({ field, message, severity: 'blocking' })
   }
 
   if (!spec.item.trim()) {
@@ -73,10 +74,24 @@ function blockingProblems(spec: ItemSpec): SpecProblem[] {
   }
 
   need('weightLbs', spec.weightLbs, 'No weight, so the load has no weight. Carriers reweigh and rebill the difference.')
-  need('lengthIn', spec.lengthIn, 'No length, so nothing can be measured for density or freight class.')
-  need('widthIn', spec.widthIn, 'No width, so nothing can be measured for density or freight class.')
-  need('heightIn', spec.heightIn, 'No height for a single item.')
   need('maxItemsOnPallet', spec.maxItemsOnPallet, 'Nothing fits on a pallet, so no pallet count can be worked out.')
+
+  /*
+   * A LOOSE item is measured differently, and asking it for the stacked figures
+   * would be asking for numbers that do not exist. Anchors go in a tub: there
+   * is no "height one more anchor adds", and a figure invented to fill that box
+   * becomes a made-up pallet height, then a made-up density, then a made-up
+   * freight class on a document a carrier bills against.
+   */
+  if (spec.packMode === 'loose') {
+    need(
+      'looseHeightIn',
+      spec.looseHeightIn ?? 0,
+      'No loaded pallet height. Measure a real full pallet - goods, containers and wrap - not counting the pallet itself.',
+    )
+    return out
+  }
+
   need('stacksPerPallet', spec.stacksPerPallet, 'No stacks, so the pallet has no height.')
 
   /*
@@ -92,11 +107,34 @@ function blockingProblems(spec: ItemSpec): SpecProblem[] {
   return out
 }
 
+/**
+ * The item's own dimensions, which are worth having and block nothing.
+ *
+ * Reported so a half-filled record is still visible, at a severity that matches
+ * what it costs: today, nothing computes from them.
+ */
+function dimensionProblems(spec: ItemSpec): SpecProblem[] {
+  const missing = (['lengthIn', 'widthIn', 'heightIn'] as const).filter(
+    (f) => !Number.isFinite(spec[f]) || spec[f] <= 0,
+  )
+  if (missing.length === 0) return []
+  const words: Record<string, string> = { lengthIn: 'length', widthIn: 'width', heightIn: 'height' }
+  return [
+    {
+      field: missing[0],
+      message:
+        `No ${missing.map((f) => words[f]).join(', ')} recorded for a single item. Nothing on a freight ` +
+        'document is worked out from these — the pallet is what gets measured — but the record is incomplete.',
+      severity: 'check',
+    },
+  ]
+}
+
 /** Everything wrong with one spec: what stops it working, then what looks off. */
 export function specProblems(spec: ItemSpec): SpecProblem[] {
-  const out = blockingProblems(spec)
+  const out = [...blockingProblems(spec), ...dimensionProblems(spec)]
 
-  if (spec.stackedHeightIn > spec.heightIn && spec.heightIn > 0) {
+  if (spec.packMode !== 'loose' && spec.stackedHeightIn > spec.heightIn && spec.heightIn > 0) {
     out.push({
       field: 'stackedHeightIn',
       message:
@@ -119,7 +157,9 @@ export function specProblems(spec: ItemSpec): SpecProblem[] {
    * whose figures are each individually plausible: 300 anchors in one stack at
    * 1.5 in apiece is a 456 in pallet, and no single box on the form looks wrong.
    */
-  const pallet = out.length === 0 ? packLine({ item: spec.item, qty: spec.maxItemsOnPallet }, spec) : null
+  const pallet = out.some((x) => x.severity === 'blocking')
+    ? null
+    : packLine({ item: spec.item, qty: spec.maxItemsOnPallet }, spec)
   if (pallet && pallet.outsideHeightIn > SANE_PALLET_HEIGHT_IN) {
     out.push({
       field: 'maxItemsOnPallet',
@@ -221,6 +261,7 @@ export function emptySpec(item = ''): ItemSpec {
     // One stack is the honest default: an item nobody has told us nests is an
     // item that goes on the deck once.
     stacksPerPallet: 1,
+    packMode: 'stacked',
   }
 }
 

@@ -656,6 +656,12 @@ export interface ItemSpecRow {
   maxItemsOnPallet: number
   palletSize: string
   stacksPerPallet: number
+  /** How it fills a pallet. Absent means stacked — see domain/packing.ts. */
+  packMode: 'stacked' | 'loose' | null
+  /** Loose only: measured height of a loaded pallet, deck excluded. */
+  looseHeightIn: number | null
+  /** Loose only: weight of the empty containers on one full pallet. */
+  containerTareLbs: number | null
   /**
    * The class this item usually goes at, when a carrier has settled one.
    * Null means let density decide — see src/domain/freightClass.ts.

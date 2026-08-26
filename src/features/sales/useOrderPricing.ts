@@ -71,6 +71,9 @@ export const toItemSpec = (s: ItemSpecRow): ItemSpec => ({
   maxItemsOnPallet: s.maxItemsOnPallet,
   palletSize: s.palletSize,
   stacksPerPallet: s.stacksPerPallet,
+  packMode: s.packMode ?? undefined,
+  looseHeightIn: s.looseHeightIn ?? undefined,
+  containerTareLbs: s.containerTareLbs ?? undefined,
 })
 
 /**

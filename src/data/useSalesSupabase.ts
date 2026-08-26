@@ -87,6 +87,9 @@ const toItemSpec = (r: Row): ItemSpecRow => ({
   maxItemsOnPallet: Number(r.max_items_on_pallet ?? 1),
   palletSize: r.pallet_size ?? '48x40',
   stacksPerPallet: Number(r.stacks_per_pallet ?? 1),
+  packMode: r.pack_mode ?? null,
+  looseHeightIn: r.loose_height_in == null ? null : Number(r.loose_height_in),
+  containerTareLbs: r.container_tare_lbs == null ? null : Number(r.container_tare_lbs),
   freightClass: r.freight_class == null ? null : Number(r.freight_class),
   nmfc: r.nmfc ?? '',
 })
@@ -725,6 +728,9 @@ function toBeePurchase(r: Row): BeePurchase {
     set('max_items_on_pallet', patch.maxItemsOnPallet)
     set('pallet_size', patch.palletSize)
     set('stacks_per_pallet', patch.stacksPerPallet)
+    set('pack_mode', patch.packMode)
+    set('loose_height_in', patch.looseHeightIn)
+    set('container_tare_lbs', patch.containerTareLbs)
     set('freight_class', patch.freightClass)
     set('nmfc', patch.nmfc)
 

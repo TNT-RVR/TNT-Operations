@@ -261,15 +261,25 @@ export function FreightQuoteView({ order }: { order: SalesOrder }) {
                       <td className="px-3 py-2 text-primary">{row.description}</td>
                       <td className="px-3 py-2 tabular-nums text-secondary">{row.units}</td>
                       <td className="print-hide px-3 py-2">
-                        <Input
-                          type="number"
-                          min={1}
-                          className="w-20"
-                          value={logistics.perItem?.[row.item]?.stacksPerPallet ?? row.stacksPerPallet}
-                          onChange={(e) =>
-                            setPerItem(row.item, { stacksPerPallet: Math.max(1, Number(e.target.value) || 1) })
-                          }
-                        />
+                        {/*
+                          A loose item reports no stacks, because it has none —
+                          anchors go in a tub. Its pallet height is measured on
+                          the spec, so a box here would look like it moved
+                          something and would not.
+                        */}
+                        {row.stacksPerPallet === 0 ? (
+                          <span className="text-xs text-faint">loose</span>
+                        ) : (
+                          <Input
+                            type="number"
+                            min={1}
+                            className="w-20"
+                            value={logistics.perItem?.[row.item]?.stacksPerPallet ?? row.stacksPerPallet}
+                            onChange={(e) =>
+                              setPerItem(row.item, { stacksPerPallet: Math.max(1, Number(e.target.value) || 1) })
+                            }
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-secondary">{row.dimensions || <Missing />}</td>
                       <td className="px-3 py-2 tabular-nums text-secondary">{fmt(row.totalWeightLbs)}</td>

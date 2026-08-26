@@ -66,6 +66,33 @@ export interface ItemSpec {
   palletSize: string
   /** Side-by-side stacks on one pallet — 4 for trays, 1 for a full-deck Cubee. */
   stacksPerPallet: number
+
+  /**
+   * How the item occupies a pallet.
+   *
+   * `stacked` is the original and the default: identical things nest into each
+   * other, so the height of a pallet is worked out from how many stacks there
+   * are and what each additional item adds. That is right for trays and Cubees.
+   *
+   * `loose` is for goods that do not stack at all — anchors go into a tub, and
+   * a tub of anchors is not "an anchor plus an anchor plus an anchor". There is
+   * no per-item nested height to measure and inventing one produces a made-up
+   * pallet height, which becomes a made-up density and a made-up freight class.
+   * So a loose item states the loaded pallet height instead, which is the thing
+   * somebody can actually put a tape measure against.
+   */
+  packMode?: 'stacked' | 'loose'
+  /**
+   * Height of a loaded pallet EXCLUDING the pallet deck, inches. `loose` only.
+   * Measure a real full one: goods, tubs, wrap and all.
+   */
+  looseHeightIn?: number
+  /**
+   * Weight of the empty containers on ONE full pallet, pounds. `loose` only,
+   * and optional — but tubs are not weightless, and understating gross weight
+   * is the most expensive mistake on a freight bill.
+   */
+  containerTareLbs?: number
 }
 
 /** The metric view of a spec — the sheet's rows 3:11, derived not typed. */
@@ -237,9 +264,27 @@ export function packLine(line: PackLine, spec: ItemSpec, deckIn: number = DEFAUL
   const palletsExact = spec.maxItemsOnPallet > 0 ? qty / spec.maxItemsOnPallet : 0
   const pallets = Math.ceil(palletsExact)
   const itemsPerPallet = pallets > 0 ? qty / pallets : 0
-  const weightPerPalletLbs = itemsPerPallet * spec.weightLbs
-  const heightPerPalletIn =
-    stacksPerPallet > 0 ? (itemsPerPallet / stacksPerPallet) * spec.stackedHeightIn : 0
+  const loose = spec.packMode === 'loose'
+  /*
+   * Containers ride on every pallet, so their weight is on every pallet — but
+   * only in proportion to how full the last one is, the same way the goods are
+   * spread. A half-empty pallet does not carry a full set of tubs.
+   */
+  const weightPerPalletLbs =
+    itemsPerPallet * spec.weightLbs +
+    (loose && spec.maxItemsOnPallet > 0
+      ? (spec.containerTareLbs ?? 0) * (itemsPerPallet / spec.maxItemsOnPallet)
+      : 0)
+  /*
+   * A stacked item derives its height; a loose one states it. Neither guesses:
+   * a loose item with no stated height reports zero, which `packShipment`
+   * already treats as a spec that cannot be quoted from.
+   */
+  const heightPerPalletIn = loose
+    ? (pallets > 0 ? (spec.looseHeightIn ?? 0) : 0)
+    : stacksPerPallet > 0
+      ? (itemsPerPallet / stacksPerPallet) * spec.stackedHeightIn
+      : 0
   // Rounded UP: a carrier measuring 81.4 in writes 82, and rounding down is how
   // a load gets reclassed at the terminal.
   const outsideHeightIn = heightPerPalletIn > 0 ? Math.ceil(heightPerPalletIn + deckIn) : 0
@@ -256,7 +301,9 @@ export function packLine(line: PackLine, spec: ItemSpec, deckIn: number = DEFAUL
     totalWeightLbs: weightPerPalletLbs * pallets,
     heightPerPalletIn,
     outsideHeightIn,
-    stacksPerPallet,
+    // Zero, not one: a loose item has no stacks, and reporting "1" would invite
+    // somebody to change it on a freight quote and expect the height to move.
+    stacksPerPallet: loose ? 0 : stacksPerPallet,
   }
 }
 

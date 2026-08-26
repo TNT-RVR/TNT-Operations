@@ -77,6 +77,13 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   the settings panel is Users & Settings → Account.
 - Gate sections with `s.can('<module>', 'edit')`; route gating is in
   `src/components/Protected.tsx`. Section keys live in `MODULES` (`auth/session.tsx`).
+- **Supabase auth settings live in the dashboard, not the repo.** Access-token
+  expiry was changed from the default 3600s to **604800s (7 days)** on
+  2026-08-26. That is a deliberate trade: a stolen access token stays valid for
+  a week and cannot be revoked (JWTs are stateless — signing out does not
+  invalidate one already issued). Weigh that against crew tablets that go
+  offline for hours; if the reason was staying signed in offline, the refresh
+  token already handles that and a shorter access token would be safer.
 - Secrets never go in the repo or in any `VITE_`-prefixed var except the public
   Supabase URL/anon key. Server secrets (Govee key, service role, SMTP) live in
   Supabase/Netlify env settings. See `docs/developer-onboarding.md`.

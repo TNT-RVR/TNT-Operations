@@ -168,9 +168,24 @@ export const DEFAULT_ITEM_SPECS: ItemSpec[] = [
 export interface PackLine {
   item: string
   qty: number
+  /**
+   * Stacks on a pallet for THIS shipment, when it differs from the item’s
+   * usual. Absent means use the spec.
+   */
+  stacksPerPallet?: number
 }
 
 /** The packing result for one line — `Shipping Calculator` columns D:L. */
+/**
+ * Height of the pallet itself, added under the goods.
+ *
+ * A carrier measures the outside of what it moves, deck included, and height
+ * decides density, which decides freight class. A standard 48×40 wood pallet is
+ * about 5.5 in; the workbook ignored it, which understated every pallet by
+ * roughly the thickness of a deck board and could move a load a class.
+ */
+export const DEFAULT_PALLET_DECK_IN = 5.5
+
 export interface PackedLine {
   item: string
   qty: number
@@ -188,6 +203,13 @@ export interface PackedLine {
   totalWeightLbs: number
   /** Loaded height of one pallet, excluding the deck. Column L. */
   heightPerPalletIn: number
+  /**
+   * What a carrier would measure: goods plus the pallet deck, rounded up to the
+   * inch. This is the height that goes on a bill of lading and into density.
+   */
+  outsideHeightIn: number
+  /** Stacks actually used — the spec's default, or this shipment's override. */
+  stacksPerPallet: number
 }
 
 /** An item that could not be packed because nothing is on file for it. */
@@ -203,14 +225,24 @@ export interface UnspeccedItem {
  * A zero or negative quantity packs to nothing rather than throwing — an
  * estimate line often sits at 0 while it's being filled in.
  */
-export function packLine(line: PackLine, spec: ItemSpec): PackedLine {
+export function packLine(line: PackLine, spec: ItemSpec, deckIn: number = DEFAULT_PALLET_DECK_IN): PackedLine {
   const qty = Math.max(0, line.qty)
+  /*
+   * Stacks are a decision made on the day, not a property of the item: the same
+   * trays go four stacks high for a full trailer and two for a customer with a
+   * low door. The spec's number is the usual answer, and the shipment can say
+   * otherwise.
+   */
+  const stacksPerPallet = line.stacksPerPallet ?? spec.stacksPerPallet
   const palletsExact = spec.maxItemsOnPallet > 0 ? qty / spec.maxItemsOnPallet : 0
   const pallets = Math.ceil(palletsExact)
   const itemsPerPallet = pallets > 0 ? qty / pallets : 0
   const weightPerPalletLbs = itemsPerPallet * spec.weightLbs
   const heightPerPalletIn =
-    spec.stacksPerPallet > 0 ? (itemsPerPallet / spec.stacksPerPallet) * spec.stackedHeightIn : 0
+    stacksPerPallet > 0 ? (itemsPerPallet / stacksPerPallet) * spec.stackedHeightIn : 0
+  // Rounded UP: a carrier measuring 81.4 in writes 82, and rounding down is how
+  // a load gets reclassed at the terminal.
+  const outsideHeightIn = heightPerPalletIn > 0 ? Math.ceil(heightPerPalletIn + deckIn) : 0
 
   return {
     item: spec.item,
@@ -223,6 +255,8 @@ export function packLine(line: PackLine, spec: ItemSpec): PackedLine {
     weightPerPalletLbs,
     totalWeightLbs: weightPerPalletLbs * pallets,
     heightPerPalletIn,
+    outsideHeightIn,
+    stacksPerPallet,
   }
 }
 
@@ -240,6 +274,8 @@ export interface PackOptions {
   maxPalletsPerTruck?: number
   /** Legal or practical stack limit, for the over-height check. */
   maxPalletHeightIn?: number
+  /** Height of an empty pallet. Defaults to a 48×40 wood deck. */
+  palletDeckHeightIn?: number
 }
 
 export interface PackedShipment {
@@ -299,7 +335,7 @@ export function packShipment(
       })
       continue
     }
-    packed.push(packLine(line, spec))
+    packed.push(packLine(line, spec, opts.palletDeckHeightIn ?? DEFAULT_PALLET_DECK_IN))
   }
 
   const totalPallets = packed.reduce((s, l) => s + l.pallets, 0)

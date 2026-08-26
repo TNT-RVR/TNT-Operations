@@ -231,3 +231,38 @@ describe('freightFor', () => {
     expect(freightFor([], 1)).toBeNull()
   })
 })
+
+describe('outside height — what a carrier measures', () => {
+  const TOPS = DEFAULT_ITEM_SPECS.find((s) => s.item === 'Tray Tops')!
+
+  // The Estes bill of lading says 48×40×82 for a full pallet of tops. A full
+  // pallet is 125 tops in 4 stacks: (125/4) × 2.48 = 77.5 in of goods, and a
+  // 5.5 in deck puts it at 83 — one inch over what Estes wrote. The deck is the
+  // unknown: a 4.5 in deck lands exactly on 82. Close enough that the class does
+  // not move, and worth knowing rather than tuning the constant until it matches
+  // one document.
+  it('lands within an inch of the real bill of lading', () => {
+    const line = packLine({ item: 'Tray Tops', qty: 125 }, TOPS)
+    expect(line.heightPerPalletIn).toBeCloseTo(77.5, 1)
+    expect(line.outsideHeightIn).toBe(83)
+  })
+
+  // Stacks are a decision made on the day: the same trays go four high for a
+  // full trailer and two for a customer with a low door.
+  it('takes the shipment’s stack count over the item’s usual', () => {
+    const four = packLine({ item: 'Tray Tops', qty: 100 }, TOPS)
+    const two = packLine({ item: 'Tray Tops', qty: 100, stacksPerPallet: 2 }, TOPS)
+    expect(two.stacksPerPallet).toBe(2)
+    expect(two.heightPerPalletIn).toBeCloseTo(four.heightPerPalletIn * 2, 5)
+  })
+
+  // Rounding down is how a load gets reclassed at the terminal.
+  it('rounds the outside height up to the inch', () => {
+    const line = packLine({ item: 'Tray Tops', qty: 40 }, TOPS)
+    expect(line.outsideHeightIn).toBe(Math.ceil(line.heightPerPalletIn + 5.5))
+  })
+
+  it('has no height at all for a line with nothing on it', () => {
+    expect(packLine({ item: 'Tray Tops', qty: 0 }, TOPS).outsideHeightIn).toBe(0)
+  })
+})

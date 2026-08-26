@@ -31,10 +31,17 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "public" / "bee-dark.png"
 OUT = ROOT / "public"
 
-# --brand ground from tokens.css. Icons are opaque on purpose: a transparent PWA
-# icon is composited onto whatever the launcher feels like, usually white, and
-# the honey mark on white is the one background it was never drawn for.
-BACKGROUND = (5, 5, 6)  # --ink-950
+# PURE BLACK, not the app's --ink-950 (5,5,6).
+#
+# On a phone the icon sits against a wallpaper, not against the app, so the
+# reason to match the app's ground disappears — and on an OLED screen true black
+# has the pixels off, which makes the honey mark look like it is floating rather
+# than sitting on a very dark square. Asked for on 2026-08-26.
+#
+# Opaque either way: a transparent PWA icon gets composited onto whatever the
+# launcher feels like, usually white, and the honey mark on white is the one
+# background it was never drawn for.
+BACKGROUND = (0, 0, 0)
 
 # Android crops a maskable icon to a circle inscribed in the middle 80%. Art
 # outside that is decoration; art at the edge is a haircut.

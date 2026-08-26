@@ -223,3 +223,49 @@ export function emptySpec(item = ''): ItemSpec {
     stacksPerPallet: 1,
   }
 }
+
+/** Why a line is missing from the freight table, or null when it is not. */
+export type FreightGap = 'no-ship-item' | 'no-spec' | 'unusable-spec'
+
+/**
+ * Why one order line will not appear on the freight documents.
+ *
+ * The packer looks an item up by `shipItem`, falling back to the line's
+ * DESCRIPTION when there is none. That fallback is what makes the failure so
+ * quiet: a Bee Shelter with no shipping item is looked up as an item called
+ * "Bee Shelter", finds nothing, and is reported as a missing spec — which sends
+ * whoever reads it off to write a spec for a name that was never meant to be
+ * one. The three cases need different fixes, so they are told apart here:
+ *
+ *   no-ship-item   the product never says what it ships as. Set it, or quote
+ *                  the thing as its parts if it is a set of several items.
+ *   no-spec        it names an item nothing has measured. Write the spec.
+ *   unusable-spec  the spec exists but cannot make a pallet. Finish it.
+ */
+export function lineFreightGap(
+  line: { description: string; shipItem: string | null },
+  specs: ItemSpec[],
+): FreightGap | null {
+  if (!line.shipItem) {
+    // A line whose description happens to match a spec is fine — that is how
+    // the fallback is meant to work, and plenty of orders rely on it.
+    const bySpec = specs.find((s) => s.item === line.description)
+    if (!bySpec) return 'no-ship-item'
+    return isSpecUsable(bySpec) ? null : 'unusable-spec'
+  }
+  const spec = specs.find((s) => s.item === line.shipItem)
+  if (!spec) return 'no-spec'
+  return isSpecUsable(spec) ? null : 'unusable-spec'
+}
+
+/** What to do about a gap, in the words of the person who has to do it. */
+export function freightGapAdvice(gap: FreightGap, line: { description: string; shipItem: string | null }): string {
+  switch (gap) {
+    case 'no-ship-item':
+      return `${line.description} does not say what it ships as, so it is not in the pallet count or on any freight document. Set “Ships as” on the product — or, if it is a set of several items, quote those items as their own lines instead.`
+    case 'no-spec':
+      return `Nothing has measured “${line.shipItem}”, so ${line.description} is not in the pallet count. Add it under Sales → Shipping specs.`
+    case 'unusable-spec':
+      return `The spec for “${line.shipItem ?? line.description}” is missing figures a pallet cannot be worked out without, so ${line.description} is not in the pallet count.`
+  }
+}

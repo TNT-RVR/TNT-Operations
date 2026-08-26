@@ -30,6 +30,7 @@ import {
   pricingWarnings,
 } from '@/domain/pricing'
 import { type ItemSpec, type PackLine, type PackedShipment, packShipment } from '@/domain/packing'
+import { freightGapAdvice, lineFreightGap } from '@/domain/itemSpecs'
 import {
   EMPTY_LOGISTICS,
   type FreightQuote,
@@ -328,11 +329,22 @@ export function useOrderComputed(order: SalesOrder | undefined): OrderComputed {
     // Only lines with a shipping item can be packed; the rest are reported by
     // packShipment as unspecced so nothing goes missing quietly.
     const logistics = order.shippingLogistics ?? EMPTY_LOGISTICS
+    const specs = itemSpecs.map(toItemSpec)
     const packing = packOrderLines(order.lines, logistics, itemSpecs)
 
     for (const l of order.lines) {
       const p = products.find((x) => x.id === l.productId)
       if (p) warnings.push(...pricingWarnings(toProductSpec(p)).map((w) => `${p.name}: ${w.message}`))
+
+      /*
+       * Name the real cause. `packShipment` reports every gap as a missing
+       * SPEC, because by the time it runs the line is just an item name — the
+       * fallback to the description has already happened. That sends whoever
+       * reads it off to write a spec for "Bee Shelter", a name that was never
+       * meant to be one, when the actual fix is on the product.
+       */
+      const gap = lineFreightGap(l, specs)
+      if (gap) warnings.push(freightGapAdvice(gap, l))
     }
 
     const customer = salesCustomers.find((c) => c.id === order.customerId)

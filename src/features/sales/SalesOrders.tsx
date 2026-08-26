@@ -9,10 +9,11 @@ import { useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { OrderKind, SalesOrder, SalesOrderCharge, SalesOrderLine } from '@/data/types'
-import { Badge, Button, EmptyState, Input, Modal, Select, Stat } from '@/components/ui'
+import { Badge, Button, EmptyState, InfoDot, Input, Modal, Select, Stat } from '@/components/ui'
 import { BookUp, FileText, Package, Plus, Trash2, Truck } from 'lucide-react'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
-import { lineFromProduct, useOrderComputed } from './useOrderPricing'
+import { freightGapAdvice, lineFreightGap } from '@/domain/itemSpecs'
+import { lineFromProduct, toItemSpec, useOrderComputed } from './useOrderPricing'
 import { DocumentsModal } from './SalesDocuments'
 import { NewCustomerModal } from './NewCustomerModal'
 
@@ -262,7 +263,19 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
                     const margin = l.extended - l.unitCost * l.qty
                     return (
                       <tr key={l.id} className="border-t border-subtle">
-                        <td className="px-3 py-2 text-primary">{l.description}</td>
+                        <td className="px-3 py-2 text-primary">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {l.description}
+                            {/*
+                              Said HERE, on the line, at the moment somebody is
+                              building the quote. The same fact reaches the
+                              totals panel as a warning, but by then it is a
+                              sentence about the order rather than a mark
+                              against the line that caused it.
+                            */}
+                            <FreightGapMark line={l} />
+                          </div>
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums text-secondary">
                           {fmtNum(l.qty)} {l.unit}
                         </td>
@@ -488,6 +501,28 @@ function ChargesEditor({
  * QuickBooks invoice references both by id — so this is one button, not three.
  * A second press UPDATES the QuickBooks record rather than creating a duplicate.
  */
+/**
+ * A line that will not appear on the freight documents, and why.
+ *
+ * Three different causes with three different fixes — the product never says
+ * what it ships as, the item it names has never been measured, or the spec
+ * exists but is unfinished — so the badge carries the specific one rather than
+ * a general "check the shipping". See `lineFreightGap`.
+ */
+function FreightGapMark({ line }: { line: SalesOrderLine }) {
+  const { itemSpecs } = useData()
+  const specs = useMemo(() => itemSpecs.map(toItemSpec), [itemSpecs])
+  const gap = lineFreightGap(line, specs)
+  if (!gap) return null
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Badge tone="amber">No freight</Badge>
+      <InfoDot note={{ title: 'Not in the pallet count', body: [freightGapAdvice(gap, line)] }} />
+    </span>
+  )
+}
+
+
 function SendToQuickBooks({ order }: { order: SalesOrder }) {
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
   const [error, setError] = useState('')

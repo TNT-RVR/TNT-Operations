@@ -6,6 +6,8 @@ import {
   isSpecUsable,
   missingSpecs,
   productsShippingAs,
+  freightGapAdvice,
+  lineFreightGap,
   specProblems,
   unshippedProducts,
 } from './itemSpecs'
@@ -156,5 +158,45 @@ describe('unshippedProducts', () => {
     const withGap = [{ name: 'Shelter Corners', shipItem: 'Corners', active: true }]
     expect(unshippedProducts(withGap)).toEqual([])
     expect(missingSpecs(withGap, [])).toHaveLength(1)
+  })
+})
+
+describe('lineFreightGap', () => {
+  const specs = [TOPS, { ...TOPS, item: 'Anchors', heightIn: 0, stackedHeightIn: 0 }]
+
+  it('is quiet about a line that packs', () => {
+    expect(lineFreightGap({ description: 'Tray Top (air)', shipItem: 'Tray Tops' }, specs)).toBeNull()
+  })
+
+  // The live case: three of five products carry no ship item, and the packer
+  // then looks the DESCRIPTION up, which is why this used to read as a missing
+  // spec for an item nobody ever meant to create.
+  it('separates a product that never says what it ships as', () => {
+    expect(lineFreightGap({ description: 'Bee Shelter', shipItem: null }, specs)).toBe('no-ship-item')
+  })
+
+  it('still allows a description that happens to be a spec name', () => {
+    expect(lineFreightGap({ description: 'Tray Tops', shipItem: null }, specs)).toBeNull()
+  })
+
+  it('separates a named item nobody has measured', () => {
+    expect(lineFreightGap({ description: 'Corner', shipItem: 'Corners' }, specs)).toBe('no-spec')
+  })
+
+  it('separates a spec that exists but cannot make a pallet', () => {
+    expect(lineFreightGap({ description: 'Anchor', shipItem: 'Anchors' }, specs)).toBe('unusable-spec')
+  })
+})
+
+describe('freightGapAdvice', () => {
+  // Each gap has a different fix, and the message has to name it — the whole
+  // point of telling them apart.
+  it('sends a set to be quoted as its parts', () => {
+    const line = { description: 'Tray Set (top + bottom)', shipItem: null }
+    expect(freightGapAdvice('no-ship-item', line)).toMatch(/quote those items as their own lines/)
+  })
+
+  it('sends a missing spec to the specs screen', () => {
+    expect(freightGapAdvice('no-spec', { description: 'Corner', shipItem: 'Corners' })).toMatch(/Shipping specs/)
   })
 })

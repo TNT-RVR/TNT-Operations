@@ -408,6 +408,22 @@ _Last reviewed 2026-08-17._
         **The item name is the join** and nothing matches loosely, so renaming
         writes a NEW row and the editor says so rather than silently orphaning
         the products pointing at the old one.
+      - **"Ships as" is a picker, not a text box** (`ShipsAsPicker` in
+        `SalesCatalogue.tsx`) — the name must match a spec EXACTLY, so a typo
+        used to produce a product that looked configured and fell off every
+        freight document. Blank is a legitimate answer ("nothing on a pallet")
+        and A SET IS QUOTED AS ITS TWO ITEMS ON THEIR OWN LINES: one product
+        maps to one shipping item on purpose, and `Tray Set (top + bottom)`
+        cannot be expressed as one. An existing value with no spec is kept in
+        the list and labelled rather than dropped.
+      - **`lineFreightGap` tells the three causes apart** — the product names
+        no shipping item / it names one nothing has measured / the spec exists
+        but is unfinished — because they have three different fixes.
+        `packShipment` cannot: by the time it runs, the fallback from
+        `shipItem` to the line DESCRIPTION has already happened, so every gap
+        looks like a missing spec for an item name nobody meant to create.
+        Surfaced per line in the order editor (a "No freight" badge with the
+        specific advice) and as a warning on the order.
 - [x] Phase 8 — beyond the original port (new modules):
       - **Season field list** (`0041_field_seasons.sql`, applied 2026-08-24) —
         `pollination_fields` (the place: name is identity, carries the BOUNDARY,

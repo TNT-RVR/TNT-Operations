@@ -7,6 +7,7 @@
  * understated every shelter quote and nothing on screen said so.
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { Badge, Button, EmptyState, Input, Modal, Select } from '@/components/ui'
@@ -14,7 +15,8 @@ import { AlertTriangle, Plus, Save, Trash2 } from 'lucide-react'
 import type { Product, ProductPart, SalesCustomer } from '@/data/types'
 import { priceUnit, pricingWarnings } from '@/domain/pricing'
 import { SalesChrome, fmtMoney, fmtNum } from './SalesChrome'
-import { toProductSpec } from './useOrderPricing'
+import { isSpecUsable } from '@/domain/itemSpecs'
+import { toItemSpec, toProductSpec } from './useOrderPricing'
 import { NewCustomerModal } from './NewCustomerModal'
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -282,15 +284,11 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
               onChange={(e) => set({ countryOfOrigin: e.target.value || null })}
             />
           </label>
-          <label className="block">
-            <span className="label">Ships as</span>
-            <Input
-              value={draft.shipItem ?? ''}
-              disabled={!canEdit}
-              placeholder="matches an item spec"
-              onChange={(e) => set({ shipItem: e.target.value || null })}
-            />
-          </label>
+          <ShipsAsPicker
+            value={draft.shipItem}
+            disabled={!canEdit}
+            onChange={(v) => set({ shipItem: v })}
+          />
           <label className="flex items-end gap-2 pb-2">
             <input
               type="checkbox"
@@ -459,6 +457,79 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
   )
 }
 
+
+
+/**
+ * Which shipping spec this product packs as.
+ *
+ * It was a free-text box, and the name has to match a spec EXACTLY — nothing
+ * matches loosely — so a typo produced a product that looked configured and
+ * quietly fell off every freight document. A list cannot be mistyped.
+ *
+ * Three things it has to handle honestly:
+ *
+ *  - **Blank is a real answer.** A service never goes on a pallet. It is also
+ *    the state three of five live products are in, so the hint says what blank
+ *    costs rather than leaving it to be discovered on a quote.
+ *  - **A set is not one item.** A tray set is a top and a bottom, and the specs
+ *    model is one item per product on purpose. The answer is to quote the two
+ *    items as their own lines, which the hint says outright.
+ *  - **An existing value that has no spec is kept and labelled**, never
+ *    silently dropped: it is a real answer that happens to point at nothing,
+ *    and losing it would hide the problem instead of showing it.
+ */
+function ShipsAsPicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string | null
+  disabled: boolean
+  onChange: (v: string | null) => void
+}) {
+  const { itemSpecs } = useData()
+  const known = itemSpecs.some((s) => s.item === value)
+  const spec = itemSpecs.find((s) => s.item === value)
+  const usable = spec ? isSpecUsable(toItemSpec(spec)) : false
+
+  return (
+    <label className="block">
+      <span className="label">Ships as</span>
+      <Select
+        value={value ?? ''}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value || null)}
+      >
+        <option value="">— nothing on a pallet —</option>
+        {itemSpecs.map((s) => (
+          <option key={s.id} value={s.item}>
+            {s.item}
+          </option>
+        ))}
+        {value && !known && <option value={value}>{value} (no spec)</option>}
+      </Select>
+
+      {value && !known ? (
+        <p className="mt-1 text-xs text-danger">
+          Nothing has measured “{value}”, so this is left off every freight document. Add it under{' '}
+          <Link className="underline decoration-dotted underline-offset-2" to="/sales/shipping">
+            Shipping specs
+          </Link>
+          .
+        </p>
+      ) : value && !usable ? (
+        <p className="mt-1 text-xs text-warn">
+          The spec for “{value}” is missing figures a pallet cannot be worked out without.
+        </p>
+      ) : !value ? (
+        <p className="mt-1 text-xs text-faint">
+          Leave this for anything that never goes on a pallet. Anything that does ships as one item — a SET is
+          quoted as its two items on their own lines, not as one product.
+        </p>
+      ) : null}
+    </label>
+  )
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Customers

@@ -315,6 +315,27 @@ describe('packingList', () => {
   })
 })
 
+/** One freight row, shaped as `buildFreightQuote` returns them. */
+const FREIGHT = [
+  {
+    item: 'Tray Tops',
+    description: 'Tray Tops',
+    handlingUnitType: 'Pallet',
+    units: 4,
+    dimensions: '48x40x83',
+    weightPerUnitLbs: 465,
+    totalWeightLbs: 1860,
+    dgUn: '',
+    nmfc: '156600',
+    stacksPerPallet: 4,
+    freightClass: 175,
+    computed: { cubicFeet: 307, density: 6.1, freightClass: 150, problem: null },
+    overridden: true,
+    stackable: 'no' as const,
+    classExplanation: [],
+  },
+]
+
 describe('billOfLading', () => {
   it('is ready with a carrier and freight terms', () => {
     expect(isReady(billOfLading(COMPLETE))).toBe(true)
@@ -333,9 +354,25 @@ describe('billOfLading', () => {
     expect(doc.fields.find((f) => f.label === 'Gross weight')!.value).toContain('3,860')
   })
 
-  it('carries no freight class — that is the carrier\'s determination', () => {
+  // The rule is that a GUESSED class is worse than none - not that a class
+  // never belongs on a BOL. With no freight table there is nothing to print.
+  it('leaves the class column off entirely when nothing has been worked out', () => {
     const doc = billOfLading(COMPLETE)
-    expect(JSON.stringify(doc)).not.toMatch(/nmfc|freight class/i)
+    expect(JSON.stringify(doc)).not.toMatch(/nmfc|freightClass/i)
+  })
+
+  it('prints class, NMFC and dimensions when a freight table is supplied', () => {
+    const doc = billOfLading({ ...COMPLETE, freight: FREIGHT })
+    expect(doc.lines[0].freightClass).toBe('175')
+    expect(doc.lines[0].nmfc).toBe('156600')
+    expect(doc.lines[0].dimensions).toBe('48x40x83')
+  })
+
+  // A zero would read as an answer. A carrier seeing a blank asks; a carrier
+  // seeing 0 classes it themselves.
+  it('leaves the class cell blank rather than zero when a line has none', () => {
+    const doc = billOfLading({ ...COMPLETE, freight: [{ ...FREIGHT[0], freightClass: null }] })
+    expect(doc.lines[0].freightClass).toBe('')
   })
 })
 

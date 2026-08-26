@@ -656,6 +656,13 @@ export interface ItemSpecRow {
   maxItemsOnPallet: number
   palletSize: string
   stacksPerPallet: number
+  /**
+   * The class this item usually goes at, when a carrier has settled one.
+   * Null means let density decide — see src/domain/freightClass.ts.
+   */
+  freightClass: number | null
+  /** The carrier's NMFC item number, when they have given one. */
+  nmfc: string
 }
 
 export interface SalesCustomer {
@@ -740,6 +747,13 @@ export interface SalesOrder {
   signatoryName: string
   signatoryTitle: string
 
+  /**
+   * The freight answers a person gives per shipment — pickup date and hours,
+   * dock/liftgate/appointment at each end, and how the pallets are stacked.
+   * Null until someone opens the freight quote. See domain/freightQuote.ts.
+   */
+  shippingLogistics: import('@/domain/freightQuote').QuoteLogistics | null
+
   notes: string
   createdAt: string
   updatedAt: string
@@ -768,6 +782,13 @@ export interface SalesOrderLine {
   originCriterion: 'A' | 'B' | 'C' | 'D' | null
   /** Which `ItemSpecRow.item` this packs as, frozen with the price. */
   shipItem: string | null
+  /**
+   * Freight class for this line, overriding the computed one. Null is not the
+   * same as typing the computed number: null follows the load when it is
+   * packed differently, a typed number does not.
+   */
+  freightClass: number | null
+  nmfc: string
   sort: number
 }
 

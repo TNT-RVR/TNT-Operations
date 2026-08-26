@@ -228,3 +228,91 @@ input[type='checkbox'] {
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ── Printing ──────────────────────────────────────────────────────────────
+ *
+ * The paperwork panel's Print button used to hand `window.print()` the whole
+ * application: navigation, header, the modal's own chrome, and the document
+ * somewhere in the middle of it. What came out of the printer was not a
+ * document a carrier or a broker would accept.
+ *
+ * The rule here is one element deep: whatever carries `.print-target` is what
+ * prints, and everything else is hidden. A wrapper marked `.print-hide` drops
+ * out even inside the target, which is how the editable controls, the info
+ * buttons and the Save/Print row keep off the paper.
+ *
+ * Ink, not screen: the app is dark-first, and printing a dark theme wastes
+ * toner and reads badly through a fax at a border crossing. So the printed
+ * sheet is forced to black on white regardless of the theme in use.
+ */
+@media print {
+  /*
+   * Take everything that is not the document OUT OF THE FLOW, rather than
+   * merely making it invisible.
+   *
+   * `visibility: hidden` was the obvious first move and it is wrong: a hidden
+   * element still occupies its space, so the sheet began 1,778 px down the page
+   * and printed four blank sides before the document. The selector below keeps
+   * exactly three things — the document, everything inside it, and the wrappers
+   * that contain it (which is what `:has()` identifies) — and removes the rest,
+   * so the paperwork starts at the top of page one.
+   */
+  body *:not(:has(.print-target)):not(.print-target):not(.print-target *) {
+    display: none !important;
+  }
+
+  /* Marked as screen-only: editable controls, info buttons, the button row. */
+  .print-hide,
+  .print-hide * {
+    display: none !important;
+  }
+
+  /*
+   * The wrappers collapse to plain blocks. The document usually sits inside a
+   * modal, which is fixed, height-capped and scrolls; left alone that prints
+   * the first screenful of the sheet and nothing else.
+   */
+  html,
+  body,
+  .print-target,
+  *:has(.print-target) {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+  *:has(.print-target) {
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    display: block !important;
+    background: none !important;
+  }
+
+  /*
+   * Everything to ink. The app is dark-first, and a dark sheet wastes toner and
+   * reads badly once it has been through a broker's fax. `!important` is doing
+   * real work: the token colours arrive as utilities on the elements.
+   */
+  .print-target,
+  .print-target * {
+    color: #000 !important; /* token-exempt: ink, not theme */
+    background: transparent !important;
+    border-color: #999 !important; /* token-exempt: ink, not theme */
+    box-shadow: none !important;
+  }
+  .print-target th {
+    border-bottom: 1px solid #000 !important; /* token-exempt: ink, not theme */
+  }
+
+  /* Don't split a table row or a section heading across a page break. */
+  .print-target tr,
+  .print-target h3 {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 12mm;
+  }
+}

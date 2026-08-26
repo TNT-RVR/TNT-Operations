@@ -29,6 +29,20 @@ import type { PackedShipment } from './packing'
 
 export type YesNo = 'yes' | 'no' | ''
 
+/**
+ * The two freight answers that belong to an ITEM on THIS shipment.
+ *
+ * Stacks per pallet is the one that moves money. It is not a property of the
+ * item — the same trays go four stacks high for a full trailer and two for a
+ * customer whose door is low — and it sets the pallet height, which sets the
+ * density, which sets the class. The item spec holds the usual answer and this
+ * overrides it for one shipment.
+ */
+export interface ItemFreight {
+  stacksPerPallet?: number
+  stackable?: YesNo
+}
+
 /** The answers only a person can give. Stored per order. */
 export interface QuoteLogistics {
   pickupDate: string
@@ -44,6 +58,8 @@ export interface QuoteLogistics {
   residentialDelivery: YesNo
   specialEquipment: string
   modeOfTransport: 'air' | 'ocean' | 'truck' | ''
+  /** Keyed by the item's shipping name, so it survives a line being re-sorted. */
+  perItem: Record<string, ItemFreight>
 }
 
 export const EMPTY_LOGISTICS: QuoteLogistics = {
@@ -62,6 +78,7 @@ export const EMPTY_LOGISTICS: QuoteLogistics = {
   // Everything TNT has shipped on this form went by truck; it is still shown
   // and still editable, because an air quote is a different form of words.
   modeOfTransport: 'truck',
+  perItem: {},
 }
 
 export interface QuoteParty {
@@ -76,12 +93,20 @@ export interface QuoteParty {
 
 /** One row of FREIGHT INFO on the form. */
 export interface FreightRow {
+  /** The shipping item this row packs — the key into the per-item answers. */
+  item: string
+  /** What prints in the description column. */
+  description: string
   handlingUnitType: string
   units: number
   dimensions: string
   weightPerUnitLbs: number
   totalWeightLbs: number
   dgUn: string
+  /** The carrier's NMFC item number, when one is on file. */
+  nmfc: string
+  /** Stacks used on each pallet — what makes the height what it is. */
+  stacksPerPallet: number
   /** What will print — the override when there is one, else the computed. */
   freightClass: number | null
   /** Kept so the form can show the working and flag a disagreement. */
@@ -136,6 +161,7 @@ export interface QuoteInput {
     freightClass?: number | null
     stackable?: YesNo
     dgUn?: string
+    nmfc?: string
   }>
   /** Outside pallet dimensions, inches. Length and width are the deck. */
   palletLengthIn?: number
@@ -163,17 +189,22 @@ export function buildFreightQuote(input: QuoteInput): FreightQuote {
         units: packed.pallets,
       })
       const override = line.freightClass ?? null
+      const per = input.logistics.perItem?.[line.item]
       freight.push({
+        item: line.item,
+        description: line.description || line.item,
         handlingUnitType: 'Pallet',
         units: packed.pallets,
         dimensions: packed.outsideHeightIn > 0 ? `${L}x${W}x${packed.outsideHeightIn}` : '',
         weightPerUnitLbs: Math.round(packed.weightPerPalletLbs),
         totalWeightLbs: Math.round(packed.totalWeightLbs),
         dgUn: line.dgUn ?? '',
+        nmfc: line.nmfc ?? '',
+        stacksPerPallet: packed.stacksPerPallet,
         freightClass: override ?? (computed.problem ? null : computed.freightClass),
         computed,
         overridden: override != null && override !== computed.freightClass,
-        stackable: line.stackable ?? 'no',
+        stackable: per?.stackable ?? line.stackable ?? '',
         classExplanation: classNote(computed, override),
       })
     }

@@ -135,3 +135,55 @@ describe('blockers', () => {
     expect(q.blockers).toEqual([])
   })
 })
+
+describe('stacks per pallet', () => {
+  // The answer the form asks for. Fewer stacks means a taller pallet for the
+  // same goods, which is less dense, which is a higher class and a bigger bill.
+  function quoteAtStacks(stacks: number) {
+    const packing = packShipment(
+      [{ item: 'Tray Tops', qty: 550, stacksPerPallet: stacks }],
+      DEFAULT_ITEM_SPECS,
+    )
+    const base = realShipment()
+    return buildFreightQuote({
+      ...base,
+      packing,
+      logistics: { ...base.logistics, perItem: { 'Tray Tops': { stacksPerPallet: stacks } } },
+      lines: [base.lines[0]],
+    })
+  }
+
+  it('makes the pallet taller when the same goods go in fewer stacks', () => {
+    const four = quoteAtStacks(4).freight[0]
+    const two = quoteAtStacks(2).freight[0]
+    expect(height(two.dimensions)).toBeGreaterThan(height(four.dimensions))
+  })
+
+  it('carries the taller pallet through to a worse freight class', () => {
+    expect(quoteAtStacks(2).freight[0].computed.freightClass).toBeGreaterThan(
+      quoteAtStacks(4).freight[0].computed.freightClass,
+    )
+  })
+
+  it('prints the stacks it used, so the height can be checked against them', () => {
+    expect(quoteAtStacks(2).freight[0].stacksPerPallet).toBe(2)
+  })
+})
+
+const height = (dims: string) => Number(dims.split('x')[2])
+
+describe('the per-item answers', () => {
+  it('takes stackable from the shipment, not from the item', () => {
+    const input = realShipment()
+    input.logistics = { ...input.logistics, perItem: { 'Tray Tops': { stackable: 'yes' } } }
+    const q = buildFreightQuote(input)
+    expect(q.freight[0].stackable).toBe('yes')
+    // The other line is untouched — the answers are per item, not per shipment.
+    expect(q.freight[1].stackable).toBe('')
+  })
+
+  it('names each row so a caller can match it back to the item', () => {
+    const q = buildFreightQuote(realShipment())
+    expect(q.freight.map((r) => r.item)).toEqual(['Tray Tops', 'Tray Bottoms'])
+  })
+})

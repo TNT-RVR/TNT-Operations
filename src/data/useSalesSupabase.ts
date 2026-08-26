@@ -87,6 +87,8 @@ const toItemSpec = (r: Row): ItemSpecRow => ({
   maxItemsOnPallet: Number(r.max_items_on_pallet ?? 1),
   palletSize: r.pallet_size ?? '48x40',
   stacksPerPallet: Number(r.stacks_per_pallet ?? 1),
+  freightClass: r.freight_class == null ? null : Number(r.freight_class),
+  nmfc: r.nmfc ?? '',
 })
 
 const toCustomer = (r: Row): SalesCustomer => ({
@@ -130,6 +132,8 @@ const toLine = (r: Row): SalesOrderLine => ({
   countryOfOrigin: r.country_of_origin ?? null,
   originCriterion: r.origin_criterion ?? null,
   shipItem: r.ship_item ?? null,
+  freightClass: r.freight_class == null ? null : Number(r.freight_class),
+  nmfc: r.nmfc ?? '',
   sort: Number(r.sort ?? 0),
 })
 
@@ -170,6 +174,7 @@ const toOrder = (r: Row, lines: Row[], charges: Row[]): SalesOrder => ({
   producer: r.producer ?? '',
   signatoryName: r.signatory_name ?? '',
   signatoryTitle: r.signatory_title ?? '',
+  shippingLogistics: r.shipping_logistics ?? null,
   notes: r.notes ?? '',
   createdAt: r.created_at,
   updatedAt: r.updated_at,
@@ -237,6 +242,7 @@ const orderPatchToRow = (p: Partial<SalesOrder>): Row => {
   set('producer', p.producer)
   set('signatory_name', p.signatoryName)
   set('signatory_title', p.signatoryTitle)
+  set('shipping_logistics', p.shippingLogistics)
   set('notes', p.notes)
   return r
 }
@@ -254,6 +260,8 @@ const lineToRow = (orderId: string, l: SalesOrderLine, sort: number): Row => ({
   country_of_origin: l.countryOfOrigin,
   origin_criterion: l.originCriterion,
   ship_item: l.shipItem,
+  freight_class: l.freightClass ?? null,
+  nmfc: l.nmfc || null,
   sort,
 })
 
@@ -717,6 +725,8 @@ function toBeePurchase(r: Row): BeePurchase {
     set('max_items_on_pallet', patch.maxItemsOnPallet)
     set('pallet_size', patch.palletSize)
     set('stacks_per_pallet', patch.stacksPerPallet)
+    set('freight_class', patch.freightClass)
+    set('nmfc', patch.nmfc)
 
     const { data, error } = await supabase
       .from('sales_item_specs')

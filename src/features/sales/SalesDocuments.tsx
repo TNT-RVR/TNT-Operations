@@ -10,10 +10,12 @@
 import { useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import { Badge, Button, Modal } from '@/components/ui'
+import { Badge, Button, InfoDot, Modal } from '@/components/ui'
 import { AlertTriangle, PenLine, Printer, ShieldCheck } from 'lucide-react'
 import type { SalesOrder } from '@/data/types'
 import { type BuiltDocument, isReady } from '@/domain/salesDocs'
+import { helpFor } from '@/domain/docHelp'
+import { FreightQuoteView } from './FreightQuoteView'
 import {
   ATTESTATION,
   canonicalize,
@@ -33,8 +35,11 @@ export function DocumentsModal({
   onClose: () => void
 }) {
   const docs = computed.documents
-  const [active, setActive] = useState(0)
-  const doc = docs[active]
+  // 'quote' is not a BuiltDocument — it is an editable form with its own
+  // renderer, so it is addressed by name rather than by index.
+  const [active, setActive] = useState<number | 'quote'>('quote')
+  const doc = typeof active === 'number' ? docs[active] : undefined
+  const quoteIncomplete = computed.quote.blockers.length > 0
 
   return (
     <Modal title={`Paperwork — ${order.number}`} onClose={onClose} wide>
@@ -42,7 +47,16 @@ export function DocumentsModal({
         <p className="text-sm text-muted">Add a line to the order first.</p>
       ) : (
         <div className="space-y-4">
-          <div className="flex flex-wrap gap-1 border-b border-subtle">
+          <div className="print-hide flex flex-wrap gap-1 border-b border-subtle">
+            <button
+              onClick={() => setActive('quote')}
+              className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium ${
+                active === 'quote' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
+              }`}
+            >
+              Freight Quote
+              {quoteIncomplete && <AlertTriangle size={13} className="text-warn" />}
+            </button>
             {docs.map((d, i) => (
               <button
                 key={d.kind}
@@ -57,11 +71,58 @@ export function DocumentsModal({
             ))}
           </div>
 
-          {doc && <DocumentView doc={doc} order={order} />}
+          {active === 'quote' ? (
+            <FreightQuoteView order={order} />
+          ) : (
+            doc && <DocumentView doc={doc} order={order} />
+          )}
         </div>
       )}
     </Modal>
   )
+}
+
+/**
+ * Which explanation belongs to a printed field, by its label.
+ *
+ * Matched on the label rather than carried on the field itself, because
+ * `salesDocs` builds forms defined by law — CBSA numbers its boxes and CUSMA
+ * names its data elements — and those field lists should not have to know that
+ * this app has info buttons. An unmapped label simply gets none.
+ */
+const HELP_BY_LABEL: Record<string, string> = {
+  'Shipper': 'shipper',
+  'Ship from': 'shipper',
+  'Vendor': 'shipper',
+  'Consignee': 'consignee',
+  'Ship to': 'consignee',
+  'Terms of sale': 'incoterm',
+  'Incoterm': 'incoterm',
+  'Gross weight': 'weight',
+  'Net weight': 'weight',
+  'Total packages': 'handlingUnits',
+  'Freight terms': 'billingTerms',
+  'Customs broker': 'broker',
+  'Declared value': 'unitValue',
+}
+
+/**
+ * A line-table column heading.
+ *
+ * The generic rule splits camelCase and capitalises, which is right for
+ * `freightClass` and wrong for an acronym: `nmfc` came out as "Nmfc", which is
+ * not what is printed on any carrier's paperwork.
+ */
+const COLUMN_LABELS: Record<string, string> = { nmfc: 'NMFC', hsCode: 'HS code', dgUn: 'DG UN' }
+
+function columnLabel(key: string): string {
+  if (COLUMN_LABELS[key]) return COLUMN_LABELS[key]
+  const spaced = key.replace(/([A-Z])/g, ' $1')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+function helpKeyFor(label: string): string {
+  return HELP_BY_LABEL[label] ?? ''
 }
 
 function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder }) {
@@ -102,50 +163,57 @@ function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder })
         </div>
       )}
 
-      <div className="card space-y-2">
-        {doc.fields.map((f, i) => (
-          <div key={i} className="grid gap-1 sm:grid-cols-[14rem_1fr]">
-            <span className="text-xs uppercase tracking-wider text-muted">
-              {f.box != null && <span className="mr-1 text-faint">{f.box}.</span>}
-              {f.label}
-            </span>
-            <span className="whitespace-pre-line text-sm text-primary">
-              {f.value || <span className="text-faint">—</span>}
-            </span>
-          </div>
-        ))}
-      </div>
+      <div className="print-target space-y-4">
+        <div className="card space-y-2">
+          {doc.fields.map((f, i) => (
+            <div key={i} className="grid gap-1 sm:grid-cols-[14rem_1fr]">
+              <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted">
+                {f.box != null && <span className="mr-1 text-faint">{f.box}.</span>}
+                {f.label}
+                {/* Only the fields that have something worth explaining get one;
+                    helpFor returns null for the rest and InfoDot renders nothing. */}
+                <span className="print-hide">
+                  <InfoDot note={helpFor(helpKeyFor(f.label))} />
+                </span>
+              </span>
+              <span className="whitespace-pre-line text-sm text-primary">
+                {f.value || <span className="text-faint">—</span>}
+              </span>
+            </div>
+          ))}
+        </div>
 
-      {doc.lines.length > 0 && (
-        <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                {Object.keys(doc.lines[0]).map((k) => (
-                  <th key={k} className="th text-left capitalize">
-                    {k.replace(/([A-Z])/g, ' $1')}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {doc.lines.map((l, i) => (
-                <tr key={i} className="border-t border-subtle">
-                  {Object.entries(l).map(([k, v]) => (
-                    <td key={k} className="px-3 py-2 text-secondary tabular-nums">
-                      {v || <span className="text-faint">—</span>}
-                    </td>
+        {doc.lines.length > 0 && (
+          <div className="card overflow-x-auto p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  {Object.keys(doc.lines[0]).map((k) => (
+                    <th key={k} className="th text-left">
+                      {columnLabel(k)}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {doc.lines.map((l, i) => (
+                  <tr key={i} className="border-t border-subtle">
+                    {Object.entries(l).map(([k, v]) => (
+                      <td key={k} className="px-3 py-2 text-secondary tabular-nums">
+                        {v || <span className="text-faint">—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       <SignBlock doc={doc} order={order} documentReady={ready} />
 
-      <div className="flex items-center gap-3 border-t border-subtle pt-3">
+      <div className="print-hide flex items-center gap-3 border-t border-subtle pt-3">
         <Button onClick={() => window.print()} disabled={!ready}>
           <Printer size={16} /> Print
         </Button>

@@ -22,11 +22,11 @@ import type {
 } from './types'
 
 export const SEED_ITEM_SPECS: ItemSpecRow[] = [
-  { id: 'spec_tt', item: 'Tray Tops', weightLbs: 3.4, lengthIn: 25.75, widthIn: 18, heightIn: 3.5, stackedHeightIn: 2.48, maxItemsOnPallet: 125, palletSize: '48x40', stacksPerPallet: 4 },
-  { id: 'spec_tb', item: 'Tray Bottoms', weightLbs: 3.6, lengthIn: 25.75, widthIn: 18, heightIn: 3.5, stackedHeightIn: 3.0, maxItemsOnPallet: 100, palletSize: '48x40', stacksPerPallet: 4 },
-  { id: 'spec_ct', item: 'Cubee Tops', weightLbs: 10, lengthIn: 48, widthIn: 40, heightIn: 2, stackedHeightIn: 2, maxItemsOnPallet: 25, palletSize: '48x40', stacksPerPallet: 1 },
-  { id: 'spec_cb', item: 'Cubee Bottoms', weightLbs: 10, lengthIn: 48, widthIn: 40, heightIn: 5, stackedHeightIn: 2.5, maxItemsOnPallet: 25, palletSize: '48x40', stacksPerPallet: 1 },
-  { id: 'spec_an', item: 'Anchors', weightLbs: 1.7, lengthIn: 21.5, widthIn: 3, heightIn: 0, stackedHeightIn: 0, maxItemsOnPallet: 300, palletSize: '48x40', stacksPerPallet: 1 },
+  { id: 'spec_tt', item: 'Tray Tops', weightLbs: 3.4, lengthIn: 25.75, widthIn: 18, heightIn: 3.5, stackedHeightIn: 2.48, maxItemsOnPallet: 125, palletSize: '48x40', stacksPerPallet: 4, freightClass: null, nmfc: '' },
+  { id: 'spec_tb', item: 'Tray Bottoms', weightLbs: 3.6, lengthIn: 25.75, widthIn: 18, heightIn: 3.5, stackedHeightIn: 3.0, maxItemsOnPallet: 100, palletSize: '48x40', stacksPerPallet: 4, freightClass: null, nmfc: '' },
+  { id: 'spec_ct', item: 'Cubee Tops', weightLbs: 10, lengthIn: 48, widthIn: 40, heightIn: 2, stackedHeightIn: 2, maxItemsOnPallet: 25, palletSize: '48x40', stacksPerPallet: 1, freightClass: null, nmfc: '' },
+  { id: 'spec_cb', item: 'Cubee Bottoms', weightLbs: 10, lengthIn: 48, widthIn: 40, heightIn: 5, stackedHeightIn: 2.5, maxItemsOnPallet: 25, palletSize: '48x40', stacksPerPallet: 1, freightClass: null, nmfc: '' },
+  { id: 'spec_an', item: 'Anchors', weightLbs: 1.7, lengthIn: 21.5, widthIn: 3, heightIn: 0, stackedHeightIn: 0, maxItemsOnPallet: 300, palletSize: '48x40', stacksPerPallet: 1, freightClass: null, nmfc: '' },
 ]
 
 export const SEED_PRODUCTS: Product[] = [

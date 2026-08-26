@@ -31,6 +31,7 @@
  * a customs broker, and `originCriterion` and `hsCode` are inputs here, never
  * derived. Have a broker review the first of each document type.
  */
+import type { FreightRow } from './freightQuote'
 import type { PackedShipment } from './packing'
 import type { Currency } from './pricing'
 
@@ -167,6 +168,16 @@ export interface DocContext {
   /** Value declared to the carrier for liability. */
   declaredValue?: number
   specialInstructions?: string
+  /**
+   * The freight table, when one has been worked out — units, dimensions,
+   * weight, class and NMFC per line. Optional on purpose: the BOL prints a
+   * class only when there is a real one to print. See `billOfLading`.
+   */
+  freight?: FreightRow[]
+  /** The carrier's PRO / tracking number, once they have given one. */
+  proNumber?: string
+  /** Who clears the goods at the border. */
+  customsBroker?: string
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -621,10 +632,22 @@ export function packingList(ctx: DocContext): BuiltDocument {
 /**
  * A straight bill of lading — the contract of carriage the driver signs.
  *
- * Freight class is deliberately absent: NMFC classification depends on density,
- * stowability, handling and liability, and putting a guessed class on a BOL
- * gets the shipment reclassified and reweighed at the carrier's rate. Leave it
- * for the carrier or the broker to assign.
+ * ── About the freight class column ──────────────────────────────────────────
+ *
+ * It prints ONLY when `ctx.freight` is supplied, and it is blank otherwise.
+ * The rule has always been that a GUESSED class is worse than none: NMFC
+ * classification turns on density, stowability, handling and liability, and a
+ * number someone estimated gets the load reclassed and reweighed at the
+ * carrier's own rate.
+ *
+ * What changed is where the number comes from. `freightQuote` computes it from
+ * the item's real weight and the pallet height those items actually stack to,
+ * and lets a carrier's own class be typed over it — which is the case that
+ * matters, since Estes bills TNT 175 on a load the density scale calls 200.
+ * That is a determination on file, not a guess, and it belongs on the document
+ * along with the NMFC item number that backs it up.
+ *
+ * With no freight table the document is exactly what it was before.
  */
 export function billOfLading(ctx: DocContext): BuiltDocument {
   const fields: DocField[] = [
@@ -641,17 +664,32 @@ export function billOfLading(ctx: DocContext): BuiltDocument {
   if (ctx.declaredValue != null) {
     fields.push({ label: 'Declared value', value: fmtMoney(ctx.declaredValue, ctx.currency) })
   }
+  if (ctx.proNumber) fields.push({ label: 'PRO number', value: ctx.proNumber })
+  if (ctx.customsBroker) fields.push({ label: 'Customs broker', value: ctx.customsBroker })
   if (ctx.specialInstructions) {
     fields.push({ label: 'Special instructions', value: ctx.specialInstructions })
   }
 
-  const lines = ctx.packing.lines.map((l) => ({
-    packages: String(l.pallets),
-    kind: ctx.packageKind ?? 'Pallet',
-    description: l.item,
-    qty: fmtNum(l.qty),
-    weight: `${fmtNum(l.totalWeightLbs)} lb`,
-  }))
+  const byItem = new Map((ctx.freight ?? []).map((f) => [f.item, f]))
+  const lines = ctx.packing.lines.map((l) => {
+    const f = byItem.get(l.item)
+    const row: Record<string, string> = {
+      packages: String(l.pallets),
+      kind: ctx.packageKind ?? 'Pallet',
+      description: l.item,
+      qty: fmtNum(l.qty),
+      weight: `${fmtNum(l.totalWeightLbs)} lb`,
+    }
+    if (ctx.freight) {
+      row.dimensions = f?.dimensions ?? ''
+      // A blank cell, not a zero: an empty class column is a carrier question,
+      // where '0' reads as an answer.
+      row.freightClass = f?.freightClass != null ? String(f.freightClass) : ''
+      row.nmfc = f?.nmfc ?? ''
+      row.stackable = f?.stackable ?? ''
+    }
+    return row
+  })
 
   const missing: MissingField[] = []
   if (!ctx.carrier) {

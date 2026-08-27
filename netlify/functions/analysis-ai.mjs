@@ -24,6 +24,8 @@
  * Uses global fetch — no dependencies.
  */
 
+import { reportAnthropicFailure } from './lib/anthropicAlert.mjs'
+
 const SYSTEM = `You advise a commercial leafcutter-bee pollination business in southern Alberta. They place bee shelters on hybrid seed-canola and alfalfa fields under contract to seed companies, and run bee incubation facilities. You are reading their end-of-season field data.
 
 Rules, in order of priority:
@@ -94,6 +96,9 @@ export default async (req) => {
     if (!res.ok) {
       const detail = await res.text()
       console.error('[analysis-ai] anthropic', res.status, detail)
+      // The caller sees this one, but a rejected key is an account problem
+      // rather than a bad request — worth the bell, not just a toast.
+      await reportAnthropicFailure('analysis-ai', res.status, detail)
       return json({ error: `Model call failed (${res.status})` }, 502)
     }
 

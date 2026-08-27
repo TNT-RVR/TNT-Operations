@@ -22,6 +22,8 @@
 
 // Mondays 14:00 UTC. `background` raises the execution limit to 15 minutes —
 // the Claude + web-search call runs ~40s+, well past the ~10s synchronous cap.
+import { reportAnthropicFailure } from './lib/anthropicAlert.mjs'
+
 export const config = { schedule: '0 14 * * 1', background: true }
 
 const PROMPT = `Search the web for grants, rebates, and cost-share funding programs that are CURRENTLY OPEN (accepting applications) and that a commercial leafcutter-bee pollination business in Alberta, Canada could apply for. The business provides managed leafcutter bees and bee-shelter placement for hybrid canola and other seed-production fields under contract with seed companies, and also runs bee incubation facilities.
@@ -64,7 +66,11 @@ export default async (req) => {
       }),
     })
     if (!res.ok) {
-      return new Response(JSON.stringify({ error: `Anthropic ${res.status}`, detail: (await res.text()).slice(0, 500) }), {
+      const detail = (await res.text()).slice(0, 500)
+      // Scheduled: nobody reads this response. The alert is the only way anyone
+      // finds out the weekly pull has stopped working.
+      await reportAnthropicFailure('grants-pull', res.status, detail)
+      return new Response(JSON.stringify({ error: `Anthropic ${res.status}`, detail }), {
         status: 502,
         headers: { 'content-type': 'application/json' },
       })

@@ -8,6 +8,7 @@ import type { NotificationSeverity } from '@/data/types'
 /** Alert types the app can raise — the settings grid rows. */
 const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'sensor_feed_stale', label: 'Sensor feed stale', hint: 'A Govee/ESP32 feed stops reporting (integration health).' },
+  { type: 'sensor_offline', label: 'Sensor offline', hint: 'An incubator stops reporting anything at all. Raised by the hourly watchdog, with an all-clear when it comes back.' },
   { type: 'temp_out_of_range', label: 'Temperature out of range', hint: 'An incubator leaves its temperature band.' },
   { type: 'humidity_out_of_range', label: 'Humidity out of range', hint: 'An incubator leaves its humidity band.' },
   { type: 'milestone', label: 'Milestone due today', hint: 'Vapona in/out, earliest cool, expected release — from the calendar.' },
@@ -18,6 +19,7 @@ const ALERT_TYPES: Array<{ type: string; label: string; hint: string }> = [
   { type: 'low_stock', label: 'Low stock', hint: 'A finished good drops below its reorder point. Fires on the crossing, not on every shipment.' },
   { type: 'qbo_sync_failed', label: 'QuickBooks sync failed', hint: 'A push to QuickBooks failed. Deduped to one per reason per hour.' },
   { type: 'qbo_auth_expired', label: 'QuickBooks disconnected', hint: 'The connection needs re-authorising — invoices stop reaching your books until it is.' },
+  { type: 'anthropic_key_failed', label: 'Claude API key rejected', hint: 'The key expired, was revoked or is wrong. Grant pulls and analysis notes silently do nothing until it is replaced.' },
   { type: 'welcome', label: 'System announcements', hint: 'App news and account notices.' },
 ]
 const DEFAULT_PREF: NotificationPref = { inApp: true, email: false, push: false }

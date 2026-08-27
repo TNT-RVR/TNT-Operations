@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAppBadge } from '@/features/notifications/useAppBadge'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Banknote, Bell, Boxes, Bug, CalendarDays, ChartScatter, FlaskConical, LayoutDashboard, ListChecks, Map, Moon, MoreHorizontal, Navigation, PanelLeftClose, PanelLeftOpen, Receipt, SlidersHorizontal, Sun, type LucideIcon } from 'lucide-react'
 import { useSession, type Module, type Role } from '@/auth/session'
@@ -246,6 +247,10 @@ function UserSwitcher() {
 
 export default function Layout() {
   const s = useSession()
+  // The red count on the installed app's icon, mirroring the bell beside it.
+  // Mounted here because the layout is the one component every route is
+  // inside, so no screen can be reached with the badge left stale.
+  useAppBadge()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const items = NAV.filter((n) => s.can(n.module, 'view'))

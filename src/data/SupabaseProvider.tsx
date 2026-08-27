@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { CrewTask } from '@/domain/supplies'
 import { DataContext, type DataContextValue, type NotificationPref, type TrayObservation } from './context'
+import { BADGE_SCAN_LIMIT } from '@/domain/appBadge'
 import type {
   FieldAlias,
   FieldSeason,
@@ -480,7 +481,10 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           column: 'at',
           gte: seasonStart,
         }),
-        sb.from('app_notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(200),
+        // The limit is BADGE_SCAN_LIMIT on purpose: the icon badge counts what
+        // the app holds, and the push sender caps at the same number so the two
+        // cannot disagree. See domain/appBadge.ts.
+        sb.from('app_notifications').select('*').is('deleted_at', null).order('created_at', { ascending: false }).limit(BADGE_SCAN_LIMIT),
       ])
       if (cancelled) return
 

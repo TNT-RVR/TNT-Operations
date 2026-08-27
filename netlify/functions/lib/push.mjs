@@ -54,6 +54,38 @@ export async function subscriptionsFor(SB_URL, sb, userIds) {
   return Array.isArray(rows) ? rows : []
 }
 
+
+/**
+ * How many unread notifications the app would show, for the icon badge.
+ *
+ * Capped at BADGE_SCAN_LIMIT to match what the running app can count: the app
+ * holds only the newest 200, so an exact count of every unread row is a number
+ * it could never reproduce, and the badge would visibly drop the moment
+ * somebody opened it. Kept in step with src/domain/appBadge.ts.
+ *
+ * Returns null if the count cannot be read — the service worker leaves the
+ * badge alone on a missing count rather than clearing a number it cannot
+ * verify.
+ */
+const BADGE_SCAN_LIMIT = 200
+
+export async function unreadBadgeCount(SB_URL, sb) {
+  try {
+    const res = await fetch(
+      `${SB_URL}/rest/v1/app_notifications?select=id&read_at=is.null&deleted_at=is.null&limit=${BADGE_SCAN_LIMIT}`,
+      { headers: { ...sb, Prefer: 'count=exact' } },
+    )
+    if (!res.ok) return null
+    // Content-Range is `0-24/25`; the tail is the total, which the limit caps.
+    const total = Number((res.headers.get('content-range') ?? '').split('/')[1])
+    if (Number.isFinite(total)) return Math.min(total, BADGE_SCAN_LIMIT)
+    const rows = await res.json()
+    return Array.isArray(rows) ? Math.min(rows.length, BADGE_SCAN_LIMIT) : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Send one payload to many subscriptions.
  *
@@ -65,7 +97,19 @@ export async function subscriptionsFor(SB_URL, sb, userIds) {
  */
 export async function sendToAll(SB_URL, sb, subs, payload) {
   if (!subs.length || !pushConfigured()) return { sent: 0, failed: 0, expired: 0 }
-  const body = JSON.stringify(payload)
+  /*
+   * The icon badge rides along on every push.
+   *
+   * Done HERE rather than at each producer because a producer that forgot it
+   * would not fail — the banner would still arrive and only the number on the
+   * icon would be wrong, which is the kind of gap nobody reports. Every sender
+   * goes through this function, so this is the one place it cannot be missed.
+   *
+   * A caller may still pass its own `badge` (a test wanting a fixed number);
+   * that wins.
+   */
+  const badge = payload.badge ?? (await unreadBadgeCount(SB_URL, sb))
+  const body = JSON.stringify(badge == null ? payload : { ...payload, badge })
   let sent = 0
   let failed = 0
   const expired = []

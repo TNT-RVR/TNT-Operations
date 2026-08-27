@@ -104,6 +104,22 @@ self.addEventListener('push', (e) => {
       data: { url: d.url || '/incubation' },
     }),
   )
+
+  /* The other half of the icon badge.
+   *
+   * While the app is open, useAppBadge keeps the number right. While it is
+   * CLOSED, this is the only thing that runs — the push wakes the worker, and
+   * the count rides along in the payload rather than being fetched here,
+   * because a service worker has no session and no business holding a key.
+   *
+   * A payload without `badge` leaves the icon alone rather than clearing it:
+   * an older sender that does not send the count should not wipe a number the
+   * app put there. */
+  if ('setAppBadge' in self.navigator && typeof d.badge === 'number') {
+    e.waitUntil(
+      d.badge > 0 ? self.navigator.setAppBadge(d.badge) : self.navigator.clearAppBadge(),
+    )
+  }
 })
 
 self.addEventListener('notificationclick', (e) => {

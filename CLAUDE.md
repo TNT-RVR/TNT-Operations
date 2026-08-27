@@ -506,6 +506,32 @@ _Last reviewed 2026-08-17._
         with unread dot, list/mark-read/delete, per-type preferences
         (`app_notifications`, `app_notification_prefs`). Table is named
         `app_notifications` to avoid a collision in the shared project.
+        - **Web push** is BUILT: `push_subscriptions`, the `push`/
+          `notificationclick`/`pushsubscriptionchange` handlers in
+          `public/sw.js`, `usePush.ts` for the client subscribe, and
+          `netlify/functions/lib/push.mjs` for delivery. Push is strictly
+          OPT-IN per type (`app_notification_prefs.push`, default false) —
+          silence is never consent for something interruptive. Needs
+          `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` in Netlify
+          and `VITE_VAPID_PUBLIC_KEY` at build; unconfigured, alerting still
+          logs to the inbox and simply does not push.
+          NOTE this is a NODE runtime (Netlify), so the ordinary `web-push`
+          npm package is correct here. The Deno/JSR workaround that a Supabase
+          Edge Function needs does NOT apply.
+        - **Icon badge** (`domain/appBadge.ts` + `useAppBadge`, mounted in
+          `Layout`) — the red count on an installed app's icon, via the
+          Badging API. A separate feature from push with none of its cost: no
+          keys, no server, no prompt, and a silent no-op in a browser tab.
+          The badge on a CLOSED app is not this hook — it is `sw.js` calling
+          the same API from the push handler, with the count carried in the
+          payload by `sendToAll` (put there centrally, since a producer that
+          forgot it would still deliver the banner and only the number would
+          be wrong, which nobody reports).
+          The inbox is SHARED (`read_at` is on the row, not per person), so
+          the badge is the crew's count and one person reading clears it for
+          all. `BADGE_SCAN_LIMIT` is duplicated in `push.mjs` because a
+          Netlify function cannot import from `src`; `appBadgeParity.test.ts`
+          fails if the two drift, and if the provider stops fetching that many.
       - **Grants** (`/grants`, `0009_grants.sql`) — funding pipeline ported from
         the RVR Management App: status/amount/eligibility/closes table, detail
         sheet with notes + assignment + subtasks, and a one-click Claude prompt

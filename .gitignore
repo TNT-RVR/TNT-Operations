@@ -27,3 +27,6 @@ scripts/import_parts/
 scripts/fields_import.sql
 scripts/field_analysis_import.sql
 scripts/checklist_import.sql
+
+# Local Netlify folder
+.netlify

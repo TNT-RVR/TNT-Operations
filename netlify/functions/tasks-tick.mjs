@@ -1,3 +1,4 @@
+import { pushOptIns, subscriptionsFor, sendToAll } from './lib/push.mjs'
 /**
  * Nightly task tick.
  *
@@ -110,6 +111,34 @@ function nextDueDate(task, from) {
   return next
 }
 
+/**
+ * Push a task notice to whoever asked for that type.
+ *
+ * The in-app row is written either way — the inbox is the record and push is
+ * only a nudge — so a push failure must never stop the row being written or
+ * the task being marked notified. Hence the catch: this returns a count and
+ * never throws.
+ */
+async function pushTask(URL_, H, type, { title, body, url }) {
+  try {
+    const optIns = await pushOptIns(URL_, H, type)
+    if (!optIns.size) return 0
+    const subs = await subscriptionsFor(URL_, H, optIns)
+    const res = await sendToAll(URL_, H, subs, {
+      title,
+      body,
+      url,
+      // One tag per TYPE, so a second overdue notice replaces the first on the
+      // lock screen. A crew coming back to twelve stacked banners reads none
+      // of them; one that says the latest thing gets read.
+      tag: `tnt-${type}`,
+    })
+    return res.sent
+  } catch {
+    return 0
+  }
+}
+
 export default async () => {
   const URL_ = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const KEY = process.env.SUPABASE_SERVICE_ROLE
@@ -131,7 +160,7 @@ export default async () => {
   const post = (path, body) =>
     fetch(api(path), { method: 'POST', headers: { ...H, Prefer: 'return=representation' }, body: JSON.stringify(body) })
 
-  const summary = { created: 0, dueSoon: 0, overdue: 0, errors: [] }
+  const summary = { created: 0, dueSoon: 0, overdue: 0, pushed: 0, errors: [] }
 
   // ── 1. Materialize schedule-anchored recurrences ──
   try {
@@ -223,13 +252,19 @@ export default async () => {
       const threshold = addDays(today, lead)
       if (!threshold || t.due_date > threshold) continue
 
+      const soonTitle = `Due ${t.due_date === today ? 'today' : `on ${t.due_date}`}: ${t.title}`
       await post('app_notifications', {
         category: 'tasks',
         type: 'task_due_soon',
         severity: 'info',
-        title: `Due ${t.due_date === today ? 'today' : `on ${t.due_date}`}: ${t.title}`,
+        title: soonTitle,
         body: '',
         source: 'tasks',
+      })
+      summary.pushed += await pushTask(URL_, H, 'task_due_soon', {
+        title: 'Task due',
+        body: soonTitle,
+        url: '/tasks',
       })
       await patch(`app_tasks?id=eq.${t.id}`, { notified_due_soon_at: new Date().toISOString() })
       summary.dueSoon++
@@ -252,6 +287,11 @@ export default async () => {
         title: `Overdue: ${t.title}`,
         body: `Was due ${t.due_date}`,
         source: 'tasks',
+      })
+      summary.pushed += await pushTask(URL_, H, 'task_overdue', {
+        title: 'Task overdue',
+        body: `${t.title} — was due ${t.due_date}`,
+        url: '/tasks',
       })
       await patch(`app_tasks?id=eq.${t.id}`, { notified_overdue_at: new Date().toISOString() })
       summary.overdue++

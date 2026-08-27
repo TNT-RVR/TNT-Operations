@@ -191,11 +191,19 @@ export async function lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly = false }
 /**
  * Also drop it in the in-app bell inbox, for everyone, regardless of push.
  * Push is a nudge; the inbox is the record, so it's written either way.
+ *
+ * The row is born with `pushed_at` set, because every caller of this function
+ * sends its own push immediately afterwards with a tag and a destination this
+ * function does not know. That stamp is what keeps push-pending.mjs — which
+ * sweeps up rows nobody delivered — from sending a second, blander copy of
+ * something already on the lock screen.
+ *
+ * Pass `deferPush: true` to leave it unstamped and let the sweeper handle it.
  */
 export async function writeInAppNotification(
   SB_URL,
   sb,
-  { category, type, severity, title, body, source, dedupKey },
+  { category, type, severity, title, body, source, dedupKey, deferPush },
 ) {
   await fetch(`${SB_URL}/rest/v1/app_notifications`, {
     method: 'POST',
@@ -208,6 +216,7 @@ export async function writeInAppNotification(
       body,
       source: source ?? 'alert_rules',
       ...(dedupKey ? { dedup_key: dedupKey } : {}),
+      ...(deferPush ? {} : { pushed_at: new Date().toISOString() }),
     }),
   })
 }

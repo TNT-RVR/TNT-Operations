@@ -260,6 +260,8 @@ export default async () => {
         title: soonTitle,
         body: '',
         source: 'tasks',
+        // Stamped because this function pushes it below; see push-pending.mjs.
+        pushed_at: new Date().toISOString(),
       })
       summary.pushed += await pushTask(URL_, H, 'task_due_soon', {
         title: 'Task due',
@@ -287,6 +289,8 @@ export default async () => {
         title: `Overdue: ${t.title}`,
         body: `Was due ${t.due_date}`,
         source: 'tasks',
+        // Stamped because this function pushes it below; see push-pending.mjs.
+        pushed_at: new Date().toISOString(),
       })
       summary.pushed += await pushTask(URL_, H, 'task_overdue', {
         title: 'Task overdue',

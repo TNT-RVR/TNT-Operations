@@ -532,6 +532,23 @@ _Last reviewed 2026-08-17._
           all. `BADGE_SCAN_LIMIT` is duplicated in `push.mjs` because a
           Netlify function cannot import from `src`; `appBadgeParity.test.ts`
           fails if the two drift, and if the provider stops fetching that many.
+        - **Nothing is delivered by remembering to deliver it.** The alert
+          producers (poll-govee, watchdog, notify-milestones, tasks-tick) push
+          instantly and stamp `app_notifications.pushed_at` as they insert.
+          Anything left NULL is swept by `push-pending.mjs` (every 5 min,
+          `0047`) — which is how the QuickBooks alerts finally reach a phone:
+          `qbo_sync_failed` / `qbo_auth_expired` are raised by TRIGGERS in
+          0017, inside the database, where there was no sender to call, so
+          seven of them went out to nobody in three weeks while the preference
+          toggle sat there looking functional.
+          A trigger calling out via `pg_net` would need a shared secret stored
+          IN the database, which a migration in this repo cannot carry — hence
+          a sweep, at the cost of minutes of latency on the alerts that do not
+          need to be instant.
+          `pushed_at` means "delivery has been dealt with", NOT "a push was
+          sent": a row nobody opted into is stamped too. The sweeper caps at
+          `WINDOW_HOURS` and stamps anything older WITHOUT sending — after an
+          outage the crew should not get a day's alerts at once.
       - **Grants** (`/grants`, `0009_grants.sql`) — funding pipeline ported from
         the RVR Management App: status/amount/eligibility/closes table, detail
         sheet with notes + assignment + subtasks, and a one-click Claude prompt

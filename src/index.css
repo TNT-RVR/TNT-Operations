@@ -43,8 +43,18 @@ h1,
 h2,
 h3 {
   font-family: var(--font-display);
-  letter-spacing: var(--ls-tight);
-  line-height: var(--lh-tight);
+  /*
+   * NORMAL tracking, not the -0.015em this used to set on every heading.
+   *
+   * Negative letter-spacing is a brand tic that reads as "designed" on a
+   * marketing page and as cramped on a working screen — and it was applied to
+   * every h1 through h6 in the app. Segoe UI is already fairly tight; pulling
+   * it in further is what made TNT's type feel off next to the other TNT/GFC
+   * apps, which all leave it alone. The typeface was never the difference.
+   */
+  letter-spacing: var(--ls-normal);
+  /* 1.05 is a poster line-height. Anything that wraps to two lines collided. */
+  line-height: var(--lh-snug);
 }
 
 /* Field/tablet friendly: prevent iOS zoom on input focus, big tap targets. */
@@ -117,6 +127,9 @@ input[type='checkbox'] {
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-sm px-4 font-semibold min-h-touch outline-none;
+    /* 14px, not the inherited 16px. Controls at body size read heavy and dated;
+       every other app in the family sets its buttons and inputs a step down. */
+    font-size: var(--text-sm);
     transition: background-color var(--dur-fast) var(--ease-standard),
       color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard),
       box-shadow var(--dur-fast) var(--ease-standard);
@@ -192,6 +205,7 @@ input[type='checkbox'] {
 
   .input {
     @apply w-full rounded-sm px-3 min-h-touch outline-none;
+    font-size: var(--text-sm);
     background: var(--bg-inset);
     border: 1px solid var(--border-default);
     color: var(--text-primary);

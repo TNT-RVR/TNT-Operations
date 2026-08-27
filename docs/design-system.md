@@ -51,6 +51,16 @@ desktop, and the round trip to Google Fonts bought nothing.
   header, badge and eyebrow made the app read as instrumentation — shouty, and
   technical in a way that suits a control panel more than a place someone works
   all day. Small and grey is enough hierarchy; it does not also need to shout.
+- **Headings use NORMAL tracking.** They set `--ls-tight` (-0.015em) on every
+  h1-h6 until 2026-08-27. Negative letter-spacing reads as "designed" on a
+  marketing page and as cramped on a working screen; Segoe UI is already fairly
+  tight, and pulling it in further is what made this app's type feel wrong next
+  to the other TNT/GFC apps, which leave it alone. Line-height went 1.05 -> 1.2
+  at the same time: 1.05 is a poster value and any heading that wrapped collided.
+  **The typeface was never the difference** — RVR loads no webfont and resolves
+  to the same physical face this does (verified 2026-08-27).
+- **Buttons and inputs are `--text-sm` (14px), not body size.** Controls at 16px
+  read heavy and dated; the rest of the family sets them a step down.
 - **Numbers in a table column: use `tabular-nums`, not `font-mono`.**
   `tabular-nums` aligns the digits while keeping the body typeface;
   `font-mono`/`.tabular` also swap the *face*, which makes that column the only

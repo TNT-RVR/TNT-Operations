@@ -11,10 +11,19 @@ a folksy honey brand.
 
 ## 1. Token layer
 
-Everything references `var(--*)` from `src/styles/tokens.css`. Dark is the default;
-`.on-light` on the root element flips the semantic tokens. Theme selection lives in
-`src/styles/theme.tsx` (`useTheme()` / `<ThemeProvider>`), persisted per device and
-toggled from **Users → Settings** and the header button.
+Everything references `var(--*)` from `src/styles/tokens.css`. **LIGHT is the
+default as of 2026-08-27** — the tokens are still authored dark-first and
+`.on-light` on the root element flips them, which is an implementation detail,
+not a statement about which theme people see. Dark remains complete and is one
+toggle away. Theme selection lives in `src/styles/theme.tsx` (`useTheme()` /
+`<ThemeProvider>`), persisted per device on an actual choice and toggled from
+**Users → Settings** and the header button.
+
+Because the base sheet is dark, an inline script in `index.html` applies the
+theme BEFORE paint; deciding it in React showed black on every cold load and
+then snapped to white. That script repeats the storage key and the default by
+hand — nothing from the bundle has loaded yet — and `themeBoot.test.ts` fails if
+the two drift.
 
 Never hardcode a hex in a component. Map new needs to a token first. The single
 allowlisted exception is `src/features/maps/**`, where MapLibre paint requires
@@ -79,9 +88,11 @@ with `gap`, not margins between siblings.
 ## 5. Cards & elevation
 
 `background: var(--bg-raised)`, 1px `--border-subtle`, `--radius-lg` (18px).
-Buttons/inputs use `--radius-sm` (10px). The whole radius scale moved up a step
-on 2026-08-27 rather than special-casing components: buttons and inputs sat at
-6px against a 48px touch target, which reads as a box with its corners filed. Elevation from `--shadow-*`; `--glow-brand`
+Buttons/inputs use `--radius-sm` (6px). The scale was rounded up on 2026-08-27
+and brought back down the same day: measuring the RVR app settled it, since its
+controls are 6px and its cards 12px — TIGHTER than this app has ever been. What
+read as hard-edged was the dark theme, the wide-tracked capitals and the
+squeezed headings, not the radius. Elevation from `--shadow-*`; `--glow-brand`
 reserved for the single most important element. Featured panels may carry a 2px
 honey top edge (`<Card featured>`). Interactive cards lift `translateY(-2px)` and
 brighten the border on hover (`<Card interactive>`).

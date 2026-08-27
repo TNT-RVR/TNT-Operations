@@ -87,12 +87,14 @@
   --container-max:1200px; --container-wide:1440px; --gutter:24px;
 
   /* Radius — tight, engineered */
-  /* Softened 2026-08-27. Buttons and inputs sat at 6px against a 48px touch
-     target, which reads as a box with the corners filed rather than a rounded
-     control. The whole scale moved up a step so nothing had to be special-cased
-     per component. */
-  --radius-xs:4px; --radius-sm:10px; --radius-md:14px; --radius-lg:18px;
-  --radius-xl:24px; --radius-2xl:32px; --radius-pill:999px;
+  /* Rounded up on 2026-08-27 and brought straight back down the same day.
+     Measuring the RVR app settled it: its controls are 6px and its cards 12px,
+     TIGHTER than TNT has ever been. What read as hard-edged was never the
+     radius — it was the dark theme, the wide-tracked capitals and the squeezed
+     headings, all since dealt with. So this matches the family instead of
+     compensating for the wrong thing. */
+  --radius-xs:3px; --radius-sm:6px; --radius-md:10px; --radius-lg:12px;
+  --radius-xl:18px; --radius-2xl:24px; --radius-pill:999px;
 
   /* Elevation */
   --shadow-xs:0 1px 2px rgba(0,0,0,0.5);

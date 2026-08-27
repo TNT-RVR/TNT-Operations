@@ -9,14 +9,41 @@
          screen, and it must be a real 180px image rather than a scaled 3000px one. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#050506" />
-    <!-- Installed on iOS: run without Safari's chrome, and let the dark status
-         bar blend into the app rather than sitting on a white strip. -->
+    <!-- Light by default since 2026-08-27; the dark value is swapped in below
+         when that is the stored choice, so the browser chrome matches. -->
+    <meta name="theme-color" content="#FFFFFF" />
+    <!-- Installed on iOS: run without Safari's chrome. `default` gives dark
+         status-bar text, which is what a light app needs — `black-translucent`
+         paints white glyphs and they vanished against the page. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="TNT Ops" />
     <meta name="mobile-web-app-capable" content="yes" />
     <title>TNT Operations</title>
+    <!--
+      Theme before paint.
+
+      The base stylesheet is dark and `.on-light` overrides it, so deciding this
+      in React means a black screen on every cold load that then snaps to white.
+      This runs synchronously in <head>, before the body exists, so there is
+      nothing to flash. Kept in step with src/styles/theme.tsx — same key, same
+      default; it is duplicated because nothing from the bundle has loaded yet.
+    -->
+    <script>
+      (function () {
+        try {
+          var v = localStorage.getItem('tnt-theme-v2')
+          var dark = v === 'dark'
+          document.documentElement.classList.toggle('on-light', !dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var m = document.querySelector('meta[name="theme-color"]')
+          if (m) m.setAttribute('content', dark ? '#050506' : '#FFFFFF')
+        } catch (e) {
+          /* private mode: fall through to the light default in the markup */
+          document.documentElement.classList.add('on-light')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

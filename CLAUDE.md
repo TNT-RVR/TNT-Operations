@@ -44,8 +44,16 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
     `npm run lint:tokens` flags raw hex outside the token layer (map files are the
     one allowlisted exception — MapLibre paint needs literal hex; keep it aligned
     to token values).
-  - **Dark-first, honey-only.** Dark is the default; `.on-light` on `<html>` flips
-    it (toggle in Users → Settings and the header, via `src/styles/theme.tsx`).
+  - **Light-default, honey-only.** LIGHT is the default as of 2026-08-27;
+    dark is fully supported and one toggle away (Users → Settings and the
+    header, via `src/styles/theme.tsx`). The base stylesheet is still dark with
+    `.on-light` overriding it, so an inline script in `index.html` picks the
+    theme BEFORE paint — a React-level flip showed black then snapped to white
+    on every cold load. That script repeats the storage key and the default by
+    hand (nothing from the bundle exists yet); `themeBoot.test.ts` fails if it
+    drifts from the provider. The key is versioned `-v2` because the old
+    provider persisted on MOUNT, so everyone had `dark` stored whether they
+    chose it or not; persistence is now tied to an actual choice.
     Honey (`--brand`, `#FEB836`) is the ONLY accent — one primary honey element per
     view; everything else neutral ink. Borders are white-alpha hairlines. Field
     green is retired. Status greens/reds/blues are muted, chart-only data palette.

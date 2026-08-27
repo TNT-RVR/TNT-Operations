@@ -44,7 +44,7 @@ export function HomeTiles() {
   return (
     <section className="md:hidden">
       <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">Shortcuts</h2>
+        <h2 className="text-sm font-semibold text-muted">Shortcuts</h2>
         <Link to="/users/account" className="text-xs text-faint underline">
           Edit
         </Link>

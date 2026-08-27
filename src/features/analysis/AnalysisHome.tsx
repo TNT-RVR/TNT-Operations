@@ -95,7 +95,7 @@ function Overview() {
 
           <Card className="mb-4">
             <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-secondary">
+              <h2 className="text-sm font-semibold text-secondary">
                 Strongest leads
               </h2>
               <Link to="/analysis/correlations" className="inline-flex items-center gap-1 text-xs text-brand">
@@ -131,7 +131,7 @@ function Overview() {
           </Card>
 
           <Card>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-secondary">
+            <h2 className="mb-2 text-sm font-semibold text-secondary">
               How to read this
             </h2>
             <p className="text-sm text-secondary">

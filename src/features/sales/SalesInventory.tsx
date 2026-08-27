@@ -65,7 +65,7 @@ export function InventoryHome() {
                     </td>
                     <td
                       className={`px-3 py-2 text-right tabular-nums font-medium ${
-                        available <= 0 ? 'text-danger' : low ? 'text-warn' : 'text-primary'
+ available <= 0 ? 'text-danger' : low ? 'text-warn' : 'text-primary'
                       }`}
                     >
                       {fmtNum(available)}
@@ -154,7 +154,7 @@ export function InventoryHome() {
                       <td className="px-3 py-2 text-secondary">{m.reason}</td>
                       <td
                         className={`px-3 py-2 text-right tabular-nums ${
-                          m.delta < 0 ? 'text-danger' : 'text-primary'
+ m.delta < 0 ? 'text-danger' : 'text-primary'
                         }`}
                       >
                         {m.delta > 0 ? '+' : ''}
@@ -197,7 +197,7 @@ function AdjustModal({
               key={r}
               onClick={() => setReason(r)}
               className={`rounded px-3 py-1.5 text-sm capitalize ${
-                reason === r ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
+ reason === r ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
               }`}
             >
               {r}

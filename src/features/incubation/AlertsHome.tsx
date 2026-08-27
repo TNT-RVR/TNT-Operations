@@ -180,7 +180,7 @@ function AlertRow({ alert: a, incubatorName }: { alert: IncubatorAlert; incubato
     <li className="px-3 py-2">
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <Badge tone={SEVERITY_TONE[a.severity] ?? 'blue'}>{a.severity}</Badge>
-        <span className="text-xs uppercase tracking-wide text-muted">{typeLabel(a.alertType)}</span>
+        <span className="text-xs text-muted">{typeLabel(a.alertType)}</span>
         {a.incubatorId && (
           <span className="text-sm text-secondary">{incubatorName.get(a.incubatorId) ?? 'Unknown incubator'}</span>
         )}

@@ -71,7 +71,7 @@ export function MapToolbar({
             key={g}
             onClick={() => onTool(g)}
             className={`rounded-sm px-2.5 py-1 text-xs font-medium transition ${
-              tool === g ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
+ tool === g ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
             }`}
           >
             {GROUP_LABEL[g]}
@@ -90,7 +90,7 @@ export function MapToolbar({
               onClick={() => onToggleLayer(d.id)}
               title={on ? `Hide ${d.label}` : `Show ${d.label}`}
               className={`inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 text-xs transition ${
-                on ? 'border-default text-primary' : 'border-subtle text-faint'
+ on ? 'border-default text-primary' : 'border-subtle text-faint'
               }`}
               style={on ? undefined : { opacity: 0.6 }}
             >
@@ -111,7 +111,7 @@ export function MapToolbar({
               onClick={a.onClick}
               disabled={a.disabled}
               className={`${
-                a.active || a.primary ? 'btn-primary' : 'btn-ghost'
+ a.active || a.primary ? 'btn-primary' : 'btn-ghost'
               } min-h-0 px-2.5 py-1 text-xs disabled:opacity-40`}
             >
               {a.label}

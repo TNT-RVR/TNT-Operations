@@ -132,7 +132,7 @@ export function IncubatorExport({ incubator }: { incubator: Incubator }) {
                 setDone(null)
               }}
               className={`rounded-sm border px-2 py-1 text-xs transition ${
-                active
+ active
                   ? 'border-brand text-brand'
                   : 'border-default text-secondary hover:text-primary'
               }`}
@@ -180,7 +180,7 @@ export function IncubatorExport({ incubator }: { incubator: Incubator }) {
                 setDone(null)
               }}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs transition ${
-                format === f ? 'bg-raised text-primary' : 'text-muted hover:text-primary'
+ format === f ? 'bg-raised text-primary' : 'text-muted hover:text-primary'
               }`}
               aria-pressed={format === f}
             >

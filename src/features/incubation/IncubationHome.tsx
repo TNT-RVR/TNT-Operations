@@ -97,7 +97,7 @@ export default function IncubationHome() {
                   <dt className="text-muted">Temp (latest)</dt>
                   <dd
                     className={`font-semibold ${
-                      age.stale ? 'text-faint' : tempOut ? 'text-danger' : 'text-primary'
+ age.stale ? 'text-faint' : tempOut ? 'text-danger' : 'text-primary'
                     }`}
                   >
                     {r ? `${r.tempC.toFixed(1)}°C` : '—'}{' '}
@@ -111,7 +111,7 @@ export default function IncubationHome() {
                   <dt className="text-muted">Humidity (latest)</dt>
                   <dd
                     className={`font-semibold ${
-                      age.stale ? 'text-faint' : humOut ? 'text-danger' : 'text-primary'
+ age.stale ? 'text-faint' : humOut ? 'text-danger' : 'text-primary'
                     }`}
                   >
                     {r ? `${r.humidityPct}%` : '—'}{' '}

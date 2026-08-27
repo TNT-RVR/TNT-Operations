@@ -80,7 +80,7 @@ export default function TasksHome() {
               key={v}
               onClick={() => setScope(v)}
               className={`px-3 py-1.5 text-sm capitalize ${
-                scope === v ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-overlay'
+ scope === v ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-overlay'
               }`}
             >
               {v === 'mine' ? 'Mine' : 'Everyone'}
@@ -292,7 +292,7 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
         {/* ── Recurrence ── */}
         {canEdit && (
           <div>
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Repeat</h3>
+            <h3 className="mb-2 text-sm font-semibold text-muted">Repeat</h3>
             <div className="flex flex-wrap items-end gap-2">
               <label className="block w-40">
                 <span className="label">Frequency</span>
@@ -355,7 +355,7 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
                         })
                       }
                       className={`h-9 w-9 rounded text-sm ${
-                        on ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
+ on ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
                       }`}
                       aria-pressed={on}
                     >
@@ -378,7 +378,7 @@ export function TaskEditor({ task, onClose }: { task: Task; onClose: () => void 
         {/* ── Steps ── */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">
+            <h3 className="text-sm font-semibold text-muted">
               {task.checklistId ? 'Checklist steps' : 'Subtasks'}
             </h3>
             {progress.fraction != null && (

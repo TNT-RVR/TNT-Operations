@@ -288,7 +288,7 @@ export default function ScanHome() {
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
               <div className="text-3xl font-bold text-primary tabular-nums">{okCount}</div>
-              <div className="text-xs uppercase tracking-wide text-faint">trays this run</div>
+              <div className="text-xs text-faint">trays this run</div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               {entries.length > 0 && (
@@ -370,7 +370,7 @@ export default function ScanHome() {
                         key={r.id}
                         onClick={() => setSampleId(r.id)}
                         className={`rounded-sm px-2 py-1 text-xs transition ${
-                          r.id === sampleId ? 'bg-brand text-on-brand' : 'text-secondary'
+ r.id === sampleId ? 'bg-brand text-on-brand' : 'text-secondary'
                         }`}
                       >
                         {r.name} · {r.count}

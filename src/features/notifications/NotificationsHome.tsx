@@ -86,7 +86,7 @@ export default function NotificationsHome() {
               key={t}
               onClick={() => switchTab(t)}
               className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium capitalize ${
-                tab === t ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
+ tab === t ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
               {t}
@@ -135,7 +135,7 @@ export default function NotificationsHome() {
                         ['push', 'Push'],
                       ] as const
                     ).map(([k, label]) => (
-                      <label key={k} className="flex flex-col items-center gap-1 text-[11px] uppercase tracking-wider text-muted">
+                      <label key={k} className="flex flex-col items-center gap-1 text-[11px] text-muted">
                         {label}
                         <Switch checked={p[k]} onChange={(v) => setChannel(a.type, k, v)} label={`${a.label} via ${label}`} />
                       </label>

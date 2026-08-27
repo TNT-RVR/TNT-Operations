@@ -172,7 +172,7 @@ export default function UsersHome() {
         {/* ── Logins with no profile ── */}
         {orphans.length > 0 && (
           <section>
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-danger">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-danger">
               <TriangleAlert size={15} /> Logins with no profile · {orphans.length}
             </h2>
             <div className="rounded-lg border border-danger/40 bg-danger/10 p-3">
@@ -201,7 +201,7 @@ export default function UsersHome() {
         {/* ── Waiting on setup ── */}
         {waiting.length > 0 && (
           <section>
-            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-warn">
+            <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-warn">
               <Mail size={15} /> Waiting on setup · {waiting.length}
             </h2>
             <div className="rounded-lg border border-warn/40 bg-warn/10 p-3">
@@ -234,7 +234,7 @@ export default function UsersHome() {
 
         {/* ── Active accounts ── */}
         <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+          <h2 className="mb-2 text-sm font-semibold text-muted">
             Active accounts · {active.length}
           </h2>
           {active.length === 0 ? (

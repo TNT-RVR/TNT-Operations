@@ -282,7 +282,7 @@ export default function CalendarHome() {
               <div className="min-w-[640px] overflow-hidden rounded-lg border border-subtle">
                 <div className="grid grid-cols-7 border-b border-subtle bg-overlay">
                   {DOW.map((d) => (
-                    <div key={d} className="px-2 py-1 text-xs uppercase tracking-wide text-muted">
+                    <div key={d} className="px-2 py-1 text-xs text-muted">
                       {d}
                     </div>
                   ))}
@@ -297,7 +297,7 @@ export default function CalendarHome() {
                         <div
                           key={ymd}
                           className={`min-h-20 border-r border-subtle p-1 last:border-r-0 ${
-                            inMonth ? '' : 'opacity-40'
+ inMonth ? '' : 'opacity-40'
                           } ${isToday ? 'bg-brand-subtle' : ''}`}
                         >
                           <div className="flex items-baseline justify-between">
@@ -350,7 +350,7 @@ export default function CalendarHome() {
                               <div
                                 key={`cl-${e.fieldName}-${e.step}`}
                                 className={`truncate rounded-sm px-1 py-0.5 text-[10px] leading-tight ${
-                                  e.kind === 'done'
+ e.kind === 'done'
                                     ? 'font-semibold'
                                     : 'border border-dashed border-default text-secondary'
                                 }`}

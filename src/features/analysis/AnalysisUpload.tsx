@@ -223,7 +223,7 @@ function Uploader() {
 
               {problems.length > 0 && (
                 <Card className="mb-4">
-                  <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--warn-fg)' }}>
+                  <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--warn-fg)' }}>
                     <AlertTriangle size={15} /> {problems.length} thing{problems.length === 1 ? '' : 's'} to check
                   </h2>
                   <ul className="space-y-1 text-sm text-secondary">
@@ -238,7 +238,7 @@ function Uploader() {
               )}
 
               <Card className="mb-4">
-                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-secondary">
+                <h2 className="mb-3 text-sm font-semibold text-secondary">
                   Preview — first 15 rows
                 </h2>
                 <div className="overflow-x-auto">

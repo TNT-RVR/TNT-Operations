@@ -163,24 +163,30 @@ input[type='checkbox'] {
     box-shadow: var(--shadow-sm);
   }
 
-  /* Eyebrows / field labels: uppercase mono, instrumentation feel. */
   /*
-   * Labels, eyebrows and table headers are UPPERCASE with wide tracking — but
-   * in the SANS, not the mono. They used to set `font-mono`, which put the
-   * chrome of every screen in Consolas while its content was Segoe UI: two
-   * typefaces on one page, and the reason this app read as a different family
-   * from the other TNT/GFC apps. Mono is for readouts (see `.tabular`).
+   * Labels, eyebrows and table headers.
+   *
+   * These were UPPERCASE with wide tracking, in the sans (they were mono until
+   * 2026-08-19, which put every screen's chrome in Consolas — that part stays
+   * fixed; mono is for readouts, see `.tabular`).
+   *
+   * The caps went on 2026-08-27. Wide-tracked capitals on every label, table
+   * header, badge and eyebrow made the app read as instrumentation — shouty,
+   * and technical in a way that suited a control panel more than a place
+   * someone works all day. Sentence case at a slightly larger size carries the
+   * same hierarchy: these are quiet because they are small and grey, which is
+   * enough, and it is what the rest of the TNT/GFC apps do.
    */
   .label {
-    @apply mb-1 block uppercase;
-    font-size: var(--text-2xs);
-    letter-spacing: var(--ls-wider);
+    @apply mb-1 block;
+    font-size: var(--text-xs);
+    letter-spacing: var(--ls-normal);
     color: var(--text-muted);
   }
   .eyebrow {
-    @apply uppercase;
-    font-size: var(--text-2xs);
-    letter-spacing: var(--ls-widest);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: var(--ls-normal);
     color: var(--text-brand);
   }
 
@@ -200,11 +206,12 @@ input[type='checkbox'] {
     box-shadow: 0 0 0 3px var(--brand-ring);
   }
 
-  /* Table headers: uppercase mono over a faint wash. */
+  /* Table headers: sentence case over a faint wash. */
   .th {
-    @apply px-3 py-2 text-left uppercase;
-    font-size: var(--text-2xs);
-    letter-spacing: var(--ls-wider);
+    @apply px-3 py-2 text-left;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: var(--ls-normal);
     color: var(--text-muted);
     background: var(--bg-overlay);
     border-bottom: 1px solid var(--border-subtle);

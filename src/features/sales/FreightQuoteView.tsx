@@ -108,7 +108,7 @@ export function FreightQuoteView({ order }: { order: SalesOrder }) {
     <div className="space-y-5">
       {quote.blockers.length > 0 && (
         <div className="print-hide rounded border border-danger/40 bg-[color:var(--danger-bg)] p-3">
-          <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-danger">
+          <p className="mb-1 flex items-center gap-2 text-xs font-semibold text-danger">
             <AlertTriangle size={14} /> Not ready to send — {quote.blockers.length} thing
             {quote.blockers.length === 1 ? '' : 's'} the quote needs
           </p>
@@ -474,7 +474,7 @@ function PrintHeading({ order }: { order: SalesOrder }) {
 function Section({ title, help, children }: { title: string; help?: string; children: React.ReactNode }) {
   return (
     <section className="card">
-      <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+      <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold text-muted">
         {title}
         {help && (
           <span className="print-hide">

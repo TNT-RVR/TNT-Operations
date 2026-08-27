@@ -124,7 +124,7 @@ function Detail() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-secondary">
+          <h2 className="mb-1 text-sm font-semibold text-secondary">
             X-ray grading
           </h2>
           <p className="mb-3 text-xs text-muted">
@@ -160,7 +160,7 @@ function Detail() {
 
         <div className="flex flex-col gap-4">
           <Card>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-secondary">
+            <h2 className="mb-3 text-sm font-semibold text-secondary">
               Operation
             </h2>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -180,7 +180,7 @@ function Detail() {
           </Card>
 
           <Card>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-secondary">
+            <h2 className="mb-3 text-sm font-semibold text-secondary">
               Timeline
             </h2>
             <dl className="space-y-2 text-sm">
@@ -202,7 +202,7 @@ function Detail() {
 
       {history.length > 1 && (
         <Card className="mt-4">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-secondary">
+          <h2 className="mb-3 text-sm font-semibold text-secondary">
             This field across seasons
           </h2>
           <div className="h-[260px] w-full">

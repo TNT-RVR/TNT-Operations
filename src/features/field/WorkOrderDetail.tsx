@@ -182,7 +182,7 @@ export default function WorkOrderDetail() {
             {/* When, where, who — the three things asked at the yard gate. */}
             <dl className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border border-default p-3">
-                <dt className="flex items-center gap-1 text-xs uppercase tracking-wide text-faint">
+                <dt className="flex items-center gap-1 text-xs text-faint">
                   <CalendarDays size={13} />
                   When
                 </dt>
@@ -195,7 +195,7 @@ export default function WorkOrderDetail() {
               </div>
 
               <div className="rounded-md border border-default p-3">
-                <dt className="flex items-center gap-1 text-xs uppercase tracking-wide text-faint">
+                <dt className="flex items-center gap-1 text-xs text-faint">
                   <MapPin size={13} />
                   Where
                 </dt>
@@ -210,7 +210,7 @@ export default function WorkOrderDetail() {
               </div>
 
               <div className="rounded-md border border-default p-3">
-                <dt className="flex items-center gap-1 text-xs uppercase tracking-wide text-faint">
+                <dt className="flex items-center gap-1 text-xs text-faint">
                   <Users size={13} />
                   Who
                 </dt>

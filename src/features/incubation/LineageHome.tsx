@@ -96,7 +96,7 @@ export default function LineageHome() {
                   key={t.id}
                   onClick={() => setSelected(t)}
                   className={`mb-1.5 block w-full rounded-sm border p-2.5 text-left text-sm transition ${
-                    active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
+ active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
                   }`}
                 >
                   <div className="flex items-center justify-between">

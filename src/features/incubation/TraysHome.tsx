@@ -340,12 +340,12 @@ export default function TraysHome() {
             <div className="hidden overflow-x-auto rounded-lg border border-subtle md:block">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
+                <tr className="border-b border-subtle bg-overlay text-left text-xs text-muted">
                   {COLUMNS.map((c) => (
                     <th
                       key={c.key}
                       className={`cursor-pointer select-none px-3 py-2 hover:text-secondary ${
-                        c.align === 'right' ? 'text-right' : ''
+ c.align === 'right' ? 'text-right' : ''
                       }`}
                       onClick={() => toggleSort(c.key)}
                     >

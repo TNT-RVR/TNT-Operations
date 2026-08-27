@@ -248,7 +248,7 @@ function Weather() {
           </Card>
 
           <Card>
-            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-secondary">
+            <h2 className="mb-1 text-sm font-semibold text-secondary">
               Weather leads
             </h2>
             <p className="mb-3 text-xs text-muted">

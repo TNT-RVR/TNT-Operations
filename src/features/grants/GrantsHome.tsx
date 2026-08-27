@@ -401,7 +401,7 @@ export default function GrantsHome() {
                 setStatusFilter('all')
               }}
               className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
-                tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
+ tab === key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
               {label} <span className="ml-1 tabular-nums text-xs text-faint">{n}</span>

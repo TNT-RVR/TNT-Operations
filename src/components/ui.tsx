@@ -213,7 +213,7 @@ export function Badge({ children, tone = 'brand' }: { children: ReactNode; tone?
   const c = CHIP[tone]
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 uppercase"
+      className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5"
       style={{ fontSize: 'var(--text-2xs)', letterSpacing: 'var(--ls-wide)', color: c.fg, background: c.bg, border: `1px solid ${c.bd}` }}
     >
       {children}
@@ -230,7 +230,7 @@ export function Tag({ children }: { children: ReactNode }) {
   )
 }
 
-/** KPI readout — the workhorse. Mono value, uppercase label, optional delta. */
+/** KPI readout — the workhorse. Mono value, quiet label, optional delta. */
 export function Stat({
   label,
   value,
@@ -394,7 +394,7 @@ export function Avatar({
       title={label}
       aria-label={label}
       className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold ${
-        isYou ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
+ isYou ? 'bg-brand text-on-brand' : 'bg-overlay text-secondary'
       } ${className}`}
       // Font scales with the circle so two letters fit at every size.
       style={{ width: px, height: px, fontSize: Math.round(px * 0.4) }}

@@ -654,7 +654,7 @@ export default function ShelterPlacement() {
           ))}
         </select>
         <span
-          className="rounded-pill px-2.5 py-1.5 text-[11px] uppercase tracking-wider"
+          className="rounded-pill px-2.5 py-1.5 text-[11px]"
           style={{
             background: gps ? 'var(--ok-bg)' : 'var(--danger-bg)',
             color: gps ? 'var(--ok-fg)' : 'var(--danger-fg)',

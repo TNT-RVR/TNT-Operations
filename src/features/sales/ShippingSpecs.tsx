@@ -68,7 +68,7 @@ export function ShippingSpecsHome() {
     >
       {gaps.length > 0 && (
         <div className="mb-4 rounded border border-warn/40 bg-warn/10 p-3">
-          <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warn">
+          <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-warn">
             <AlertTriangle size={14} /> {gaps.length} item{gaps.length === 1 ? '' : 's'} cannot be quoted
           </p>
           <ul className="space-y-2 text-xs">
@@ -102,7 +102,7 @@ export function ShippingSpecsHome() {
       */}
       {unshipped.length > 0 && (
         <div className="mb-4 rounded border border-subtle p-3">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted">
+          <p className="mb-1 text-xs font-semibold text-muted">
             {unshipped.length} product{unshipped.length === 1 ? '' : 's'} do not say how they ship
           </p>
           <p className="text-xs text-secondary">
@@ -420,7 +420,7 @@ function SpecEditor({
 
         {/* ── What one pallet comes to ── */}
         <div className="card">
-          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted">
             <Package size={14} /> One full pallet
           </h3>
           {pallet ? (
@@ -445,11 +445,11 @@ function SpecEditor({
         {problems.length > 0 && (
           <div
             className={`rounded border p-3 ${
-              blocking.length ? 'border-danger/40 bg-[color:var(--danger-bg)]' : 'border-warn/40 bg-warn/10'
+ blocking.length ? 'border-danger/40 bg-[color:var(--danger-bg)]' : 'border-warn/40 bg-warn/10'
             }`}
           >
             <p
-              className={`mb-1 text-xs font-semibold uppercase tracking-wider ${
+              className={`mb-1 text-xs font-semibold ${
                 blocking.length ? 'text-danger' : 'text-warn'
               }`}
             >

@@ -117,7 +117,7 @@ export function AccessTab() {
           <div
             key={i}
             className={`rounded border p-2 text-xs ${
-              w.severity === 'blocker'
+ w.severity === 'blocker'
                 ? 'border-danger/40 bg-[color:var(--danger-bg)] text-danger'
                 : 'border-warn/40 bg-warn/10 text-warn'
             }`}
@@ -159,7 +159,7 @@ export function AccessTab() {
                               : undefined
                           }
                           className={`inline-flex min-w-16 items-center justify-center gap-1 rounded px-2 py-1 text-xs ${GRANT_TONE[g]} ${
-                            canEdit && !locked ? 'hover:opacity-80' : 'cursor-default'
+ canEdit && !locked ? 'hover:opacity-80' : 'cursor-default'
                           }`}
                         >
                           {locked && <Lock size={11} />}
@@ -456,7 +456,7 @@ export function AccountTab() {
     <SettingsChrome>
       <div className="max-w-lg space-y-4">
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">You</h3>
+          <h3 className="text-sm font-semibold text-muted">You</h3>
           <AvatarPicker user={s.user} canEdit showButtons />
           <div className="text-sm">
             <div className="text-primary">{s.user.email}</div>
@@ -487,7 +487,7 @@ export function AccountTab() {
         <SignatureCard />
 
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Appearance</h3>
+          <h3 className="text-sm font-semibold text-muted">Appearance</h3>
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-primary">Light theme</div>
@@ -503,7 +503,7 @@ export function AccountTab() {
 
         {s.authMode === 'supabase' && (
           <div className="card space-y-3">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Password</h3>
+            <h3 className="text-sm font-semibold text-muted">Password</h3>
             <label className="block">
               <span className="label">New password</span>
               <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
@@ -580,7 +580,7 @@ function SignatureCard() {
   return (
     <div className="card space-y-3">
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Your signature</h3>
+        <h3 className="text-sm font-semibold text-muted">Your signature</h3>
         <p className="mt-1 text-xs text-muted">
           Only you can see or use this. Other people add their own; nobody can sign as you. Applying it to a
           document records who signed, when, from where, and a fingerprint of exactly what was signed.

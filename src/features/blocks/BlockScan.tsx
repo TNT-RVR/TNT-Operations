@@ -353,7 +353,7 @@ export default function BlockScan() {
                 setPending(null)
               }}
               className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                mode === m ? 'border-brand bg-brand/10 text-brand' : 'border-default text-muted hover:border-brand'
+ mode === m ? 'border-brand bg-brand/10 text-brand' : 'border-default text-muted hover:border-brand'
               }`}
             >
               {MODE_COPY[m].label}

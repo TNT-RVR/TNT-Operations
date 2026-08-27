@@ -178,7 +178,7 @@ export default function BeePurchases() {
           {/* ── Price history ── */}
           {series.length > 1 && (
             <div className="card">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">Cost per gallon</h3>
+              <h3 className="mb-3 text-sm font-semibold text-muted">Cost per gallon</h3>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={series} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>

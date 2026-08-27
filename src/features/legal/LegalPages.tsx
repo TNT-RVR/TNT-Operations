@@ -46,7 +46,7 @@ function LegalPage({ title, subtitle, children }: { title: string; subtitle: str
           </Link>
           <h1 className="mt-6 font-display text-3xl font-bold tracking-tight text-primary">{title}</h1>
           <p className="mt-2 text-sm text-muted">{subtitle}</p>
-          <p className="mt-1 text-xs uppercase tracking-wider text-muted">Last updated {LAST_UPDATED}</p>
+          <p className="mt-1 text-xs text-muted">Last updated {LAST_UPDATED}</p>
         </header>
 
         <div className="card space-y-6 p-6 text-sm leading-relaxed text-primary">{children}</div>

@@ -86,7 +86,7 @@ function Switch<T extends string>({
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <span className="text-xs uppercase tracking-wide text-faint">{label}</span>
+      <span className="text-xs text-faint">{label}</span>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
     </>
   )

@@ -247,7 +247,7 @@ export function FieldEditor({ name, draft, isPivot, count, dirty, warnings = [],
         <div>
           <button
             type="button"
-            className="text-xs uppercase tracking-wider text-muted hover:text-secondary"
+            className="text-xs text-muted hover:text-secondary"
             onClick={() => setShowAdvanced((v) => !v)}
           >
             {showAdvanced ? '▾' : '▸'} Advanced

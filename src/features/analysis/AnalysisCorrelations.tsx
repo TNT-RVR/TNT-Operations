@@ -285,7 +285,7 @@ function Correlations() {
 
           <Card>
             <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-secondary">
+              <h2 className="text-sm font-semibold text-secondary">
                 {verdictFilter
                   ? `${VERDICT_TITLES[verdictFilter] ?? verdictFilter} (${visiblePairs.length})`
                   : `Every pair (${screen.tested})`}

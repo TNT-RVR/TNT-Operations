@@ -48,7 +48,7 @@ export default function ChecklistsHome() {
         ) : undefined
       }
     >
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Library</h3>
+      <h3 className="mb-2 text-sm font-semibold text-muted">Library</h3>
       {checklists.length === 0 ? (
         <EmptyState>No checklists yet.</EmptyState>
       ) : (
@@ -79,7 +79,7 @@ export default function ChecklistsHome() {
         </ul>
       )}
 
-      <h3 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wider text-muted">In progress</h3>
+      <h3 className="mb-2 mt-6 text-sm font-semibold text-muted">In progress</h3>
       {runs.length === 0 ? (
         <EmptyState>No checklists are running right now.</EmptyState>
       ) : (
@@ -166,7 +166,7 @@ function ChecklistEditor({ checklist, onClose }: { checklist: Checklist; onClose
         </div>
 
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+          <h3 className="mb-2 text-sm font-semibold text-muted">
             Steps ({steps.length})
           </h3>
           <p className="mb-2 text-xs text-muted">

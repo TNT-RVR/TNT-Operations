@@ -347,7 +347,7 @@ export default function Layout() {
         */}
         <nav
           className={`hidden w-56 shrink-0 flex-col border-r border-subtle bg-surface p-3 ${
-            navHidden ? 'md:hidden' : 'md:flex'
+ navHidden ? 'md:hidden' : 'md:flex'
           }`}
         >
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -405,7 +405,7 @@ export default function Layout() {
                   to={c.to}
                   end={c.end}
                   className={({ isActive }) =>
-                    `tap-target shrink-0 rounded-sm px-3 py-1.5 text-xs uppercase tracking-wide transition inline-flex items-center ${
+                    `tap-target shrink-0 rounded-sm px-3 py-1.5 text-xs  transition inline-flex items-center ${
                       isActive ? 'bg-brand text-on-brand' : 'text-secondary hover:bg-[color:var(--hover-wash)]'
                     }`
                   }
@@ -442,7 +442,7 @@ export default function Layout() {
           <button
             onClick={() => setMoreOpen((v) => !v)}
             className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${
-              moreOpen || mobileMore.some((n) => pathname.startsWith(n.to)) ? 'text-brand' : 'text-muted'
+ moreOpen || mobileMore.some((n) => pathname.startsWith(n.to)) ? 'text-brand' : 'text-muted'
             }`}
             aria-expanded={moreOpen}
             aria-label="More sections"

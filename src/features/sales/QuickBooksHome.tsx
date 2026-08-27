@@ -345,7 +345,7 @@ export default function QuickBooksHome() {
           {status?.connected && (
             <div className="card space-y-3">
               <div>
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Mapping</h3>
+                <h3 className="text-sm font-semibold text-muted">Mapping</h3>
                 <p className="mt-1 text-xs text-muted">
                   Pushes are blocked until these are set. The app won't guess an account or a tax code — a wrong
                   one is discovered months later by an accountant.
@@ -445,7 +445,7 @@ export default function QuickBooksHome() {
 
           {/* ── Recent activity ── */}
           <div>
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Recent syncs</h3>
+            <h3 className="mb-2 text-sm font-semibold text-muted">Recent syncs</h3>
             {log.length === 0 ? (
               <EmptyState>Nothing has synced yet.</EmptyState>
             ) : (

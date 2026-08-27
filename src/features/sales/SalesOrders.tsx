@@ -241,7 +241,7 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
         {/* ── Lines ── */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Lines</h3>
+            <h3 className="text-sm font-semibold text-muted">Lines</h3>
           </div>
           {order.lines.length === 0 ? (
             <p className="text-sm text-muted">No lines yet.</p>
@@ -358,7 +358,7 @@ function OrderEditor({ order, onClose }: { order: SalesOrder; onClose: () => voi
         {/* ── Anything that makes this untrustworthy ── */}
         {(computed.packing.warnings.length > 0 || computed.warnings.length > 0) && (
           <div className="rounded border border-warn/40 bg-warn/10 p-3">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-warn">Check before sending</p>
+            <p className="mb-1 text-xs font-semibold text-warn">Check before sending</p>
             <ul className="list-disc space-y-0.5 pl-4 text-xs text-secondary">
               {[...computed.packing.warnings, ...new Set(computed.warnings)].map((w, i) => (
                 <li key={i}>{w}</li>
@@ -450,7 +450,7 @@ function ChargesEditor({
 
   return (
     <div>
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Charges</h3>
+      <h3 className="mb-2 text-sm font-semibold text-muted">Charges</h3>
       {order.charges.length > 0 && (
         <ul className="mb-2 space-y-1">
           {order.charges.map((c) => (

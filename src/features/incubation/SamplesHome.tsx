@@ -285,7 +285,7 @@ export default function SamplesHome() {
           {importMsg && (
             <p
               className={`mb-2 rounded-sm border border-default px-3 py-2 text-sm ${
-                importMsg.ok ? 'text-primary' : 'text-danger'
+ importMsg.ok ? 'text-primary' : 'text-danger'
               }`}
             >
               {importMsg.text}
@@ -297,12 +297,12 @@ export default function SamplesHome() {
             <div className="overflow-x-auto rounded-lg border border-subtle">
               <table className="w-full min-w-[880px] text-sm">
                 <thead>
-                  <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
+                  <tr className="border-b border-subtle bg-overlay text-left text-xs text-muted">
                     {SAMPLE_COLUMNS.map((c) => (
                       <th
                         key={c.key}
                         className={`cursor-pointer select-none px-3 py-2 hover:text-secondary ${
-                          c.align === 'right' ? 'text-right' : ''
+ c.align === 'right' ? 'text-right' : ''
                         }`}
                         onClick={() => toggleSort(c.key)}
                       >
@@ -361,7 +361,7 @@ export default function SamplesHome() {
               <div className="overflow-x-auto rounded-lg border border-subtle">
                 <table className="w-full min-w-[360px] text-sm">
                   <thead>
-                    <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
+                    <tr className="border-b border-subtle bg-overlay text-left text-xs text-muted">
                       <th className="px-3 py-2">Incubator</th>
                       <th className="px-3 py-2 text-right">Trays</th>
                     </tr>
@@ -599,7 +599,7 @@ function SampleDetail({
             <div className="max-h-64 overflow-y-auto rounded-lg border border-subtle">
               <table className="w-full min-w-[420px] text-sm">
                 <thead className="sticky top-0">
-                  <tr className="border-b border-subtle bg-overlay text-left text-xs uppercase text-muted">
+                  <tr className="border-b border-subtle bg-overlay text-left text-xs text-muted">
                     <th className="px-3 py-2">Tray</th>
                     <th className="px-3 py-2">Incubator</th>
                     <th className="px-3 py-2">Status</th>

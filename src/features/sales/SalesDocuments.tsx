@@ -51,7 +51,7 @@ export function DocumentsModal({
             <button
               onClick={() => setActive('quote')}
               className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium ${
-                active === 'quote' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
+ active === 'quote' ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
               }`}
             >
               Freight Quote
@@ -62,7 +62,7 @@ export function DocumentsModal({
                 key={d.kind}
                 onClick={() => setActive(i)}
                 className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium ${
-                  i === active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
+ i === active ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-secondary'
                 }`}
               >
                 {d.title}
@@ -134,7 +134,7 @@ function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder })
     <div className="space-y-4">
       {required.length > 0 && (
         <div className="rounded border border-danger/40 bg-[color:var(--danger-bg)] p-3">
-          <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-danger">
+          <p className="mb-1 flex items-center gap-2 text-xs font-semibold text-danger">
             <AlertTriangle size={14} /> Cannot issue — {required.length} required field
             {required.length === 1 ? '' : 's'} missing
           </p>
@@ -151,7 +151,7 @@ function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder })
 
       {recommended.length > 0 && (
         <div className="rounded border border-warn/40 bg-warn/10 p-3">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-warn">Recommended</p>
+          <p className="mb-1 text-xs font-semibold text-warn">Recommended</p>
           <ul className="space-y-1 text-xs">
             {recommended.map((m, i) => (
               <li key={i}>
@@ -167,7 +167,7 @@ function DocumentView({ doc, order }: { doc: BuiltDocument; order: SalesOrder })
         <div className="card space-y-2">
           {doc.fields.map((f, i) => (
             <div key={i} className="grid gap-1 sm:grid-cols-[14rem_1fr]">
-              <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted">
+              <span className="flex items-center gap-1.5 text-xs text-muted">
                 {f.box != null && <span className="mr-1 text-faint">{f.box}.</span>}
                 {f.label}
                 {/* Only the fields that have something worth explaining get one;
@@ -274,7 +274,7 @@ function SignBlock({
   if (existing) {
     return (
       <div className="rounded border border-brand/40 bg-brand/10 p-3">
-        <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-brand">
+        <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-brand">
           <ShieldCheck size={14} /> Signed
         </p>
         {existing.signatureImage && (
@@ -320,7 +320,7 @@ function SignBlock({
 
   return (
     <div className="rounded border border-subtle p-3">
-      <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+      <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted">
         <PenLine size={14} /> Sign this document
       </p>
 

@@ -83,7 +83,7 @@ export function ReadingsChart({
           key={r.key}
           onClick={() => setRange(r.key)}
           className={`rounded-sm px-2 py-0.5 text-xs tracking-wide transition ${
-            r.key === range
+ r.key === range
               ? 'bg-brand text-on-brand'
               : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-secondary'
           }`}

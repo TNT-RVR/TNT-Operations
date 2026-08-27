@@ -93,7 +93,7 @@ export function WorkOrderForm({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">Crew</span>
+          <span className="mb-1 block text-xs text-faint">Crew</span>
           <select
             className="input w-full"
             value={draft.crewId}
@@ -109,7 +109,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">Job</span>
+          <span className="mb-1 block text-xs text-faint">Job</span>
           <select
             className="input w-full"
             value={draft.task}
@@ -122,7 +122,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">Field</span>
+          <span className="mb-1 block text-xs text-faint">Field</span>
           <select
             className="input w-full"
             value={draft.fieldId}
@@ -138,7 +138,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">Day</span>
+          <span className="mb-1 block text-xs text-faint">Day</span>
           <input
             type="date"
             className="input w-full"
@@ -148,7 +148,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">
+          <span className="mb-1 block text-xs text-faint">
             Last day <span className="normal-case text-faint">(if it runs over)</span>
           </span>
           <input
@@ -161,7 +161,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">
+          <span className="mb-1 block text-xs text-faint">
             Name <span className="normal-case text-faint">(optional)</span>
           </span>
           <input
@@ -173,7 +173,7 @@ export function WorkOrderForm({
         </label>
 
         <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-faint">
+          <span className="mb-1 block text-xs text-faint">
             Notes for the crew <span className="normal-case text-faint">(optional)</span>
           </span>
           <textarea

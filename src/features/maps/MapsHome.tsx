@@ -1895,7 +1895,7 @@ export default function MapsHome() {
       />
       <div
         className={`grid min-h-0 flex-1 ${
-          editing ? 'md:grid-cols-[18rem_1fr_22rem]' : 'md:grid-cols-[18rem_1fr]'
+ editing ? 'md:grid-cols-[18rem_1fr_22rem]' : 'md:grid-cols-[18rem_1fr]'
         }`}
       >
         {/* Field list */}
@@ -1935,7 +1935,7 @@ export default function MapsHome() {
                 key={f.id}
                 onClick={() => selectField(f.id)}
                 className={`mb-2 block w-full rounded-lg border p-3 text-left transition ${
-                  active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
+ active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -2112,7 +2112,7 @@ export default function MapsHome() {
                     {(['kml', 'geojson', 'csv', 'pdf', 'shp', 'jd', 'aggps'] as const).map((k) => (
                       <button
                         key={k}
-                        className="btn-ghost min-h-0 px-2 py-1 text-[11px] uppercase"
+                        className="btn-ghost min-h-0 px-2 py-1 text-[11px]"
                         onClick={() => exportField(k)}
                       >
                         {k}

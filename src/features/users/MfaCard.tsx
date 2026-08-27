@@ -86,7 +86,7 @@ export function MfaCard() {
 
   return (
     <div className="card space-y-3">
-      <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-muted">
         {on ? <ShieldCheck size={15} className="text-brand" /> : <Shield size={15} />}
         Two-factor authentication
       </h3>

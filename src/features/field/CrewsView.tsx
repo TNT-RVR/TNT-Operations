@@ -188,7 +188,7 @@ export default function CrewsView() {
         <div className="mb-3 rounded-md border border-default p-2">
           {myCrew ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs uppercase tracking-wide text-faint">You are on</span>
+              <span className="text-xs text-faint">You are on</span>
               <span className="text-sm font-semibold text-primary">{myCrew.name}</span>
               {iAmLead ? (
                 <span className="rounded-sm bg-brand/15 px-1.5 py-0.5 text-xs text-brand">
@@ -525,7 +525,7 @@ export default function CrewsView() {
                     })()}
                     <span
                       className={`ml-auto flex items-center gap-1 text-xs ${
-                        status.stale ? 'text-danger' : 'text-faint'
+ status.stale ? 'text-danger' : 'text-faint'
                       }`}
                     >
                       {status.stale && <WifiOff size={12} />}

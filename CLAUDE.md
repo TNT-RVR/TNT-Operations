@@ -52,7 +52,10 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   - **Type.** The SYSTEM font stack — no downloaded webfonts (Montserrat/IBM Plex
     were tried and REVERTED 2026-08-04). `--font-display` and `--font-sans` are
     both `system-ui`; `--font-mono` is the system monospace.
-    Eyebrows/labels/badges are UPPERCASE, wide tracking — in the SANS. Mono is
+    Eyebrows/labels/badges were UPPERCASE with wide tracking until 2026-08-27;
+    they are SENTENCE CASE at `--text-xs` now (caps on every label read as
+    instrumentation). Radii moved up a step the same day — buttons and inputs
+    sat at 6px against a 48px touch target. Mono is
     for readouts, scanned identifiers, coordinates and credentials only; it was
     on all the chrome until 2026-08-19 and made every screen two typefaces.
     For numbers in a table column, use `tabular-nums` (aligns digits) — NOT

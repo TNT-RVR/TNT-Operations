@@ -192,7 +192,7 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
       <div className="space-y-4">
         {warnings.length > 0 && (
           <div className="rounded border border-warn/40 bg-warn/10 p-3">
-            <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-warn">
+            <p className="mb-1 flex items-center gap-2 text-xs font-semibold text-warn">
               <AlertTriangle size={14} /> Costing problems
             </p>
             <ul className="list-disc space-y-0.5 pl-4 text-xs text-secondary">
@@ -307,7 +307,7 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
         {/* ── Bill of materials ── */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Bill of materials</h3>
+            <h3 className="text-sm font-semibold text-muted">Bill of materials</h3>
             {canEdit && (
               <Button variant="ghost" onClick={addPart}>
                 <Plus size={15} /> Add part
@@ -396,7 +396,7 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
         {/* ── Volume breaks ── */}
         {draft.tiers.length > 0 && (
           <div>
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Volume breaks</h3>
+            <h3 className="mb-2 text-sm font-semibold text-muted">Volume breaks</h3>
             <ul className="space-y-1 text-sm">
               {draft.tiers.map((t) => (
                 <li key={t.id} className="text-secondary">
@@ -409,7 +409,7 @@ function ProductDetail({ product, onClose }: { product: Product; onClose: () => 
 
         {/* ── Live waterfall ── */}
         <div>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+          <h3 className="mb-2 text-sm font-semibold text-muted">
             Price at {fmtNum(qty)} {draft.unit}
             {dirty && <span className="ml-2 normal-case tracking-normal text-warn">· unsaved</span>}
           </h3>

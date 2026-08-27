@@ -142,7 +142,7 @@ function Growers() {
           </div>
 
           <Card className="mb-4">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-secondary">
+            <h2 className="mb-3 text-sm font-semibold text-secondary">
               {METRIC_BY_KEY[metricKey]?.label} by {GROUP_LABELS[groupBy].toLowerCase()}
             </h2>
             <div style={{ height: Math.max(220, groups.length * 28 + 40) }} className="w-full">

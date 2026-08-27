@@ -87,8 +87,12 @@
   --container-max:1200px; --container-wide:1440px; --gutter:24px;
 
   /* Radius — tight, engineered */
-  --radius-xs:3px; --radius-sm:6px; --radius-md:10px; --radius-lg:14px;
-  --radius-xl:20px; --radius-2xl:28px; --radius-pill:999px;
+  /* Softened 2026-08-27. Buttons and inputs sat at 6px against a 48px touch
+     target, which reads as a box with the corners filed rather than a rounded
+     control. The whole scale moved up a step so nothing had to be special-cased
+     per component. */
+  --radius-xs:4px; --radius-sm:10px; --radius-md:14px; --radius-lg:18px;
+  --radius-xl:24px; --radius-2xl:32px; --radius-pill:999px;
 
   /* Elevation */
   --shadow-xs:0 1px 2px rgba(0,0,0,0.5);

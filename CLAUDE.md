@@ -247,10 +247,29 @@ _Last reviewed 2026-08-17._
           precise than `SW-35-8-21-W4`, not a contradiction), strict about what
           it states. Round-trip is locked over all 36 sections × 4 quarters and
           over the 15 real fields, whose recorded LLDs it recovers exactly.
-      - **Costs** (`/maps/costs`) — the Financial View (spec Part 8) on the exact
+      - **Costs** (`/finances/costs`, moved there 2026-08-28; `/maps/costs`
+        redirects) — the Financial View (spec Part 8) on the exact
         `cost.ts` port: per-field cost, profitability, season totals, pricing
         inputs stored PER YEAR (missing years carry forward). Prefs in
         `0007_cost_prefs.sql`.
+        **The §8.2 math was always complete; the travel INPUTS were not.**
+        `fieldCost` reads `home_to_parking_km`/`_min` and until 2026-08-28
+        nothing ever wrote them — the old app's Google Distance Matrix button
+        was never ported — so 12 of 15 real fields costed with a $0 paid round
+        trip and most of the fuel missing. On one measured field that gap is
+        $278 on 152 acres ($1.82/ac), with profit/acre reading correspondingly
+        well. `netlify/functions/travel-times.mjs` fills it from
+        **OpenRouteService** (free tier, no billing — the same reasoning as
+        Open-Meteo for weather); ONE matrix call covers the whole season.
+        Needs `ORS_API_KEY` in Netlify or it no-ops with 501.
+        Routes to the parking pin, else the PIVOT, and says which it used. An
+        unroutable field is left BLANK rather than written as 0 — zero is what
+        the estimator already wrongly believes, so writing it would make the
+        gap permanent and invisible. The Costs screen names every field with no
+        travel and says its total is understated.
+        The geometry is duplicated in `src/domain/travelTimes.ts` (app) and the
+        function (Netlify bundles separately); `travelTimesParity.test.ts` runs
+        BOTH over the same inputs and fails if they disagree.
       - **Field Mode** (`/field`) — the crew surface (spec Part 10). Touch-first,
         GPS-locked, one field at a time: scan-pins (filled = placed), mark-placed
         at the crew's position, live progress, and a crew-position broadcast the

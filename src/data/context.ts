@@ -149,6 +149,15 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   /** Persist edits to a field (geometry, shelter count, name…). */
   saveField: (id: string, patch: Partial<Field>) => void
   /**
+   * Re-read the fields from the backend.
+   *
+   * For the case where something OUTSIDE the app changed them — today that is
+   * the travel-times function, which writes each field's road distance from the
+   * depot. Without this the Costs screen keeps showing the pre-fetch numbers
+   * until a reload, which looks exactly like the fetch having failed.
+   */
+  refreshFields: () => Promise<void>
+  /**
    * Persist edits to an incubator (temp mode, targets, location…).
    * `tempMode` is operationally important: the cloud Govee poller reads it to
    * decide whether an incubator is running and therefore worth polling at the

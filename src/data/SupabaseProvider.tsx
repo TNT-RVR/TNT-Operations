@@ -1253,6 +1253,20 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
         }
         return ((res.data as IncubatorModeEventRow[]) ?? []).map(toIncubatorModeEvent)
       },
+      /**
+       * Re-read the fields. For changes made OUTSIDE the app — today the
+       * travel-times function, which writes each field's road distance from the
+       * depot. Without this the Costs screen keeps showing the pre-fetch
+       * numbers until a reload, which looks like the fetch having failed.
+       */
+      refreshFields: async () => {
+        if (!supabase) return
+        const r = await supabase
+          .from('shelter_fields')
+          .select('*')
+          .order('updated_at', { ascending: false })
+        if (!r.error) setFields(((r.data as FieldRow[]) ?? []).map(toField))
+      },
       saveField: (id: string, patch: Partial<Field>) => {
         if (!supabase) return
         const row: Record<string, unknown> = {}

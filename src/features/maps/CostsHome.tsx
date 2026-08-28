@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader, Badge } from '@/components/ui'
+import { RefreshCw } from 'lucide-react'
+import { supabase } from '@/data/supabaseClient'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import type { Field } from '@/data/types'
@@ -12,6 +14,7 @@ import {
   type CostPrefs,
   type FieldCostResult,
 } from '@/domain/cost'
+import { hasTravel } from '@/domain/travelTimes'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { crewRoute } from '@/domain/crewRoute'
@@ -34,6 +37,13 @@ const CONTRACT_COMPANIES = ['BASF', 'Bayer', 'Hytech', 'Proven Seeds', 'Corteva'
 interface FieldRow {
   field: Field
   year: string
+  /**
+   * Whether this field's home→field road distance has ever been fetched.
+   * Without it the paid round trip is $0 and most of the fuel is missing, so
+   * the total is understated — quietly, and by a few hundred dollars. The row
+   * says so rather than presenting an incomplete figure as a complete one.
+   */
+  hasTravel: boolean
   shelters: number
   acres: number
   gallons: number
@@ -74,7 +84,9 @@ function P({
 }
 
 export default function CostsHome() {
-  const { fields, costPrefsByYear, saveCostPrefs } = useData()
+  const { fields, costPrefsByYear, saveCostPrefs, refreshFields } = useData()
+  const [travelBusy, setTravelBusy] = useState(false)
+  const [travelMsg, setTravelMsg] = useState('')
   const canEdit = useSession().can('maps', 'edit')
 
   // Year scope: stored pricing years ∪ field years ∪ this year.
@@ -145,7 +157,17 @@ export default function CostsHome() {
           },
           draft,
         )
-        out.push({ field: f, year: fy, shelters: n, acres, gallons, trays, routeKm, cost })
+        out.push({
+          field: f,
+          year: fy,
+          hasTravel: hasTravel(g),
+          shelters: n,
+          acres,
+          gallons,
+          trays,
+          routeKm,
+          cost,
+        })
       } catch {
         /* skip fields the engine can't cost */
       }
@@ -153,6 +175,8 @@ export default function CostsHome() {
     // Profitability ranking: profit/acre high → low, unknown last.
     return out.sort((a, b) => (b.cost.profitPerAcre ?? -Infinity) - (a.cost.profitPerAcre ?? -Infinity))
   }, [fields, year, draft])
+
+  const missingTravel = rows.filter((r) => !r.hasTravel)
 
   const totals = useMemo(() => {
     const t = { acres: 0, cost: 0, revenue: 0, profit: 0, shelters: 0 }
@@ -165,6 +189,49 @@ export default function CostsHome() {
     }
     return t
   }, [rows])
+
+  /*
+   * Refill the travel cache from OpenRouteService.
+   *
+   * One request covers every field, so this is a whole-season refresh rather
+   * than a per-field one — the numbers only change when a parking pin or the
+   * depot moves, which is rare and affects everything at once.
+   */
+  async function updateTravel() {
+    if (!supabase) {
+      setTravelMsg('Travel times need the live backend — this is running on mock data.')
+      return
+    }
+    setTravelBusy(true)
+    setTravelMsg('')
+    try {
+      const { data: sess } = await supabase.auth.getSession()
+      const token = sess.session?.access_token
+      const res = await fetch('/.netlify/functions/travel-times', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+        body: '{}',
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setTravelMsg(body.error ?? `Could not update travel times (${res.status}).`)
+        return
+      }
+      const bits = [`${body.written} field${body.written === 1 ? '' : 's'} updated`]
+      // Say which ones were measured from the pivot rather than a parking pin —
+      // the difference is small but it is the honest answer to "why is that one
+      // slightly off".
+      if (body.usedPivot?.length) bits.push(`${body.usedPivot.length} from the pivot (no parking pin)`)
+      if (body.unroutable?.length) bits.push(`no route to: ${body.unroutable.join(', ')}`)
+      if (body.noLocation?.length) bits.push(`no pin at all: ${body.noLocation.join(', ')}`)
+      setTravelMsg(bits.join(' · '))
+      await refreshFields()
+    } catch (e) {
+      setTravelMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setTravelBusy(false)
+    }
+  }
 
   function exportCsv() {
     const head =
@@ -205,6 +272,15 @@ export default function CostsHome() {
                 <option key={y}>{y}</option>
               ))}
             </select>
+            <button
+              className="btn-ghost min-h-0 px-3 py-1.5 text-sm"
+              onClick={updateTravel}
+              disabled={travelBusy}
+              title="Re-measure the road distance from the depot to every field"
+            >
+              <RefreshCw size={14} className={travelBusy ? 'animate-spin' : ''} />{' '}
+              {travelBusy ? 'Measuring…' : 'Update travel times'}
+            </button>
             <button className="btn-ghost min-h-0 px-3 py-1.5 text-sm" onClick={() => setShowPrefs((v) => !v)}>
               {showPrefs ? 'Hide pricing' : 'Pricing inputs'}
             </button>
@@ -216,6 +292,31 @@ export default function CostsHome() {
       />
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-6">
+        {travelMsg && (
+          <p className="rounded border border-subtle bg-overlay p-3 text-xs text-secondary">{travelMsg}</p>
+        )}
+
+        {/*
+          An understated total must not pass for a complete one.
+
+          Without a road distance from the depot, a field's paid round trip is
+          $0 and most of its fuel is missing — a few hundred dollars, and profit
+          per acre reads correspondingly well. The numbers below are still shown
+          (a partial cost beats no cost), but never silently.
+        */}
+        {missingTravel.length > 0 && (
+          <div className="rounded border border-warn/40 bg-warn/10 p-3">
+            <p className="mb-1 text-xs font-semibold text-warn">
+              {missingTravel.length} field{missingTravel.length === 1 ? '' : 's'} costed without travel
+            </p>
+            <p className="text-xs text-secondary">
+              {missingTravel.map((r) => r.field.name).join(', ')} — no road distance from the depot, so the paid
+              round trip and most of the fuel are missing and {missingTravel.length === 1 ? 'its' : 'their'} cost
+              is understated. Press “Update travel times”.
+            </p>
+          </div>
+        )}
+
         {/* Pricing form (per year) */}
         {showPrefs && (
           <section className="card space-y-4">

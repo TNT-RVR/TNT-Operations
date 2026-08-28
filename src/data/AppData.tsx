@@ -431,6 +431,9 @@ function MockProvider({ children }: { children: ReactNode }) {
         readings
           .filter((r) => r.incubatorId === incubatorId && r.at >= fromIso && r.at <= toIso)
           .sort((a, b) => a.at.localeCompare(b.at)),
+      // Mock data has no backend to re-read from; the in-memory rows are
+      // already the truth.
+      refreshFields: async () => {},
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),
       saveIncubator: (id, patch) => {

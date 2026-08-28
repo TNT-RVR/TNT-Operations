@@ -36,7 +36,7 @@ describe('the pre-paint theme script', () => {
 
   it('keeps the browser chrome colour in step with the theme it picked', () => {
     expect(html).toMatch(/theme-color/)
-    expect(html).toMatch(/dark \? '#050506' : '#FFFFFF'/)
+    expect(html).toMatch(/dark \? '#050506' : '#FFFFFF'/) // token-exempt: asserting the literal shipped value
   })
 
   // A dark app on a white splash screen (or the reverse) is a visible flash on
@@ -45,7 +45,7 @@ describe('the pre-paint theme script', () => {
     const manifest = JSON.parse(
       readFileSync(join(process.cwd(), 'public', 'manifest.webmanifest'), 'utf8'),
     )
-    expect(manifest.background_color).toBe('#FFFFFF')
-    expect(manifest.theme_color).toBe('#FFFFFF')
+    expect(manifest.background_color).toBe('#FFFFFF') // token-exempt: asserting the literal shipped value
+    expect(manifest.theme_color).toBe('#FFFFFF') // token-exempt: asserting the literal shipped value
   })
 })

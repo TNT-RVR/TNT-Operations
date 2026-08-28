@@ -191,7 +191,7 @@ export default function CostsHome() {
   }, [rows])
 
   /*
-   * Refill the travel cache from OpenRouteService.
+   * Refill the travel cache from Google's Distance Matrix.
    *
    * One request covers every field, so this is a whole-season refresh rather
    * than a per-field one — the numbers only change when a parking pin or the

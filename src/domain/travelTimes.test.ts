@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fieldLocation, hasTravel, readMatrix, toOrsCoord } from './travelTimes'
+import { fieldLocation, hasTravel, readDistanceMatrix, toLatLng } from './travelTimes'
 
 describe('fieldLocation', () => {
   it('routes to the parking pin when there is one', () => {
@@ -44,52 +44,61 @@ describe('fieldLocation', () => {
   })
 })
 
-// Getting this backwards routes every field to the Gulf of Guinea, and the
-// numbers would still look plausible.
-describe('toOrsCoord', () => {
-  it('flips lat,lon into the lon,lat ORS wants', () => {
-    expect(toOrsCoord([49.87, -111.74])).toEqual([-111.74, 49.87])
+// The previous router wanted lon,lat. Google wants lat,lng — a silent flip
+// routes every field into the Gulf of Guinea and still returns confident km.
+describe('toLatLng', () => {
+  it('writes lat,lng the way Google reads it', () => {
+    expect(toLatLng([49.87, -111.74])).toBe('49.87,-111.74')
   })
 })
 
-describe('readMatrix', () => {
+describe('readDistanceMatrix', () => {
   const dests = [
     { id: 'a', name: 'Stolk', at: [49.9, -112.0] as [number, number], source: 'parking' as const },
     { id: 'b', name: 'Giesbricht', at: [49.8, -112.1] as [number, number], source: 'pivot' as const },
   ]
+  const ok = (metres: number, seconds: number) => ({
+    status: 'OK',
+    distance: { value: metres },
+    duration: { value: seconds },
+  })
 
-  it('turns one row of the matrix into km and minutes', () => {
-    const { results } = readMatrix(
-      { distances: [[31.455, 36.538]], durations: [[1458, 1518]] },
+  /*
+   * Metres and seconds regardless of `units` — that only changes the localised
+   * `text`. Reading `text` would mean parsing "31.5 km" back into a number.
+   * These are the real Google figures already on file for these two fields.
+   */
+  it('turns metres and seconds into km and minutes', () => {
+    const { results } = readDistanceMatrix(
+      { status: 'OK', rows: [{ elements: [ok(31455, 1458), ok(36538, 1518)] }] },
       dests,
     )
-    expect(results).toHaveLength(2)
     expect(results[0]).toMatchObject({ id: 'a', km: 31.455, min: 24.3, source: 'parking' })
     expect(results[1]).toMatchObject({ id: 'b', km: 36.538, min: 25.3, source: 'pivot' })
   })
 
-  /*
-   * A pin with no road near it comes back null. Writing 0 would be worse than
-   * leaving it: zero is exactly what the estimator already wrongly believes,
-   * so it would make the gap permanent AND invisible.
-   */
-  it('leaves an unroutable field out rather than writing a zero', () => {
-    const { results, unroutable } = readMatrix(
-      { distances: [[null, 36.538]], durations: [[null, 1518]] },
+  // No road near the pin. Writing 0 would be worse than leaving it: zero is
+  // what the estimator already wrongly believes.
+  it('leaves a ZERO_RESULTS field out rather than writing a zero', () => {
+    const { results, unroutable } = readDistanceMatrix(
+      { status: 'OK', rows: [{ elements: [{ status: 'ZERO_RESULTS' }, ok(36538, 1518)] }] },
       dests,
     )
     expect(results.map((r) => r.id)).toEqual(['b'])
     expect(unroutable).toEqual(['Stolk'])
   })
 
-  it('treats a zero-distance answer as unroutable too', () => {
-    const { results, unroutable } = readMatrix({ distances: [[0, 0]], durations: [[0, 0]] }, dests)
+  it('does not trust an element that says OK with nothing in it', () => {
+    const { results, unroutable } = readDistanceMatrix(
+      { status: 'OK', rows: [{ elements: [{ status: 'OK' }, ok(0, 0)] }] },
+      dests,
+    )
     expect(results).toEqual([])
     expect(unroutable).toEqual(['Stolk', 'Giesbricht'])
   })
 
-  it('copes with a response that has no matrices at all', () => {
-    const { results, unroutable } = readMatrix({}, dests)
+  it('copes with a response that has no rows at all', () => {
+    const { results, unroutable } = readDistanceMatrix({ status: 'OK' }, dests)
     expect(results).toEqual([])
     expect(unroutable).toHaveLength(2)
   })

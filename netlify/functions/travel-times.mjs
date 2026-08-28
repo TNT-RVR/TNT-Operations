@@ -1,5 +1,5 @@
 /**
- * Fill the cost estimator's travel cache from OpenRouteService.
+ * Fill the cost estimator's travel cache from Google's Distance Matrix.
  *
  * ── What this restores ───────────────────────────────────────────────────────
  *
@@ -20,11 +20,16 @@
  * gated on a signed-in editor rather than a shared token because it both spends
  * quota and rewrites cost inputs.
  *
- * ONE request for the whole season: ORS's matrix endpoint takes home as the
- * single source and every field as destinations, so a refresh is one call
- * rather than fifteen. That matters on a free tier.
+ * ONE request for the whole season: Distance Matrix takes home as the single
+ * origin and every field as destinations, so a refresh is one call rather than
+ * fifteen. Each origin×destination pair is a billable element, so this is 15
+ * elements a refresh — far inside the free allowance, but worth not wasting.
  *
- * Env: ORS_API_KEY (openrouteservice.org, free tier — no billing to enable),
+ * Google, not a free alternative, because the three fields that ALREADY have
+ * travel times were measured by Google in the old app. Mixing sources would
+ * leave one season half-measured two ways.
+ *
+ * Env: GOOGLE_MAPS_API_KEY (Distance Matrix API enabled on the project),
  * SUPABASE_URL, SUPABASE_SERVICE_ROLE.
  */
 /*
@@ -62,19 +67,24 @@ export function fieldLocation(field) {
   return null
 }
 
-/** ORS wants [lon, lat]. Backwards routes every field into the sea. */
-export const toOrsCoord = ([lat, lon]) => [lon, lat]
+/** Google wants `lat,lng` — the same order this app stores. */
+export const toLatLng = ([lat, lon]) => `${lat},${lon}`
 
-/** One matrix row into km and minutes; nulls and zeros are left out. */
-export function readMatrix(response, destinations) {
-  const dist = response?.distances?.[0] ?? []
-  const dur = response?.durations?.[0] ?? []
+/**
+ * One Distance Matrix row into km and minutes.
+ *
+ * Metres and seconds regardless of the `units` parameter — that only changes
+ * the human-readable `text`. Anything not `OK` is left out, never zeroed.
+ */
+export function readDistanceMatrix(response, destinations) {
+  const elements = response?.rows?.[0]?.elements ?? []
   const results = []
   const unroutable = []
   destinations.forEach((d, i) => {
-    const km = dist[i]
-    const seconds = dur[i]
-    if (!Number.isFinite(km) || !Number.isFinite(seconds) || km <= 0 || seconds <= 0) {
+    const el = elements[i]
+    const metres = el?.distance?.value
+    const seconds = el?.duration?.value
+    if (el?.status !== 'OK' || !Number.isFinite(metres) || !Number.isFinite(seconds) || metres <= 0 || seconds <= 0) {
       unroutable.push(d.name || d.id)
       return
     }
@@ -82,7 +92,7 @@ export function readMatrix(response, destinations) {
       id: d.id,
       name: d.name,
       source: d.source,
-      km: Math.round(km * 1000) / 1000,
+      km: Math.round((metres / 1000) * 1000) / 1000,
       min: Math.round((seconds / 60) * 10) / 10,
     })
   })
@@ -92,19 +102,22 @@ export function readMatrix(response, destinations) {
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-/** ORS caps a matrix request; well above 15 fields, but not unlimited. */
-const MAX_DESTINATIONS = 50
+/**
+ * Distance Matrix allows 25 destinations and 100 elements per request. One
+ * origin against 25 fields is 25 elements, so the destination cap binds first.
+ */
+const MAX_DESTINATIONS = 25
 
 export default async (req) => {
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405)
 
-  const ORS = process.env.ORS_API_KEY
+  const GKEY = process.env.GOOGLE_MAPS_API_KEY
   const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const SB_KEY = process.env.SUPABASE_SERVICE_ROLE
   if (!SB_URL || !SB_KEY) return json({ error: 'Not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE)' }, 500)
-  if (!ORS) {
+  if (!GKEY) {
     return json(
-      { error: 'ORS_API_KEY not set — add it in Netlify env to enable travel times.' },
+      { error: 'GOOGLE_MAPS_API_KEY not set — add it in Netlify env to enable travel times.' },
       501,
     )
   }
@@ -165,30 +178,41 @@ export default async (req) => {
 
   // ── One matrix call: home → every field ──
   const destinations = located.map((l) => l.loc)
-  const res = await fetch('https://api.openrouteservice.org/v2/matrix/driving-car', {
-    method: 'POST',
-    headers: { Authorization: ORS, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      locations: [[homeLon, homeLat], ...destinations.map((d) => toOrsCoord(d.at))],
-      sources: [0],
-      destinations: destinations.map((_, i) => i + 1),
-      metrics: ['distance', 'duration'],
-      units: 'km',
-    }),
-  })
+  const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json')
+  url.searchParams.set('origins', toLatLng([homeLat, homeLon]))
+  url.searchParams.set('destinations', destinations.map((d) => toLatLng(d.at)).join('|'))
+  url.searchParams.set('mode', 'driving')
+  url.searchParams.set('units', 'metric')
+  url.searchParams.set('key', GKEY)
+
+  const res = await fetch(url)
   if (!res.ok) {
     const detail = (await res.text()).slice(0, 400)
-    console.error('[travel-times] ORS', res.status, detail)
-    // 403 from ORS is a bad or exhausted key — the same class of problem as an
-    // expired Anthropic key, and worth saying plainly rather than as "502".
-    const hint =
-      res.status === 403 || res.status === 401
-        ? 'OpenRouteService rejected the key. Check ORS_API_KEY, or the free-tier quota for today.'
-        : `OpenRouteService returned ${res.status}.`
-    return json({ error: hint, detail }, 502)
+    console.error('[travel-times] google http', res.status, detail)
+    return json({ error: `Google returned HTTP ${res.status}.`, detail }, 502)
   }
 
-  const { results, unroutable } = readMatrix(await res.json(), destinations)
+  /*
+   * Distance Matrix answers 200 even when it refuses. The real verdict is in
+   * the body's `status`, and treating a 200 as success is how a key problem
+   * turns into "0 fields updated" with no explanation.
+   */
+  const payload = await res.json()
+  if (payload.status !== 'OK') {
+    console.error('[travel-times] google', payload.status, payload.error_message ?? '')
+    const hint =
+      {
+        REQUEST_DENIED:
+          'Google denied the request — check the key is valid, that Distance Matrix API is enabled on the project, and that any key restriction allows a server-side call.',
+        OVER_DAILY_LIMIT: 'Google says the daily limit or billing is the problem — check the billing account is active.',
+        OVER_QUERY_LIMIT: 'Google rate-limited the request. Try again shortly.',
+        INVALID_REQUEST: 'Google rejected the request as malformed.',
+        MAX_ELEMENTS_EXCEEDED: 'Too many fields for one Distance Matrix request.',
+      }[payload.status] ?? `Google returned ${payload.status}.`
+    return json({ error: hint, detail: payload.error_message ?? '' }, 502)
+  }
+
+  const { results, unroutable } = readDistanceMatrix(payload, destinations)
 
   // ── Write the cache back, one field at a time ──
   const byId = new Map(located.map((l) => [l.loc.id, l.row]))

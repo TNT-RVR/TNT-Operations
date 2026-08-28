@@ -18,12 +18,19 @@
  * This is the missing half: pick where a field actually is, and read a routing
  * matrix back into kilometres and minutes.
  *
- * ── Why OpenRouteService ────────────────────────────────────────────────────
+ * ── Why Google ──────────────────────────────────────────────────────────────
  *
- * Real road distances on a free tier with no billing to enable, which matches
- * how this codebase already sources weather (Open-Meteo). Its matrix endpoint
- * answers home→every-field in ONE request, so a refresh of the whole season is
- * a single call rather than fifteen.
+ * Because the three fields that DO have travel times were measured by Google in
+ * the old app, and mixing sources would leave one season half-measured two
+ * ways. Its Distance Matrix answers home→every-field in ONE request, so a
+ * refresh of the whole season is a single call rather than fifteen — which
+ * matters when every element is billable, even at a price this volume will
+ * never reach.
+ *
+ * NOTE Google now labels Distance Matrix a legacy API and points new work at
+ * the Routes API (`v2:computeRouteMatrix`). This uses the legacy one on
+ * purpose: it is what produced the numbers already on file. The parsing is
+ * confined to `readDistanceMatrix` if that ever has to change.
  *
  * Pure functions — no React, no fetch. The HTTP lives in
  * `netlify/functions/travel-times.mjs`.
@@ -93,8 +100,14 @@ function blank(v: unknown): number {
   return Number(v)
 }
 
-/** ORS wants `[lon, lat]`. Getting this the wrong way round routes to the sea. */
-export const toOrsCoord = ([lat, lon]: LatLon): [number, number] => [lon, lat]
+/**
+ * Google wants `lat,lng` as a plain string — the same order this app stores.
+ *
+ * Worth its own function anyway: the previous routing service wanted them the
+ * other way round, and a silent flip routes every field into the Gulf of Guinea
+ * while still returning confident-looking kilometres.
+ */
+export const toLatLng = ([lat, lon]: LatLon): string => `${lat},${lon}`
 
 export interface TravelResult {
   id: string
@@ -106,29 +119,45 @@ export interface TravelResult {
   min: number
 }
 
+/** The Distance Matrix response, as much of it as this needs. */
+export interface DistanceMatrixResponse {
+  status?: string
+  error_message?: string
+  rows?: Array<{
+    elements?: Array<{
+      status?: string
+      distance?: { value?: number }
+      duration?: { value?: number }
+    }>
+  }>
+}
+
 /**
- * Read an ORS matrix response into per-field figures.
+ * Read a Distance Matrix response into per-field figures.
  *
- * The request is one source (home) against N destinations, so both matrices
- * come back as a single row. A null cell means ORS could not route to that
- * point — usually a pin in the middle of a field with no road near it — and
- * that field is left OUT rather than written as zero. Zero is what the cost
- * estimator already wrongly believes; writing it would make the gap permanent
- * and invisible.
+ * One origin (home) against N destinations, so everything is in `rows[0]`.
+ * Distances come back in METRES and durations in SECONDS regardless of the
+ * `units` parameter — that only changes the human-readable `text`, which this
+ * ignores. Reading `text` would mean parsing "31.5 km" back into a number, and
+ * it is localised.
+ *
+ * An element that is not `OK` — no road near the pin, or too far to route — is
+ * left OUT rather than written as zero. Zero is what the cost estimator already
+ * wrongly believes, so writing it would make the gap permanent and invisible.
  */
-export function readMatrix(
-  response: { distances?: (number | null)[][]; durations?: (number | null)[][] },
+export function readDistanceMatrix(
+  response: DistanceMatrixResponse,
   destinations: FieldLocation[],
 ): { results: TravelResult[]; unroutable: string[] } {
-  const dist = response.distances?.[0] ?? []
-  const dur = response.durations?.[0] ?? []
+  const elements = response.rows?.[0]?.elements ?? []
   const results: TravelResult[] = []
   const unroutable: string[] = []
 
   destinations.forEach((d, i) => {
-    const km = dist[i]
-    const seconds = dur[i]
-    if (!isCoord(km!) || !isCoord(seconds!) || km! <= 0 || seconds! <= 0) {
+    const el = elements[i]
+    const metres = el?.distance?.value
+    const seconds = el?.duration?.value
+    if (el?.status !== 'OK' || !isCoord(metres!) || !isCoord(seconds!) || metres! <= 0 || seconds! <= 0) {
       unroutable.push(d.name || d.id)
       return
     }
@@ -136,8 +165,7 @@ export function readMatrix(
       id: d.id,
       name: d.name,
       source: d.source,
-      // ORS is asked for kilometres; durations are always seconds.
-      km: Math.round(km! * 1000) / 1000,
+      km: Math.round((metres! / 1000) * 1000) / 1000,
       min: Math.round((seconds! / 60) * 10) / 10,
     })
   })

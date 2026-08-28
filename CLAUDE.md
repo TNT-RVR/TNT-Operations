@@ -259,9 +259,17 @@ _Last reviewed 2026-08-17._
         trip and most of the fuel missing. On one measured field that gap is
         $278 on 152 acres ($1.82/ac), with profit/acre reading correspondingly
         well. `netlify/functions/travel-times.mjs` fills it from
-        **OpenRouteService** (free tier, no billing — the same reasoning as
-        Open-Meteo for weather); ONE matrix call covers the whole season.
-        Needs `ORS_API_KEY` in Netlify or it no-ops with 501.
+        **Google Distance Matrix** — chosen over a free keyless router because
+        the three fields that ALREADY have travel times were measured by Google
+        in the old app, and mixing sources leaves one season half-measured two
+        ways. ONE call covers the season (15 billable elements, far inside the
+        free allowance). Needs `GOOGLE_MAPS_API_KEY` in Netlify or it no-ops
+        with 501. NOTE Google calls Distance Matrix legacy now and points new
+        work at the Routes API; the parsing is confined to
+        `readDistanceMatrix` if that has to change.
+        Distance Matrix answers HTTP 200 even when it refuses — the real
+        verdict is the body's `status`, and treating 200 as success is how a
+        key problem becomes "0 fields updated" with no explanation.
         Routes to the parking pin, else the PIVOT, and says which it used. An
         unroutable field is left BLANK rather than written as 0 — zero is what
         the estimator already wrongly believes, so writing it would make the

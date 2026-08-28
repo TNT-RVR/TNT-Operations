@@ -12,13 +12,13 @@
  * write plausible-looking kilometres that the app prices real money off.
  */
 import { describe, expect, it } from 'vitest'
-import { fieldLocation, readMatrix, toOrsCoord } from './travelTimes'
+import { fieldLocation, readDistanceMatrix, toLatLng } from './travelTimes'
 // The function is plain JS with no types, which is the point — it is the copy
 // that ships to Netlify. Imported for its BEHAVIOUR, not its shape.
 import {
   fieldLocation as fnFieldLocation,
-  readMatrix as fnReadMatrix,
-  toOrsCoord as fnToOrsCoord,
+  readDistanceMatrix as fnReadDistanceMatrix,
+  toLatLng as fnToLatLng,
 // @ts-expect-error — a .mjs Netlify function has no declaration file
 } from '../../netlify/functions/travel-times.mjs'
 
@@ -46,33 +46,41 @@ describe('travel geometry parity', () => {
     }
   })
 
-  it('flips coordinates the same way', () => {
+  it('writes coordinates the same way', () => {
     for (const c of [
       [49.87, -111.74],
       [0, 0],
       [-33.9, 151.2],
     ] as Array<[number, number]>) {
-      expect(fnToOrsCoord(c)).toEqual(toOrsCoord(c))
+      expect(fnToLatLng(c)).toEqual(toLatLng(c))
     }
   })
 
   it('reads the same km and minutes out of a matrix', () => {
     const dests = FIELDS.map((f) => fieldLocation(f)).filter((d) => d !== null)
     const response = {
-      distances: [[31.455, 36.538]],
-      durations: [[1458, 1518]],
+      status: 'OK',
+      rows: [
+        {
+          elements: [
+            { status: 'OK', distance: { value: 31455 }, duration: { value: 1458 } },
+            { status: 'OK', distance: { value: 36538 }, duration: { value: 1518 } },
+          ],
+        },
+      ],
     }
-    expect(fnReadMatrix(response, dests)).toEqual(readMatrix(response, dests))
+    expect(fnReadDistanceMatrix(response, dests)).toEqual(readDistanceMatrix(response, dests))
   })
 
   it('agrees about what is unroutable', () => {
     const dests = FIELDS.map((f) => fieldLocation(f)).filter((d) => d !== null)
     for (const response of [
-      { distances: [[null, 36.538]], durations: [[null, 1518]] },
-      { distances: [[0, 0]], durations: [[0, 0]] },
+      { status: 'OK', rows: [{ elements: [{ status: 'ZERO_RESULTS' }] }] },
+      { status: 'OK', rows: [{ elements: [{ status: 'OK', distance: { value: 0 }, duration: { value: 0 } }] }] },
+      { status: 'OK' },
       {},
     ]) {
-      expect(fnReadMatrix(response, dests)).toEqual(readMatrix(response, dests))
+      expect(fnReadDistanceMatrix(response, dests)).toEqual(readDistanceMatrix(response, dests))
     }
   })
 })

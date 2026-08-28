@@ -11,7 +11,15 @@ import { GRID_ERROR_M, SURVEY_ERROR_M, atsBox, reverseLld, sameParcel, toGeoJson
 import { useTownshipTable } from './atsTownships'
 import { supabase } from '@/data/supabaseClient'
 import type { Field, FieldGeometry } from '@/data/types'
-import { Check, MapPin, Undo2, X as XIcon } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  List as ListIcon,
+  MapPin,
+  SlidersHorizontal as SlidersIcon,
+  Undo2,
+  X as XIcon,
+} from 'lucide-react'
 import { getTentPositions } from '@/domain/tentGrid'
 import { applyShelterOverrides, comboKey, syncComboAdjustments, reflowToGrid, type ShelterOverrides } from '@/domain/shelterOverrides'
 import { crewRoute } from '@/domain/crewRoute'
@@ -284,6 +292,48 @@ export default function MapsHome() {
    * a spray record or memory. See src/domain/lld.ts.
    */
   const [fieldQuery, setFieldQuery] = useState('')
+  /** Phone only: which panel is covering the map, if any. */
+  const [panel, setPanel] = useState<'tools' | 'fields' | null>(null)
+  /** The field card starts open; collapsing it hands the map back. */
+  const [cardOpen, setCardOpen] = useState(true)
+
+  /*
+   * Tell MapLibre when its box changes.
+   *
+   * It sizes its canvas once and does not watch the element, so opening the
+   * Tools panel — which shortens the map's container — left a 653 px canvas in
+   * a 436 px box: the map overflowed, and every click landed at the wrong
+   * coordinate because the projection was still using the old height. A
+   * ResizeObserver catches the panel toggles AND the phone's address bar
+   * sliding away, which no amount of state-watching would.
+   */
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => mapRef.current?.resize())
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  /*
+   * And explicitly, on the things WE change.
+   *
+   * Not redundant with the observer above: ResizeObserver delivers its
+   * callbacks as part of the rendering lifecycle, so a tab that is not painting
+   * never gets them. The panel toggles and entering the editor are layout
+   * changes this component knows it caused, so it can say so directly rather
+   * than wait to be told.
+   *
+   * A timeout rather than requestAnimationFrame, which is ALSO part of the
+   * rendering lifecycle and so does not run in a tab that is not painting.
+   * `resize()` reads the container's client box, which forces layout, so a
+   * macrotask after React's commit is late enough — resizing to the OLD box is
+   * the bug being fixed here.
+   */
+  useEffect(() => {
+    const id = setTimeout(() => mapRef.current?.resize(), 0)
+    return () => clearTimeout(id)
+  }, [panel, editing])
 
   /**
    * A legal land description typed into the search box, resolved to a parcel on
@@ -1851,7 +1901,44 @@ export default function MapsHome() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Shelter Maps" subtitle="Bee-shelter placement on pollination fields (MapLibre)" />
+      {/*
+        The subtitle is desktop-only here. On a phone this screen already spends
+        four rows before the map — app header, section tabs, page title, tool
+        bar — and a line of explanatory prose is the cheapest of them to lose.
+      */}
+      <div className="hidden md:block">
+        <PageHeader title="Shelter Maps" subtitle="Bee-shelter placement on pollination fields (MapLibre)" />
+      </div>
+
+      {/*
+        Phone control bar.
+
+        Everything below used to be stacked ABOVE the map: the toolbar's four
+        wrapping rows, then the whole field list, leaving the map a strip at the
+        bottom of a 375 px screen. Now the map gets the screen and these two
+        toggles slide the panels over it — the same controls, on demand, over
+        the thing they control rather than pushing it out of view.
+      */}
+      <div className="flex items-center gap-2 border-b border-subtle bg-surface px-3 py-2 md:hidden">
+        <h1 className="mr-auto truncate font-display text-base font-bold text-primary">
+          {selectedField?.name ?? 'Shelter Maps'}
+        </h1>
+        <button
+          onClick={() => setPanel((p) => (p === 'fields' ? null : 'fields'))}
+          className={`min-h-0 px-2.5 py-1.5 text-xs ${panel === 'fields' ? 'btn-primary' : 'btn-ghost'}`}
+        >
+          <ListIcon size={14} /> Fields
+        </button>
+        <button
+          onClick={() => setPanel((p) => (p === 'tools' ? null : 'tools'))}
+          className={`min-h-0 px-2.5 py-1.5 text-xs ${panel === 'tools' ? 'btn-primary' : 'btn-ghost'}`}
+        >
+          <SlidersIcon size={14} /> Tools
+        </button>
+      </div>
+
+      {/* The toolbar itself: always there on desktop, on demand on a phone. */}
+      <div className={panel === 'tools' ? 'block' : 'hidden md:block'}>
       <MapToolbar
         visibility={visibility}
         onToggleLayer={toggleLayer}
@@ -1893,13 +1980,22 @@ export default function MapsHome() {
               : null
         }
       />
+      </div>
       <div
-        className={`grid min-h-0 flex-1 ${
+        className={`relative grid min-h-0 flex-1 ${
  editing ? 'md:grid-cols-[18rem_1fr_22rem]' : 'md:grid-cols-[18rem_1fr]'
         }`}
       >
-        {/* Field list */}
-        <aside className="overflow-y-auto border-r border-subtle bg-surface p-3">
+        {/*
+          Field list. A column on desktop; on a phone it covers the map while
+          open, because picking a field is what you came to this panel for and
+          you leave as soon as you have.
+        */}
+        <aside
+          className={`overflow-y-auto border-r border-subtle bg-surface p-3 md:static md:z-auto md:block ${
+ panel === 'fields' ? 'absolute inset-0 z-20 block' : 'hidden'
+          }`}
+        >
           <h2 className="mb-2 px-1 text-sm font-semibold text-secondary">Fields</h2>
           {/* Search by name / company / year / LLD (§6.7 "Find by LLD", §9). */}
           <input
@@ -1933,7 +2029,12 @@ export default function MapsHome() {
             return (
               <button
                 key={f.id}
-                onClick={() => selectField(f.id)}
+                onClick={() => {
+                  selectField(f.id)
+                  // On a phone the list is covering the map; the whole point of
+                  // choosing a field is to look at it.
+                  setPanel(null)
+                }}
                 className={`mb-2 block w-full rounded-lg border p-3 text-left transition ${
  active ? 'border-brand bg-brand-light' : 'border-subtle hover:bg-[color:var(--hover-wash)]'
                 }`}
@@ -1952,7 +2053,7 @@ export default function MapsHome() {
         </aside>
 
         {/* Map + detail overlay */}
-        <div className="relative min-h-[20rem]">
+        <div className="relative min-h-[16rem]">
           <div ref={containerRef} className="absolute inset-0" />
 
           {/* Drawing HUD — only while a click-to-place mode is armed */}
@@ -2071,10 +2172,34 @@ export default function MapsHome() {
               className="absolute left-3 top-3 max-w-xs rounded-lg border border-subtle p-3 shadow-md backdrop-blur"
               style={{ background: 'color-mix(in srgb, var(--bg-raised) 92%, transparent)' }}
             >
-              <div className="font-display font-bold text-primary">{selectedField.name}</div>
-              <div className="text-xs text-muted">
-                {selectedField.region} · {selectedField.client}
-              </div>
+              {/*
+                Collapsible, because on a phone this card plus the export row is
+                most of what is left of the map. Collapsed it keeps the field
+                name — which is the bit you actually need while looking at the
+                map — and gives everything else back.
+              */}
+              <button
+                onClick={() => setCardOpen((v) => !v)}
+                className="flex w-full items-start gap-2 text-left"
+                aria-expanded={cardOpen}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-display font-bold text-primary">
+                    {selectedField.name}
+                  </span>
+                  {cardOpen && (
+                    <span className="block text-xs text-muted">
+                      {selectedField.region} · {selectedField.client}
+                    </span>
+                  )}
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`mt-0.5 shrink-0 text-muted transition-transform ${cardOpen ? '' : '-rotate-90'}`}
+                />
+              </button>
+              {cardOpen && (
+              <>
               {selectedField.geometry ? (
                 <>
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
@@ -2125,6 +2250,8 @@ export default function MapsHome() {
                 <button className="btn-primary mt-3 w-full" onClick={enterEdit}>
                   {selectedField.geometry ? 'Edit field' : 'Add pivot geometry'}
                 </button>
+              )}
+              </>
               )}
             </div>
           )}

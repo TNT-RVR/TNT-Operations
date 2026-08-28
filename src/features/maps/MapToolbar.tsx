@@ -7,7 +7,17 @@ import { LAYER_DEFS, GROUPS, GROUP_LABEL, activeLayers, type LayerGroup, type La
  * - TOOL: which layer is "active" — its actions appear in the strip below.
  * - LEGEND: lists ONLY the overlays currently on, each with a swatch drawn in
  *   the real stroke/fill colour (§6.8).
+ *
+ * ── On a phone ───────────────────────────────────────────────────────────────
+ *
+ * All of this is FOUR wrapping rows plus a legend, which on a 375 px screen ate
+ * the entire viewport and left the map as a strip at the bottom — the one thing
+ * the screen exists to show. Two changes fix that without taking anything away:
+ * the legend folds (it is reference, not control, and it grows with every layer
+ * turned on), and the parent hides this whole bar behind a Tools toggle on
+ * small screens. Desktop is unchanged.
  */
+import { ChevronDown } from 'lucide-react'
 
 /** A single action button belonging to the active tool layer. */
 export interface ToolAction {
@@ -60,6 +70,7 @@ export function MapToolbar({
   status?: string | null
 }) {
   const groupLayers = LAYER_DEFS.filter((d) => d.group === tool)
+  const legend = activeLayers(visibility)
 
   return (
     <div className="border-b border-subtle bg-surface">
@@ -126,15 +137,28 @@ export function MapToolbar({
         </div>
       )}
 
-      {/* LEGEND — only what's actually drawn (§6.8) */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[11px] text-muted">
-        {activeLayers(visibility).map((d) => (
-          <span key={d.id} className="inline-flex items-center gap-1">
-            <Swatch def={d} />
-            {d.label}
-          </span>
-        ))}
-      </div>
+      {/*
+        LEGEND — only what's actually drawn (§6.8), and folded by default.
+
+        It is reference rather than control, and it GROWS with every layer
+        switched on: nine entries wrapped to three lines on a phone, above the
+        map they describe. The count is on the summary so it is still obvious
+        there is something to open.
+      */}
+      <details className="px-3 py-1.5">
+        <summary className="group inline-flex cursor-pointer list-none items-center gap-1 text-xs text-muted">
+          <ChevronDown size={13} className="shrink-0 transition-transform group-open:rotate-180" />
+          Legend · {legend.length}
+        </summary>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1 pt-2 text-xs text-muted">
+          {legend.map((d) => (
+            <span key={d.id} className="inline-flex items-center gap-1">
+              <Swatch def={d} />
+              {d.label}
+            </span>
+          ))}
+        </div>
+      </details>
     </div>
   )
 }

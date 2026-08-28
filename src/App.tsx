@@ -92,7 +92,7 @@ const LANDING: Array<{ module: Module; to: string }> = [
   { module: 'calendar', to: '/calendar' },
   { module: 'incubation', to: '/incubation' },
   { module: 'maps', to: '/maps' },
-  { module: 'sales', to: '/sales' },
+  { module: 'sales', to: '/finances/sales' },
   { module: 'users', to: '/users' },
 ]
 
@@ -132,13 +132,31 @@ export default function App() {
         <Route path="tasks" element={<Protected module="tasks"><TasksHome /></Protected>} />
         <Route path="tasks/checklists" element={<Protected module="tasks"><ChecklistsHome /></Protected>} />
         <Route path="tasks/overall" element={<Protected module="tasks"><OverallChecklist /></Protected>} />
-        <Route path="sales" element={<Protected module="sales"><EstimatesHome /></Protected>} />
-        <Route path="sales/invoices" element={<Protected module="sales"><InvoicesHome /></Protected>} />
-        <Route path="sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
-        <Route path="sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
-        <Route path="sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
-        <Route path="sales/shipping" element={<Protected module="sales"><ShippingSpecsHome /></Protected>} />
-        <Route path="sales/bees" element={<Protected module="sales"><BeePurchases /></Protected>} />
+        {/* Finances: Sales (its own tabs live in the page) and Bee purchases. */}
+        <Route path="finances" element={<Navigate to="/finances/sales" replace />} />
+        <Route path="finances/sales" element={<Protected module="sales"><EstimatesHome /></Protected>} />
+        <Route path="finances/sales/invoices" element={<Protected module="sales"><InvoicesHome /></Protected>} />
+        <Route path="finances/sales/inventory" element={<Protected module="sales"><InventoryHome /></Protected>} />
+        <Route path="finances/sales/products" element={<Protected module="sales"><ProductsHome /></Protected>} />
+        <Route path="finances/sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
+        <Route path="finances/sales/shipping" element={<Protected module="sales"><ShippingSpecsHome /></Protected>} />
+        <Route path="finances/bees" element={<Protected module="sales"><BeePurchases /></Protected>} />
+
+        {/*
+          The old /sales/* paths, kept as redirects rather than deleted. People
+          have these pinned to a phone home screen (a tile stores a ROUTE, not a
+          screen), bookmarked, and in muscle memory — a rename that answers 404
+          to all of them looks like an outage rather than a rename.
+          RedirectKeepingQuery preserves the query string, which is what the
+          QuickBooks OAuth callback comes back carrying.
+        */}
+        <Route path="sales" element={<RedirectKeepingQuery to="/finances/sales" />} />
+        <Route path="sales/invoices" element={<RedirectKeepingQuery to="/finances/sales/invoices" />} />
+        <Route path="sales/inventory" element={<RedirectKeepingQuery to="/finances/sales/inventory" />} />
+        <Route path="sales/products" element={<RedirectKeepingQuery to="/finances/sales/products" />} />
+        <Route path="sales/customers" element={<RedirectKeepingQuery to="/finances/sales/customers" />} />
+        <Route path="sales/shipping" element={<RedirectKeepingQuery to="/finances/sales/shipping" />} />
+        <Route path="sales/bees" element={<RedirectKeepingQuery to="/finances/bees" />} />
         <Route path="sales/quickbooks" element={<RedirectKeepingQuery to="/users/integrations/quickbooks" />} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />

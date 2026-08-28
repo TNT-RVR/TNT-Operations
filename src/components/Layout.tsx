@@ -121,17 +121,20 @@ const NAV: NavItem[] = [
     ],
   },
   {
-    to: '/sales',
-    label: 'Sales',
+    to: '/finances',
+    label: 'Finances',
     icon: Receipt,
     module: 'sales',
+    /*
+     * Two children, not eight. Sales carries its own tab strip in the page
+     * (SalesChrome), and repeating those six here put the same list twice on
+     * one screen — the sidebar said Estimates / Invoices / Inventory and so did
+     * the row under the page title. The menu goes one level deep: WHICH PART of
+     * Finances you are in. Where you are inside Sales is the page's own business.
+     */
     children: [
-      { to: '/sales', label: 'Estimates', end: true },
-      { to: '/sales/invoices', label: 'Invoices' },
-      { to: '/sales/inventory', label: 'Inventory' },
-      { to: '/sales/products', label: 'Products' },
-      { to: '/sales/customers', label: 'Customers' },
-      { to: '/sales/bees', label: 'Bee purchases' },
+      { to: '/finances/sales', label: 'Sales' },
+      { to: '/finances/bees', label: 'Bee purchases' },
     ],
   },
   {

@@ -54,10 +54,13 @@ export const HOME_TILES: HomeTile[] = [
   { key: 'maps', label: 'Shelter Maps', hint: 'The office map and its tools', to: '/maps', module: 'maps', icon: 'Map' },
   { key: 'season', label: 'Season Setup', hint: "This year's fields and their details", to: '/maps/season', module: 'maps', icon: 'ClipboardList' },
   { key: 'costs', label: 'Field Costs', hint: 'Cost and profitability per field', to: '/maps/costs', module: 'maps', icon: 'Wallet' },
-  { key: 'sales', label: 'Estimates', hint: 'Quotes and orders', to: '/sales', module: 'sales', icon: 'FileText' },
-  { key: 'invoices', label: 'Invoices', hint: 'What has been billed', to: '/sales/invoices', module: 'sales', icon: 'Receipt' },
-  { key: 'inventory', label: 'Inventory', hint: 'Stock on hand', to: '/sales/inventory', module: 'sales', icon: 'Package' },
-  { key: 'bees', label: 'Bee purchases', hint: 'Gallons bought, by supplier', to: '/sales/bees', module: 'sales', icon: 'ShoppingCart' },
+  // The KEYS are stable on purpose: they are what a person's chosen tiles are
+  // stored as, so renaming one would silently drop it off their home screen.
+  // Only the routes moved under /finances.
+  { key: 'sales', label: 'Estimates', hint: 'Quotes and orders', to: '/finances/sales', module: 'sales', icon: 'FileText' },
+  { key: 'invoices', label: 'Invoices', hint: 'What has been billed', to: '/finances/sales/invoices', module: 'sales', icon: 'Receipt' },
+  { key: 'inventory', label: 'Inventory', hint: 'Stock on hand', to: '/finances/sales/inventory', module: 'sales', icon: 'Package' },
+  { key: 'bees', label: 'Bee purchases', hint: 'Gallons bought, by supplier', to: '/finances/bees', module: 'sales', icon: 'ShoppingCart' },
   { key: 'analysis', label: 'Analysis', hint: 'Season results and correlations', to: '/analysis', module: 'analysis', icon: 'ChartLine' },
   { key: 'grants', label: 'Grants', hint: 'Funding pipeline', to: '/grants', module: 'grants', icon: 'Landmark' },
   { key: 'notifications', label: 'Alerts', hint: 'Everything the app has flagged', to: '/notifications', module: 'dashboard', icon: 'Bell' },

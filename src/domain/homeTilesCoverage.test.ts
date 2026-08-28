@@ -43,9 +43,21 @@ const NOT_A_SHORTCUT: Record<string, string> = {
   'blocks/list': 'Blocks sub-tab',
   'incubation/alerts': 'Incubation sub-tab; the Alerts tile covers app-wide notices',
   'incubation/lineage': 'Incubation sub-tab, browsed from a sample or tray',
-  'sales/customers': 'Sales sub-tab',
-  'sales/products': 'Sales sub-tab',
-  'sales/shipping': 'Sales sub-tab — reference figures, edited when an item is new',
+  'finances': 'redirect to /finances/sales',
+  'finances/sales/customers': 'Sales sub-tab',
+  'finances/sales/products': 'Sales sub-tab',
+  'finances/sales/shipping': 'Sales sub-tab — reference figures, edited when an item is new',
+
+  // The pre-Finances paths, kept so pinned tiles and bookmarks still land.
+  // They are redirects, not views, and the thing they redirect TO is the
+  // tile.
+  'sales': 'redirect to /finances/sales',
+  'sales/invoices': 'redirect to /finances/sales/invoices',
+  'sales/inventory': 'redirect to /finances/sales/inventory',
+  'sales/products': 'redirect to /finances/sales/products',
+  'sales/customers': 'redirect to /finances/sales/customers',
+  'sales/shipping': 'redirect to /finances/sales/shipping',
+  'sales/bees': 'redirect to /finances/bees',
   'tasks/checklists': 'Tasks sub-tab — templates, not the daily list',
   'users/access': 'Settings sub-tab',
   'users/account': 'Settings sub-tab — and where the tiles themselves are chosen',

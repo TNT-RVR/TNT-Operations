@@ -109,6 +109,8 @@ export default function BeePurchases() {
 
   return (
     <SalesChrome
+      /* Its own view under Finances now, not a Sales tab. */
+      tabs={null}
       title="Bee purchases"
       subtitle="What the bees cost, per season and per gallon. Synced weekly from QuickBooks."
       actions={

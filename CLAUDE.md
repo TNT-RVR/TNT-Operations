@@ -400,7 +400,7 @@ _Last reviewed 2026-08-17._
         `visibility: hidden` (hidden elements keep their space, which printed
         four blank pages before the document). `:has()` unclips the scrolling
         modal around the sheet, and the dark theme is forced to ink.
-      - **Shipping specs have an editor** (`/sales/shipping`,
+      - **Shipping specs have an editor** (`/finances/sales/shipping`,
         `ShippingSpecs.tsx` + `domain/itemSpecs.ts`). It leads with the GAP,
         not the list: `missingSpecs` names every active product whose
         `shipItem` has no spec, because such a product looks healthy right up
@@ -513,6 +513,20 @@ _Last reviewed 2026-08-17._
         in Netlify and the sheet shared with the service account, or it no-ops
         with 501. Setup + how it decides:
         `docs/checklist-sheet-sync.md`.
+      - **Finances** (renamed from Sales, 2026-08-27) — the section is
+        `/finances`, with TWO children in the nav: **Sales**
+        (`/finances/sales`, whose own six tabs live in the page via
+        `SalesChrome`, NOT in the menu — repeating them in the sidebar put the
+        same list twice on one screen) and **Bee purchases**
+        (`/finances/bees`), which moved OUT of the Sales tabs because buying
+        bees is not a sale and shares no data with one. `SalesChrome` takes a
+        `tabs` prop for that; Bee purchases passes `null` and still gets the
+        `loadSales()` the slice needs.
+        Every old `/sales/*` path REDIRECTS rather than 404s — home tiles store
+        a route, so a rename without them silently empties someone's phone
+        screen. The tile KEYS are unchanged for the same reason.
+        The MODULES permission key is still `sales`: it is an identity in the
+        role matrix, not a label, and renaming it buys nothing.
       - **Notifications** (`0006_notifications.sql`) — in-app alert system: bell
         with unread dot, list/mark-read/delete, per-type preferences
         (`app_notifications`, `app_notification_prefs`). Table is named

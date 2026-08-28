@@ -22,6 +22,7 @@
  * a tape measure against, so the editor shows that as the figures change.
  */
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
 import { AlertTriangle, Package, Plus, Save, Trash2 } from 'lucide-react'
@@ -109,9 +110,9 @@ export function ShippingSpecsHome() {
             {unshipped.join(', ')} — no “Ships as” on the product, so nothing here can be matched to{' '}
             {unshipped.length === 1 ? 'it' : 'them'}. Fine for anything that never goes on a pallet; if it does
             ship, set “Ships as” on the product in{' '}
-            <a className="underline decoration-dotted underline-offset-2 text-brand" href="/sales/products">
+            <Link className="underline decoration-dotted underline-offset-2 text-brand" to="/finances/sales/products">
               Products
-            </a>{' '}
+            </Link>{' '}
             to one of the names below, or its quote will refuse for want of a weight.
           </p>
         </div>

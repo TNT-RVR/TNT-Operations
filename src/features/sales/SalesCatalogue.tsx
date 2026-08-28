@@ -512,7 +512,7 @@ function ShipsAsPicker({
       {value && !known ? (
         <p className="mt-1 text-xs text-danger">
           Nothing has measured “{value}”, so this is left off every freight document. Add it under{' '}
-          <Link className="underline decoration-dotted underline-offset-2" to="/sales/shipping">
+          <Link className="underline decoration-dotted underline-offset-2" to="/finances/sales/shipping">
             Shipping specs
           </Link>
           .

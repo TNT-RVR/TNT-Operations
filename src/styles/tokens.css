@@ -4,7 +4,21 @@
 :root {
   /* Honey (the single brand color — sampled from the bee mark) */
   --honey-50:#FFF8EA; --honey-100:#FDEDC7; --honey-200:#FBDA8E; --honey-300:#FECC5C;
-  --honey-400:#FEC047; --honey-500:#FEB836; /* BRAND PRIMARY */
+  --honey-400:#FEC047; --honey-500:#FEB836; /* BRAND PRIMARY (on dark) */
+  /*
+   * The same brand, deep enough to survive a white page.
+   *
+   * #FEB836 was chosen against near-black, where it blazes. On the light theme
+   * it sits at 1.66:1 against the page — a control needs 3:1 to read as a
+   * control at all, so the primary button became a pale blob that people
+   * looked straight past. (That is exactly how it was reported: "I can't find
+   * the add user button.")
+   *
+   * These are the same hue at a lightness that works on white: 4.8:1 against
+   * the page and 5.0:1 for white text on top, so the button announces itself
+   * AND its label is readable. Dark keeps the bright one.
+   */
+  --honey-deep:#9A6400; --honey-deep-hover:#8A5A00; --honey-deep-press:#7E5200;
   --honey-600:#E9A11F; --honey-700:#C0821A; --honey-800:#8A5C13; --honey-900:#4E340B;
 
   /* Ink — warm-leaning near-black neutrals */
@@ -125,7 +139,18 @@
   --text-primary:var(--ink-950); --text-secondary:var(--ink-600);
   --text-muted:var(--ink-400); --text-faint:var(--ink-300);
   --text-inverse:var(--white); --text-on-brand:var(--ink-950);
-  --brand-subtle:rgba(254,184,54,0.20);
+  /* See --honey-deep: the bright honey cannot carry a control on white. */
+  --brand:var(--honey-deep);
+  --brand-hover:var(--honey-deep-hover);
+  --brand-press:var(--honey-deep-press);
+  --border-brand:var(--honey-deep);
+  --text-brand:var(--honey-deep);
+  /* The button is dark now, so its label is white rather than ink. */
+  --on-brand:var(--white); --text-on-brand:var(--white);
+  --focus-ring:var(--honey-deep);
+  --brand-ring:rgba(154,100,0,0.35);
+  --logo-ink:var(--honey-deep);
+  --brand-subtle:rgba(154,100,0,0.12);
   --logo-ink:var(--ink-950);
   --hover-wash:rgba(5,5,6,0.045); --active-wash:rgba(5,5,6,0.085);
   --wash-line:rgba(5,5,6,0.035); --chip-bg:rgba(5,5,6,0.05);

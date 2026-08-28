@@ -37,6 +37,15 @@ literal hex — keep those values aligned to token hex.
   per view; everything else neutral ink. Field green is retired.
 - **Borders** are always the white-alpha hairline tokens (`--border-subtle/default/
   strong`) — never solid grey.
+- **Honey has TWO values, one per theme.** `--honey-500` (#FEB836) was picked
+  against near-black and blazes there. On the light theme it sits at **1.66:1**
+  against the page — under the 3:1 a control needs to read as a control — so
+  the primary button became a pale shape people looked straight past. It was
+  reported as "I can't find the add user button", which is the failure mode:
+  no error, no crash, an invisible control. `.on-light` therefore maps `--brand`
+  / `--text-brand` / `--border-brand` to `--honey-deep` (#9A6400, 4.8:1 on the
+  page) and flips `--on-brand` to white. `brandContrast.test.ts` enforces
+  3:1 for the button and 4.5:1 for label and brand text, in BOTH themes.
 - **Status** greens/reds/blues are muted (`--ok/warn/danger/info-*`), never neon.
 - The six-colour **data palette** (`--data-*`) is for charts only.
 

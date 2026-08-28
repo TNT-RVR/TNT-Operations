@@ -8,7 +8,25 @@
     <!-- iOS ignores the manifest's icons; this is the one it puts on the home
          screen, and it must be a real 180px image rather than a scaled 3000px one. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      NO `viewport-fit=cover`.
+
+      Cover lets the page draw UNDER the system bars, and the app then keeps
+      itself clear with env(safe-area-inset-*). That works on iOS. On Android
+      with three-button navigation the bottom inset is commonly reported as 0
+      while the nav bar still overlays the viewport — so `.safe-bottom` added no
+      padding and the app's OWN bottom bar rendered underneath the system one.
+      Invisible, and intermittent, because the inset changes with gesture-vs-
+      button navigation, rotation and the keyboard. Reported exactly that way:
+      "it was gone for a while but now is back".
+
+      Cover was here for `apple-mobile-web-app-status-bar-style:
+      black-translucent`, which needed the page to reach behind the iOS status
+      bar. That became `default` on 2026-08-27 when the app went light, so
+      nothing needs cover any more. Without it the viewport is the genuinely
+      visible area, 100dvh means what it says, and the bottom bar cannot hide.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Light by default since 2026-08-27; the dark value is swapped in below
          when that is the stored choice, so the browser chrome matches. -->
     <meta name="theme-color" content="#FFFFFF" />

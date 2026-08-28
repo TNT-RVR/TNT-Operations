@@ -78,6 +78,16 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   - **Voice.** Confident, technical, plain-spoken; active voice, verbs lead;
     numbers with units in mono. No bee puns, no hype, no emoji (status = colour +
     dot + label). Company is "TNT"; address the grower as "you".
+- **NO `viewport-fit=cover`** in `index.html`, and a test enforces it against
+  the iOS status-bar style. Cover lets the page draw UNDER the system bars and
+  the app then keeps clear with `env(safe-area-inset-*)`. On Android with
+  three-button navigation that bottom inset is commonly 0 while the nav bar
+  still overlays the viewport — so `.safe-bottom` added nothing and the app's
+  OWN bottom bar rendered underneath the system one. Invisible, and
+  intermittent (the inset moves with gesture-vs-button nav, rotation, the
+  keyboard). Cover only existed for `black-translucent`, which went away when
+  the app went light on 2026-08-27. Turn cover back on only with a real reason
+  AND a check on an Android phone in three-button mode.
 - **A new view is offered as a phone shortcut, or is deliberately not.** When
   you add a route, add it to `HOME_TILES` (`src/domain/homeTiles.ts`) so it can
   be put on someone's home screen, or list it in `NOT_A_SHORTCUT` in

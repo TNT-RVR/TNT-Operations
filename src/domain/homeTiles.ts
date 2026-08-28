@@ -53,7 +53,7 @@ export const HOME_TILES: HomeTile[] = [
   { key: 'trayList', label: 'Trays', hint: 'Every tray, filterable', to: '/incubation/trays', module: 'incubation', icon: 'LayoutList' },
   { key: 'maps', label: 'Shelter Maps', hint: 'The office map and its tools', to: '/maps', module: 'maps', icon: 'Map' },
   { key: 'season', label: 'Season Setup', hint: "This year's fields and their details", to: '/maps/season', module: 'maps', icon: 'ClipboardList' },
-  { key: 'costs', label: 'Field Costs', hint: 'Cost and profitability per field', to: '/maps/costs', module: 'maps', icon: 'Wallet' },
+  { key: 'costs', label: 'Field Costs', hint: 'Cost and profitability per field', to: '/finances/costs', module: 'maps', icon: 'Wallet' },
   // The KEYS are stable on purpose: they are what a person's chosen tiles are
   // stored as, so renaming one would silently drop it off their home screen.
   // Only the routes moved under /finances.

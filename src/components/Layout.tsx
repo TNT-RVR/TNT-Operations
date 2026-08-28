@@ -56,7 +56,6 @@ const NAV: NavItem[] = [
     children: [
       { to: '/maps', label: 'Fields', end: true },
       { to: '/maps/season', label: 'Season Setup' },
-      { to: '/maps/costs', label: 'Costs' },
     ],
   },
   {
@@ -135,6 +134,7 @@ const NAV: NavItem[] = [
     children: [
       { to: '/finances/sales', label: 'Sales' },
       { to: '/finances/bees', label: 'Bee purchases' },
+      { to: '/finances/costs', label: 'Field Costs' },
     ],
   },
   {

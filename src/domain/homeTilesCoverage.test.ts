@@ -58,6 +58,7 @@ const NOT_A_SHORTCUT: Record<string, string> = {
   'sales/customers': 'redirect to /finances/sales/customers',
   'sales/shipping': 'redirect to /finances/sales/shipping',
   'sales/bees': 'redirect to /finances/bees',
+  'maps/costs': 'redirect to /finances/costs',
   'tasks/checklists': 'Tasks sub-tab — templates, not the daily list',
   'users/access': 'Settings sub-tab',
   'users/account': 'Settings sub-tab — and where the tiles themselves are chosen',

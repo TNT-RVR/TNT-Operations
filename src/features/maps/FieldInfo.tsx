@@ -101,7 +101,7 @@ export default function FieldInfo() {
             <Button variant="ghost" onClick={() => navigate(`/maps?field=${field.id}`)}>
               <MapIcon size={16} /> Open in Shelter Maps
             </Button>
-            <Button variant="ghost" onClick={() => navigate('/maps/costs')}>
+            <Button variant="ghost" onClick={() => navigate('/finances/costs')}>
               <Wallet size={16} /> Field costs
             </Button>
           </div>

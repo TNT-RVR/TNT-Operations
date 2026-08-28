@@ -105,7 +105,7 @@ export default function App() {
             the role was right, the landing page was wrong. */}
         <Route index element={<Home />} />
         <Route path="maps" element={<Protected module="maps"><MapsHome /></Protected>} />
-        <Route path="maps/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
+
         <Route path="maps/field/:id" element={<Protected module="maps"><FieldInfo /></Protected>} />
         <Route path="maps/season" element={<Protected module="maps"><SeasonSetup /></Protected>} />
         <Route path="field" element={<Protected module="field"><ScheduleHome /></Protected>} />
@@ -141,6 +141,10 @@ export default function App() {
         <Route path="finances/sales/customers" element={<Protected module="sales"><CustomersHome /></Protected>} />
         <Route path="finances/sales/shipping" element={<Protected module="sales"><ShippingSpecsHome /></Protected>} />
         <Route path="finances/bees" element={<Protected module="sales"><BeePurchases /></Protected>} />
+        {/* Field Costs sits under Finances, but is gated on `maps`: it is the
+            map's geometry priced up, and anyone who cannot see a field has no
+            business seeing what it earns. */}
+        <Route path="finances/costs" element={<Protected module="maps"><CostsHome /></Protected>} />
 
         {/*
           The old /sales/* paths, kept as redirects rather than deleted. People
@@ -157,6 +161,7 @@ export default function App() {
         <Route path="sales/customers" element={<RedirectKeepingQuery to="/finances/sales/customers" />} />
         <Route path="sales/shipping" element={<RedirectKeepingQuery to="/finances/sales/shipping" />} />
         <Route path="sales/bees" element={<RedirectKeepingQuery to="/finances/bees" />} />
+        <Route path="maps/costs" element={<RedirectKeepingQuery to="/finances/costs" />} />
         <Route path="sales/quickbooks" element={<RedirectKeepingQuery to="/users/integrations/quickbooks" />} />
         <Route path="analysis" element={<Protected module="analysis"><AnalysisHome /></Protected>} />
         <Route path="analysis/fields" element={<Protected module="analysis"><AnalysisFields /></Protected>} />

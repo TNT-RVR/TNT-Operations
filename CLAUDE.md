@@ -321,6 +321,21 @@ _Last reviewed 2026-08-17._
         open means the chamber stops holding its atmosphere and nothing in the
         firmware closes it. Every attempt, including refusals, is written to
         `hypoxia_commands`.
+        **History**: `HypoxiaChart.tsx`, dependency-free SVG like
+        `ReadingsChart` (recharts is for Analysis). It shades PURGE spans, and
+        that is the point — a hypoxia trace is a sawtooth (O2 creeps up as the
+        chamber leaks, a purge drops it), which unmarked reads as a chamber
+        repeatedly failing. Shaded, it reads as the mechanism working and a real
+        problem stands out by BREAKING the pattern. Maintenance is shaded
+        differently: in maintenance the chamber is not regulating, so that
+        stretch is not evidence of anything. `collapseSpans` is in the domain
+        and imported by both the chart and its test, so the assertions cover
+        what actually draws. The y-scale always includes the target band —
+        auto-scaling to the data alone makes a chamber look like it is hugging
+        its target however far off it sat. Readings come from
+        `fetchHypoxiaReadings` (bounded at BOTH ends and returned, like
+        `fetchReadings`), not the global cache, or every range would draw the
+        same few hours.
         Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
         Purging and maintenance are deliberately NOT alerted — both leave the
         band on purpose.

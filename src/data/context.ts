@@ -139,6 +139,16 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    */
   loadHypoxia: () => Promise<void>
   /**
+   * Readings for ONE chamber between two instants, returned rather than stored.
+   *
+   * Same shape as `fetchReadings` and for the same reasons: `loadHypoxia`
+   * holds a recent window across every chamber, so a 30-day chart drawn from it
+   * would render the same few hours as the 24-hour one. Bounded at both ends so
+   * a long window cannot drag the whole table into memory.
+   */
+  fetchHypoxiaReadings: (chamberId: string, fromIso: string, toIso: string) => Promise<HypoxiaReadingRow[]>
+
+  /**
    * Send one command to a chamber.
    *
    * Goes through a Netlify function, never straight to ThingsBoard: the

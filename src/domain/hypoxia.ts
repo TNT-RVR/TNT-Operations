@@ -255,3 +255,45 @@ export function isSilent(lastSeenIso: string | null, now: Date = new Date()): bo
   if (!Number.isFinite(t)) return true
   return now.getTime() - t > SILENT_AFTER_MIN * 60_000
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Chart spans
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A stretch of time the chamber spent purging, or in maintenance. */
+export interface ChamberSpan {
+  start: string
+  end: string
+  kind: 'purge' | 'maint'
+}
+
+/**
+ * Collapse consecutive readings into the stretches they represent.
+ *
+ * A hypoxia trace is a sawtooth — oxygen creeps up as the chamber leaks, a
+ * purge drops it, repeat. Drawn without the purges marked that reads as a
+ * chamber repeatedly failing to hold its target; shaded, it reads as the
+ * mechanism working, and a real problem stands out because it BREAKS the
+ * pattern.
+ *
+ * Collapsed rather than one mark per reading, because one rect per reading
+ * stripes the chart at the poll rate instead of showing how long the chamber
+ * actually purged for. Purging wins over maintenance when the firmware reports
+ * both: it is the more specific thing to say about that moment.
+ */
+export function collapseSpans(
+  points: Array<{ at: string; purging: boolean; maintenance: boolean }>,
+): ChamberSpan[] {
+  const out: ChamberSpan[] = []
+  let open: { start: string; kind: 'purge' | 'maint' } | null = null
+  for (const p of points) {
+    const kind: 'purge' | 'maint' | null = p.purging ? 'purge' : p.maintenance ? 'maint' : null
+    if (kind && !open) open = { start: p.at, kind }
+    else if (open && kind !== open.kind) {
+      out.push({ start: open.start, end: p.at, kind: open.kind })
+      open = kind ? { start: p.at, kind } : null
+    }
+  }
+  if (open && points.length) out.push({ start: open.start, end: points[points.length - 1].at, kind: open.kind })
+  return out
+}

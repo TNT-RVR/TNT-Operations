@@ -259,6 +259,23 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     [loadHypoxia],
   )
 
+  const fetchHypoxiaReadings = useCallback(
+    async (chamberId: string, fromIso: string, toIso: string) => {
+      if (!supabase) return []
+      const { data, error } = await supabase
+        .from('hypoxia_readings')
+        .select('*')
+        .eq('chamber_id', chamberId)
+        .gte('at', fromIso)
+        .lte('at', toIso)
+        .order('at', { ascending: true })
+        .limit(5000)
+      if (error) return []
+      return ((data as HypoxiaRow[]) ?? []).map(toHypoxiaReading)
+    },
+    [],
+  )
+
   const saveHypoxiaChamber = useCallback(async (id: string, patch: Partial<HypoxiaChamber>) => {
     if (!supabase) return { ok: false, error: 'Not connected' }
     const row: HypoxiaRow = {}
@@ -1383,6 +1400,7 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
       hypoxiaReadings,
       hypoxiaCommands,
       loadHypoxia,
+      fetchHypoxiaReadings,
       sendHypoxiaCommand,
       saveHypoxiaChamber,
       refreshFields: async () => {

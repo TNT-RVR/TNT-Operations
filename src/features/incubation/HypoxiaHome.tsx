@@ -26,6 +26,7 @@ import { useSession } from '@/auth/session'
 import { Badge, Button, EmptyState, InfoDot, Input, PageHeader, Stat } from '@/components/ui'
 import { AlertTriangle, ChevronDown, Wind } from 'lucide-react'
 import type { HypoxiaChamber, HypoxiaReadingRow } from '@/data/types'
+import { HypoxiaChart } from './HypoxiaChart'
 import {
   AIR_O2_PCT,
   COMMANDS,
@@ -189,6 +190,18 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
       ) : (
         <p className="text-sm text-muted">No readings stored yet.</p>
       )}
+
+      {/*
+        History. Shown even while the chamber is silent — what it was doing
+        before it went quiet is exactly what somebody wants at that moment.
+      */}
+      <div className="border-t border-subtle pt-3">
+        <HypoxiaChart
+          chamberId={chamber.id}
+          setpointPct={chamber.setpointPct}
+          deadbandPct={chamber.deadbandPct}
+        />
+      </div>
 
       {canCommand && (
         <div className="space-y-3 border-t border-subtle pt-3">

@@ -22,10 +22,12 @@
  * opened that valve, and when" is a question that will be asked, and a refusal
  * is also an answer.
  *
- * Env: TB_USERNAME / TB_PASSWORD (+ optional TB_BASE_URL), SUPABASE_URL,
- * SUPABASE_SERVICE_ROLE.
+ * Commands are QUEUED, not pushed. The chamber has no broker and no inbound
+ * port; it collects its next command on its own telemetry post, so this writes
+ * a row and the device picks it up within a publish cycle (~15 s).
+ *
+ * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE.
  */
-import { tbConfigured, tbSendCommand } from './lib/thingsboard.mjs'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -109,9 +111,6 @@ export default async (req) => {
   const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const KEY = process.env.SUPABASE_SERVICE_ROLE
   if (!SB_URL || !KEY) return json({ error: 'Not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE)' }, 500)
-  if (!tbConfigured()) {
-    return json({ error: 'ThingsBoard is not configured — set TB_USERNAME and TB_PASSWORD in Netlify.' }, 501)
-  }
 
   let body
   try {
@@ -142,13 +141,13 @@ export default async (req) => {
   const allowed = elevated ? CAN_ELEVATED.has(role) : CAN_ROUTINE.has(role)
 
   const chamber = await fetch(
-    `${SB_URL}/rest/v1/hypoxia_chambers?select=id,name,tb_device_id&id=eq.${chamberId}`,
+    `${SB_URL}/rest/v1/hypoxia_chambers?select=id,name,device_key_hash&id=eq.${chamberId}`,
     { headers: sb },
   )
     .then((r) => (r.ok ? r.json() : []))
     .then((rows) => rows?.[0])
 
-  /** Record the attempt, whatever happened to it. */
+  /** Record a REFUSED attempt. An accepted one is recorded by the queue write. */
   const audit = async (ok, error) => {
     await fetch(`${SB_URL}/rest/v1/hypoxia_commands`, {
       method: 'POST',
@@ -160,6 +159,9 @@ export default async (req) => {
         sent_by: me.id,
         ok,
         error: error ?? null,
+        // A refusal never reaches a chamber, so it is delivered in the only
+        // sense that matters: it is not sitting in the queue waiting to fire.
+        delivered_at: new Date().toISOString(),
       }),
     }).catch(() => {})
   }
@@ -174,20 +176,36 @@ export default async (req) => {
     await audit(false, why)
     return json({ error: why }, 403)
   }
-  if (!chamber.tb_device_id) {
-    const why = 'This chamber has no ThingsBoard device linked, so there is nothing to send to.'
+  if (!chamber.device_key_hash) {
+    const why = 'This chamber has no device key yet, so nothing is listening for commands.'
     await audit(false, why)
     return json({ error: why }, 400)
   }
 
-  const res = await tbSendCommand(chamber.tb_device_id, verdict.wire)
-  await audit(res.ok, res.ok ? null : res.error)
-  if (!res.ok) return json({ error: res.error }, 502)
+  /*
+   * The audit row IS the queue. One insert records who asked for what and puts
+   * it in line for the chamber to collect; `delivered_at` is stamped when it
+   * actually does, which is also the answer to "did the chamber ever get it".
+   */
+  const queued = await fetch(`${SB_URL}/rest/v1/hypoxia_commands`, {
+    method: 'POST',
+    headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      chamber_id: chamberId,
+      wire: verdict.wire,
+      risk: verdict.risk,
+      sent_by: me.id,
+      ok: true,
+    }),
+  })
+  if (!queued.ok) {
+    return json({ error: `Could not queue the command: ${(await queued.text()).slice(0, 200)}` }, 502)
+  }
 
   /*
-   * The setpoint the app believes, updated only after the command actually
-   * went. It is a record of what was SENT — the firmware holds the real value,
-   * and the reading is what the screen should trust.
+   * The setpoint the app believes, updated once the command is queued. Still
+   * only a record of what was ASKED FOR — the firmware owns the real value, so
+   * the screen shows the reading.
    */
   const sp = /^SP=(\d+)$/.exec(verdict.wire)
   const db = /^DB=(\d+)$/.exec(verdict.wire)
@@ -201,5 +219,5 @@ export default async (req) => {
     })
   }
 
-  return json({ ok: true, wire: verdict.wire, risk: verdict.risk, note: res.note })
+  return json({ ok: true, wire: verdict.wire, risk: verdict.risk, note: 'Queued — the chamber collects it within about 15 seconds.' })
 }

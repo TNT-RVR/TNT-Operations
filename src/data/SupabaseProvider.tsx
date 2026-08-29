@@ -6,7 +6,7 @@ import type {
   FieldAlias,
   HypoxiaChamber,
   HypoxiaCommandLog,
-  HypoxiaDevice,
+  HypoxiaKeyIssue,
   HypoxiaReadingRow,
   FieldSeason,
   PollinationField,
@@ -298,17 +298,22 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const listHypoxiaDevices = useCallback(async () => {
-    const r = await callDeviceFn({ action: 'list' })
-    return r.error ? { error: r.error } : { devices: (r.devices ?? []) as HypoxiaDevice[] }
-  }, [callDeviceFn])
-
-  const linkHypoxiaDevice = useCallback(
-    async (input: { deviceId: string; name: string; location?: string; pod?: number }) => {
-      const r = await callDeviceFn({ action: 'link', ...input })
-      if (r.error) return { ok: false, error: r.error }
+  const createHypoxiaChamber = useCallback(
+    async (input: { name: string; location?: string; pod?: number }): Promise<HypoxiaKeyIssue> => {
+      const r = await callDeviceFn({ action: 'create', ...input })
+      if (r.error) return { ok: false, error: r.error as string }
       await loadHypoxia()
-      return { ok: true }
+      return { ok: true, deviceKey: r.deviceKey as string }
+    },
+    [callDeviceFn, loadHypoxia],
+  )
+
+  const rekeyHypoxiaChamber = useCallback(
+    async (chamberId: string): Promise<HypoxiaKeyIssue> => {
+      const r = await callDeviceFn({ action: 'rekey', chamberId })
+      if (r.error) return { ok: false, error: r.error as string }
+      await loadHypoxia()
+      return { ok: true, deviceKey: r.deviceKey as string }
     },
     [callDeviceFn, loadHypoxia],
   )
@@ -318,7 +323,6 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     const row: HypoxiaRow = {}
     if (patch.name !== undefined) row.name = patch.name
     if (patch.location !== undefined) row.location = patch.location
-    if (patch.tbDeviceId !== undefined) row.tb_device_id = patch.tbDeviceId
     if (patch.pod !== undefined) row.pod = patch.pod
     if (patch.active !== undefined) row.active = patch.active
     if (patch.notes !== undefined) row.notes = patch.notes
@@ -807,7 +811,8 @@ const toHypoxiaChamber = (r: HypoxiaRow): HypoxiaChamber => ({
   id: r.id,
   name: r.name ?? '',
   location: r.location ?? '',
-  tbDeviceId: r.tb_device_id ?? null,
+  hasKey: Boolean(r.device_key_hash),
+  keyHint: r.device_key_hint ?? '',
   pod: Number(r.pod ?? 1),
   setpointPct: Number(r.setpoint_pct ?? 10),
   deadbandPct: Number(r.deadband_pct ?? 1),
@@ -1438,8 +1443,8 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
       hypoxiaCommands,
       loadHypoxia,
       fetchHypoxiaReadings,
-      listHypoxiaDevices,
-      linkHypoxiaDevice,
+      createHypoxiaChamber,
+      rekeyHypoxiaChamber,
       sendHypoxiaCommand,
       saveHypoxiaChamber,
       refreshFields: async () => {

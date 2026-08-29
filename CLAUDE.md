@@ -301,10 +301,24 @@ _Last reviewed 2026-08-17._
         controlled-atmosphere storage: a chamber holds O2 near 10% with
         nitrogen purges. Hardware is an Arduino Nano per chamber bridged to
         **ThingsBoard** by an ESP32-C3 (student build, 2026-08).
-        **ThingsBoard stays the device gateway** — no firmware change, nothing
-        reflashed. `poll-hypoxia.mjs` (every 5 min) copies telemetry into
-        `hypoxia_readings` so the app has history and alerting, exactly the
-        Govee poller's shape; `hypoxia-command.mjs` sends RPC back.
+        **The chambers report to TNT DIRECTLY** (2026-08-29). ThingsBoard is
+        gone: TNT did not own the student's account, and the only path to a
+        sealed chamber is not a dependency to borrow. The ESP32 POSTs the
+        Nano's line to `hypoxia-ingest.mjs` and reads its next command out of
+        the SAME response — one round trip, no broker, no persistent
+        connection, no inbound port. Latency is one publish cycle (~15 s).
+        Commands are a QUEUE (`hypoxia_commands.delivered_at`), collected by
+        the device rather than pushed. `delivered_at` is stamped BEFORE the
+        command is handed over, so a crash leaves it undelivered rather than
+        delivered twice — at-most-once is the safe direction for PURGE and
+        SERVO=OPEN.
+        Devices authenticate with a per-chamber key; the DB stores only its
+        SHA-256 and it is shown ONCE at issue. That is the fix for the student
+        firmware carrying its ThingsBoard token as a string literal in a file
+        that got emailed around. Rekey + reflash is the recovery, deliberately.
+        Firmware patch and flashing steps: `docs/hypoxia-firmware.md`.
+        `hypoxia_chambers.tb_device_id` is RETIRED, not dropped — it holds
+        nothing and `scripts/run-sql.mjs` rightly refuses `drop column`.
         `domain/hypoxia.ts` is the device contract, ported from
         `TNT2_NANO.ino`. TWO traps live there: **`SP=`/`DB=` are TENTHS**
         (`SP=100` is 10.0%, so sending "10" would set 1.0% O2 and the firmware
@@ -336,20 +350,18 @@ _Last reviewed 2026-08-17._
         `fetchHypoxiaReadings` (bounded at BOTH ends and returned, like
         `fetchReadings`), not the global cache, or every range would draw the
         same few hours.
+        Alerts are raised ON INGEST — the device's own post is the tick, so
+        there is no poller.
         Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
         Purging and maintenance are deliberately NOT alerted — both leave the
         band on purpose.
-        **Chambers are linked by PICKING a device**, never by pasting a UUID
-        (`hypoxia-devices.mjs` + `LinkChamberModal`). A wrong ThingsBoard id
-        fails silently and badly: the app reads another chamber's telemetry and
-        sends purge/valve/blast-door commands to the wrong sealed box. Linking
-        is admin-only, one device to one chamber (a second row would duplicate
-        history and double every command), and `hypoxia_chambers` has no client
+        Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
+        Purging and maintenance are deliberately NOT alerted — both leave the
+        band on purpose.
+        **A chamber is created WITH its key** (`hypoxia-devices.mjs` +
+        `LinkChamberModal`), admin-only, and `hypoxia_chambers` has no client
         INSERT policy — creation goes through the function under the service
-        role. Falls back to the CUSTOMER devices endpoint on a 403, since either
-        kind of ThingsBoard login is plausible.
-        Needs `TB_USERNAME` / `TB_PASSWORD` (+ optional `TB_BASE_URL`) in
-        Netlify; unconfigured, all three functions no-op with 501.
+        role so a client cannot mint itself a credential.
       - **Per-incubator export** (`domain/incubatorReport.ts` +
           `features/incubation/incubatorPdf.ts`) — any window (a week, a
           season, 2024), as a PDF summary or a readings CSV. The domain module

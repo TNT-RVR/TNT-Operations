@@ -158,7 +158,7 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
           <h2 className="font-display font-bold text-primary">{chamber.name}</h2>
           <p className="text-xs text-muted">
             {chamber.location || 'No location set'}
-            {!chamber.tbDeviceId && ' · no device linked'}
+            {!chamber.hasKey && ' · no device key'}
           </p>
         </div>
         {silent ? <Badge tone="red">Silent</Badge> : verdict && <Badge tone={TONE[verdict]}>{VERDICT_LABEL[verdict]}</Badge>}
@@ -220,7 +220,7 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
                 key={c.wire}
                 variant={c.wire === 'PURGE' ? 'primary' : 'ghost'}
                 onClick={() => send(c.wire)}
-                disabled={!!busy || !chamber.tbDeviceId}
+                disabled={!!busy || !chamber.hasKey}
               >
                 {busy === c.wire ? 'Sending…' : c.label}
               </Button>
@@ -249,7 +249,7 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
             </label>
             <Button
               variant="ghost"
-              disabled={!!busy || !chamber.tbDeviceId}
+              disabled={!!busy || !chamber.hasKey}
               onClick={() => {
                 const built = setpointCommand(Number(setpoint))
                 if ('error' in built) return setNote(built.error)
@@ -295,7 +295,7 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
                     ) : (
                       <Button
                         variant="ghost"
-                        disabled={!canManual || !!busy || !chamber.tbDeviceId}
+                        disabled={!canManual || !!busy || !chamber.hasKey}
                         onClick={() => setConfirming(c.wire)}
                       >
                         {c.label}
@@ -309,9 +309,9 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
           </details>
 
           {note && <p className="text-xs text-secondary">{note}</p>}
-          {!chamber.tbDeviceId && (
+          {!chamber.hasKey && (
             <p className="flex items-center gap-2 text-xs text-warn">
-              <Wind size={14} /> No ThingsBoard device linked, so nothing can be sent.
+              <Wind size={14} /> No device key issued, so nothing is listening for commands.
             </p>
           )}
         </div>

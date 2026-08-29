@@ -1127,8 +1127,13 @@ export interface HypoxiaChamber {
   id: string
   name: string
   location: string
-  /** ThingsBoard device. Null means nothing can be read from or sent to it. */
-  tbDeviceId: string | null
+  /**
+   * Whether a device key has been issued. The key itself is never stored — only
+   * its hash — so this is a boolean, not the credential.
+   */
+  hasKey: boolean
+  /** Last four characters of the key, to tell two chambers' keys apart. */
+  keyHint: string
   pod: number
   setpointPct: number
   deadbandPct: number
@@ -1168,12 +1173,9 @@ export interface HypoxiaCommandLog {
   error: string | null
 }
 
-/** A ThingsBoard device, as the linking picker needs it. */
-export interface HypoxiaDevice {
-  id: string
-  name: string
-  type: string
-  label: string
-  /** The chamber already using it, if any — so it cannot be linked twice. */
-  linkedTo: string | null
+/** A newly issued device key. Returned once, at creation, and never again. */
+export interface HypoxiaKeyIssue {
+  ok: boolean
+  deviceKey?: string
+  error?: string
 }

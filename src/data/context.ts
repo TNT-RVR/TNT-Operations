@@ -34,7 +34,7 @@ import type {
   Supplier,
   SalesOrder,
   HypoxiaChamber,
-  HypoxiaDevice,
+  HypoxiaKeyIssue,
   HypoxiaCommandLog,
   HypoxiaReadingRow,
   SalesOrderLine,
@@ -149,20 +149,19 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    */
   fetchHypoxiaReadings: (chamberId: string, fromIso: string, toIso: string) => Promise<HypoxiaReadingRow[]>
   /**
-   * The ThingsBoard devices this account can see, and which are already linked.
+   * Create a chamber and issue its device key.
    *
-   * Exists so nobody has to copy a UUID: pointing a chamber at the wrong device
-   * means reading someone else's telemetry and sending valve commands to the
-   * wrong sealed box, and a text box makes that a matter of time.
+   * The key comes back ONCE — only its hash is stored, so it cannot be shown
+   * again. That is deliberate: the student's firmware carried its credential as
+   * a string literal, and a key that can be re-read is one that eventually is.
    */
-  listHypoxiaDevices: () => Promise<{ devices?: HypoxiaDevice[]; error?: string }>
-  /** Create a chamber against a chosen device. Admin only, enforced server-side. */
-  linkHypoxiaDevice: (input: {
-    deviceId: string
+  createHypoxiaChamber: (input: {
     name: string
     location?: string
     pod?: number
-  }) => Promise<{ ok: boolean; error?: string }>
+  }) => Promise<HypoxiaKeyIssue>
+  /** Issue a fresh key. The old one stops working immediately. */
+  rekeyHypoxiaChamber: (chamberId: string) => Promise<HypoxiaKeyIssue>
 
   /**
    * Send one command to a chamber.

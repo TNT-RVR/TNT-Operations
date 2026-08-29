@@ -27,6 +27,7 @@ import { Badge, Button, EmptyState, InfoDot, Input, PageHeader, Stat } from '@/c
 import { AlertTriangle, ChevronDown, Wind } from 'lucide-react'
 import type { HypoxiaChamber, HypoxiaReadingRow } from '@/data/types'
 import { HypoxiaChart } from './HypoxiaChart'
+import { LinkChamberModal } from './LinkChamberModal'
 import {
   AIR_O2_PCT,
   COMMANDS,
@@ -73,7 +74,12 @@ function asReading(r: HypoxiaReadingRow): HypoxiaReading {
 
 export default function HypoxiaHome() {
   const { hypoxiaChambers, hypoxiaReadings, loadHypoxia } = useData()
+  const s = useSession()
   const [loading, setLoading] = useState(true)
+  const [linking, setLinking] = useState(false)
+  // Linking picks which physical box gets valve and blast-door commands, so it
+  // is admin-only here and refused server-side for anyone else.
+  const canLink = s.user.role === 'admin' || s.user.role === 'developer'
 
   useEffect(() => {
     void loadHypoxia().finally(() => setLoading(false))
@@ -91,14 +97,17 @@ export default function HypoxiaHome() {
       <PageHeader
         title="Hypoxia"
         subtitle="Controlled-atmosphere storage — oxygen held low with nitrogen purges"
+        actions={canLink ? <Button onClick={() => setLinking(true)}>Add chamber</Button> : undefined}
       />
+      {linking && <LinkChamberModal onClose={() => setLinking(false)} />}
       <div className="space-y-4 p-4 md:p-6">
         {loading ? (
           <p className="text-sm text-muted">Loading chambers…</p>
         ) : hypoxiaChambers.length === 0 ? (
           <EmptyState>
-            No chambers yet. Each one needs a row here linked to its ThingsBoard device before the app can read
-            or command it.
+            {canLink
+              ? 'No chambers yet. Press “Add chamber” to pick one of your ThingsBoard devices — the app will read its telemetry and send its commands there.'
+              : 'No chambers yet. An admin needs to link each one to its ThingsBoard device.'}
           </EmptyState>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">

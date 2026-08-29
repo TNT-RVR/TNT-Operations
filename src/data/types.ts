@@ -1167,3 +1167,13 @@ export interface HypoxiaCommandLog {
   ok: boolean
   error: string | null
 }
+
+/** A ThingsBoard device, as the linking picker needs it. */
+export interface HypoxiaDevice {
+  id: string
+  name: string
+  type: string
+  label: string
+  /** The chamber already using it, if any — so it cannot be linked twice. */
+  linkedTo: string | null
+}

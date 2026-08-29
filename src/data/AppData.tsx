@@ -444,6 +444,8 @@ function MockProvider({ children }: { children: ReactNode }) {
       hypoxiaCommands: [],
       loadHypoxia: async () => {},
       fetchHypoxiaReadings: async () => [],
+      listHypoxiaDevices: async () => ({ error: 'Chambers need the live backend.' }),
+      linkHypoxiaDevice: async () => ({ ok: false, error: 'Chambers need the live backend.' }),
       sendHypoxiaCommand: async () => ({ ok: false, error: 'Chambers need the live backend.' }),
       saveHypoxiaChamber: async () => ({ ok: false, error: 'Chambers need the live backend.' }),
       refreshFields: async () => {},

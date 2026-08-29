@@ -6,6 +6,7 @@ import type {
   FieldAlias,
   HypoxiaChamber,
   HypoxiaCommandLog,
+  HypoxiaDevice,
   HypoxiaReadingRow,
   FieldSeason,
   PollinationField,
@@ -274,6 +275,42 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       return ((data as HypoxiaRow[]) ?? []).map(toHypoxiaReading)
     },
     [],
+  )
+
+  /** Both device calls go through the one function, which owns the TB login. */
+  const callDeviceFn = useCallback(async (payload: Record<string, unknown>) => {
+    if (!supabase) return { error: 'Not connected' }
+    try {
+      const { data: sess } = await supabase.auth.getSession()
+      const res = await fetch('/.netlify/functions/hypoxia-devices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sess.session?.access_token ?? ''}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) return { error: body.error ?? `Failed (${res.status})` }
+      return body
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  }, [])
+
+  const listHypoxiaDevices = useCallback(async () => {
+    const r = await callDeviceFn({ action: 'list' })
+    return r.error ? { error: r.error } : { devices: (r.devices ?? []) as HypoxiaDevice[] }
+  }, [callDeviceFn])
+
+  const linkHypoxiaDevice = useCallback(
+    async (input: { deviceId: string; name: string; location?: string; pod?: number }) => {
+      const r = await callDeviceFn({ action: 'link', ...input })
+      if (r.error) return { ok: false, error: r.error }
+      await loadHypoxia()
+      return { ok: true }
+    },
+    [callDeviceFn, loadHypoxia],
   )
 
   const saveHypoxiaChamber = useCallback(async (id: string, patch: Partial<HypoxiaChamber>) => {
@@ -1401,6 +1438,8 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
       hypoxiaCommands,
       loadHypoxia,
       fetchHypoxiaReadings,
+      listHypoxiaDevices,
+      linkHypoxiaDevice,
       sendHypoxiaCommand,
       saveHypoxiaChamber,
       refreshFields: async () => {

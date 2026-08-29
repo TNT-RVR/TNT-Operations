@@ -339,9 +339,17 @@ _Last reviewed 2026-08-17._
         Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
         Purging and maintenance are deliberately NOT alerted — both leave the
         band on purpose.
+        **Chambers are linked by PICKING a device**, never by pasting a UUID
+        (`hypoxia-devices.mjs` + `LinkChamberModal`). A wrong ThingsBoard id
+        fails silently and badly: the app reads another chamber's telemetry and
+        sends purge/valve/blast-door commands to the wrong sealed box. Linking
+        is admin-only, one device to one chamber (a second row would duplicate
+        history and double every command), and `hypoxia_chambers` has no client
+        INSERT policy — creation goes through the function under the service
+        role. Falls back to the CUSTOMER devices endpoint on a 403, since either
+        kind of ThingsBoard login is plausible.
         Needs `TB_USERNAME` / `TB_PASSWORD` (+ optional `TB_BASE_URL`) in
-        Netlify, and each chamber row needs its `tb_device_id`; unconfigured,
-        both functions no-op with 501.
+        Netlify; unconfigured, all three functions no-op with 501.
       - **Per-incubator export** (`domain/incubatorReport.ts` +
           `features/incubation/incubatorPdf.ts`) — any window (a week, a
           season, 2024), as a PDF summary or a readings CSV. The domain module

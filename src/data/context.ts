@@ -34,6 +34,7 @@ import type {
   Supplier,
   SalesOrder,
   HypoxiaChamber,
+  HypoxiaDevice,
   HypoxiaCommandLog,
   HypoxiaReadingRow,
   SalesOrderLine,
@@ -147,6 +148,21 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * a long window cannot drag the whole table into memory.
    */
   fetchHypoxiaReadings: (chamberId: string, fromIso: string, toIso: string) => Promise<HypoxiaReadingRow[]>
+  /**
+   * The ThingsBoard devices this account can see, and which are already linked.
+   *
+   * Exists so nobody has to copy a UUID: pointing a chamber at the wrong device
+   * means reading someone else's telemetry and sending valve commands to the
+   * wrong sealed box, and a text box makes that a matter of time.
+   */
+  listHypoxiaDevices: () => Promise<{ devices?: HypoxiaDevice[]; error?: string }>
+  /** Create a chamber against a chosen device. Admin only, enforced server-side. */
+  linkHypoxiaDevice: (input: {
+    deviceId: string
+    name: string
+    location?: string
+    pod?: number
+  }) => Promise<{ ok: boolean; error?: string }>
 
   /**
    * Send one command to a chamber.

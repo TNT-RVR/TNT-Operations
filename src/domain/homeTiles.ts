@@ -48,6 +48,7 @@ export const HOME_TILES: HomeTile[] = [
   { key: 'returns', label: 'Returns map', hint: 'How the blocks came back', to: '/blocks/map', module: 'blocks', icon: 'MapPinned' },
   { key: 'experiments', label: 'Experiments', hint: 'Write down what a trial did, where you saw it', to: '/experiments', module: 'blocks', icon: 'FlaskConical' },
   { key: 'incubation', label: 'Incubation', hint: 'Incubators, temperatures and alerts', to: '/incubation', module: 'incubation', icon: 'Thermometer' },
+  { key: 'hypoxia', label: 'Hypoxia', hint: 'Oxygen in the storage chambers', to: '/incubation/hypoxia', module: 'incubation', icon: 'Wind' },
   { key: 'incScan', label: 'Scan trays', hint: 'The incubation scanner', to: '/incubation/scan', module: 'incubation', icon: 'QrCode' },
   { key: 'samples', label: 'Samples', hint: 'X-ray grading and tray maths', to: '/incubation/samples', module: 'incubation', icon: 'Microscope' },
   { key: 'trayList', label: 'Trays', hint: 'Every tray, filterable', to: '/incubation/trays', module: 'incubation', icon: 'LayoutList' },

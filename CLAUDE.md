@@ -297,7 +297,37 @@ _Last reviewed 2026-08-17._
         Trays / Lineage. (The separate **Sensors** view was REMOVED 2026-08-13
         — a flat table of every reading, superseded by the per-incubator chart
         and the export below. `sensors` is gone from `MODULES` too.)
-        - **Per-incubator export** (`domain/incubatorReport.ts` +
+        - **Hypoxia** (`/incubation/hypoxia`, `0048_hypoxia.sql`) —
+        controlled-atmosphere storage: a chamber holds O2 near 10% with
+        nitrogen purges. Hardware is an Arduino Nano per chamber bridged to
+        **ThingsBoard** by an ESP32-C3 (student build, 2026-08).
+        **ThingsBoard stays the device gateway** — no firmware change, nothing
+        reflashed. `poll-hypoxia.mjs` (every 5 min) copies telemetry into
+        `hypoxia_readings` so the app has history and alerting, exactly the
+        Govee poller's shape; `hypoxia-command.mjs` sends RPC back.
+        `domain/hypoxia.ts` is the device contract, ported from
+        `TNT2_NANO.ino`. TWO traps live there: **`SP=`/`DB=` are TENTHS**
+        (`SP=100` is 10.0%, so sending "10" would set 1.0% O2 and the firmware
+        would accept it), and a missing O2 figure returns NULL rather than a
+        partial reading — 0% is a readable number and a catastrophic one.
+        `chamberVerdict` puts fault and maintenance ABOVE the band: at setpoint
+        while faulting is not "holding", and in maintenance the loop is not
+        running so being at target is a coincidence.
+        The command whitelist exists in BOTH the domain and the function (a
+        Netlify function cannot import from `src`); `hypoxiaCommandParity.test.ts`
+        fails if they drift, including on risk level. Manual/calibration
+        commands are admin-only and enforced IN THE FUNCTION — a disabled
+        button is a UI state, not a gate — because a valve or blast door left
+        open means the chamber stops holding its atmosphere and nothing in the
+        firmware closes it. Every attempt, including refusals, is written to
+        `hypoxia_commands`.
+        Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
+        Purging and maintenance are deliberately NOT alerted — both leave the
+        band on purpose.
+        Needs `TB_USERNAME` / `TB_PASSWORD` (+ optional `TB_BASE_URL`) in
+        Netlify, and each chamber row needs its `tb_device_id`; unconfigured,
+        both functions no-op with 501.
+      - **Per-incubator export** (`domain/incubatorReport.ts` +
           `features/incubation/incubatorPdf.ts`) — any window (a week, a
           season, 2024), as a PDF summary or a readings CSV. The domain module
           builds ONE structure and the PDF and CSV are two renderings of it, so

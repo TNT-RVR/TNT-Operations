@@ -33,6 +33,9 @@ import type {
   SalesCustomer,
   Supplier,
   SalesOrder,
+  HypoxiaChamber,
+  HypoxiaCommandLog,
+  HypoxiaReadingRow,
   SalesOrderLine,
   SalesOrderCharge,
   OrderKind,
@@ -122,6 +125,30 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
    * request it. Idempotent: already-loaded windows resolve without refetching.
    */
   loadReadings: (incubatorId: string, sinceIso: string) => Promise<void>
+
+  // ── Hypoxia chambers ──
+  hypoxiaChambers: HypoxiaChamber[]
+  /** Recent telemetry, newest first. Loaded with the chambers. */
+  hypoxiaReadings: HypoxiaReadingRow[]
+  hypoxiaCommands: HypoxiaCommandLog[]
+  /**
+   * Fetch chambers, recent readings and the command log.
+   *
+   * Not loaded on mount — only the Hypoxia screen reads any of it, and the
+   * readings table grows at a device's pace rather than a person's.
+   */
+  loadHypoxia: () => Promise<void>
+  /**
+   * Send one command to a chamber.
+   *
+   * Goes through a Netlify function, never straight to ThingsBoard: the
+   * credentials are server-side, the caller's role decides what is allowed, and
+   * every attempt is written to the audit trail. The UI disabling a button is
+   * not the gate — that function is.
+   */
+  sendHypoxiaCommand: (chamberId: string, wire: string) => Promise<{ ok: boolean; error?: string }>
+  saveHypoxiaChamber: (id: string, patch: Partial<HypoxiaChamber>) => Promise<{ ok: boolean; error?: string }>
+
   /**
    * Readings for one incubator between two instants, RETURNED rather than
    * merged into state.

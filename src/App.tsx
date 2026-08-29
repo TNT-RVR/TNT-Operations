@@ -30,6 +30,7 @@ import TraysHome from './features/incubation/TraysHome'
 import LineageHome from './features/incubation/LineageHome'
 import AlertsHome from './features/incubation/AlertsHome'
 import ScanHome from './features/incubation/ScanHome'
+import HypoxiaHome from './features/incubation/HypoxiaHome'
 import CalendarHome from './features/incubation/CalendarHome'
 import BlocksHome from './features/blocks/BlocksHome'
 import BlockScan from './features/blocks/BlockScan'
@@ -122,6 +123,7 @@ export default function App() {
         <Route path="incubation/lineage" element={<Protected module="incubation"><LineageHome /></Protected>} />
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
+        <Route path="incubation/hypoxia" element={<Protected module="incubation"><HypoxiaHome /></Protected>} />
 {/* Filed under the blocks module: an experiment note is field work, and
             the people who write them are the ones who scan blocks. */}
         <Route path="experiments" element={<Protected module="blocks"><ExperimentsHome /></Protected>} />

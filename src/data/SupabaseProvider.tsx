@@ -4,6 +4,9 @@ import { DataContext, type DataContextValue, type NotificationPref, type TrayObs
 import { BADGE_SCAN_LIMIT } from '@/domain/appBadge'
 import type {
   FieldAlias,
+  HypoxiaChamber,
+  HypoxiaCommandLog,
+  HypoxiaReadingRow,
   FieldSeason,
   PollinationField,
   FieldChecklistCell,
@@ -199,6 +202,78 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [samples, setSamples] = useState<Sample[]>([])
   const [trays, setTrays] = useState<Tray[]>([])
+  // ── Hypoxia chambers ──
+  const [hypoxiaChambers, setHypoxiaChambers] = useState<HypoxiaChamber[]>([])
+  const [hypoxiaReadings, setHypoxiaReadings] = useState<HypoxiaReadingRow[]>([])
+  const [hypoxiaCommands, setHypoxiaCommands] = useState<HypoxiaCommandLog[]>([])
+
+  /**
+   * Chambers, recent readings and the command log.
+   *
+   * The readings cap is deliberate: a chamber publishes every 15 s and the
+   * poller stores whatever is newest, so an unbounded select would grow without
+   * limit and none of it would be on screen. The chart wants a window, not
+   * everything.
+   */
+  const loadHypoxia = useCallback(async () => {
+    if (!supabase) return
+    const [c, r, k] = await Promise.all([
+      supabase.from('hypoxia_chambers').select('*').order('name'),
+      supabase.from('hypoxia_readings').select('*').order('at', { ascending: false }).limit(2000),
+      supabase.from('hypoxia_commands').select('*').order('sent_at', { ascending: false }).limit(100),
+    ])
+    if (!c.error) setHypoxiaChambers(((c.data as HypoxiaRow[]) ?? []).map(toHypoxiaChamber))
+    if (!r.error) setHypoxiaReadings(((r.data as HypoxiaRow[]) ?? []).map(toHypoxiaReading))
+    if (!k.error) setHypoxiaCommands(((k.data as HypoxiaRow[]) ?? []).map(toHypoxiaCommand))
+  }, [])
+
+  /**
+   * Send a command through the Netlify function.
+   *
+   * Never straight to ThingsBoard: those credentials are server-side, the
+   * caller's role decides what is allowed, and the function writes the audit
+   * row. Reloads afterwards so the command log on screen includes what just
+   * happened — including a refusal.
+   */
+  const sendHypoxiaCommand = useCallback(
+    async (chamberId: string, wire: string) => {
+      if (!supabase) return { ok: false, error: 'Not connected' }
+      try {
+        const { data: sess } = await supabase.auth.getSession()
+        const res = await fetch('/.netlify/functions/hypoxia-command', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${sess.session?.access_token ?? ''}`,
+          },
+          body: JSON.stringify({ chamberId, wire }),
+        })
+        const body = await res.json().catch(() => ({}))
+        await loadHypoxia()
+        if (!res.ok) return { ok: false, error: body.error ?? `Command failed (${res.status})` }
+        return { ok: true }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    },
+    [loadHypoxia],
+  )
+
+  const saveHypoxiaChamber = useCallback(async (id: string, patch: Partial<HypoxiaChamber>) => {
+    if (!supabase) return { ok: false, error: 'Not connected' }
+    const row: HypoxiaRow = {}
+    if (patch.name !== undefined) row.name = patch.name
+    if (patch.location !== undefined) row.location = patch.location
+    if (patch.tbDeviceId !== undefined) row.tb_device_id = patch.tbDeviceId
+    if (patch.pod !== undefined) row.pod = patch.pod
+    if (patch.active !== undefined) row.active = patch.active
+    if (patch.notes !== undefined) row.notes = patch.notes
+    const { error } = await supabase.from('hypoxia_chambers').update(row).eq('id', id)
+    if (error) return { ok: false, error: error.message }
+    setHypoxiaChambers((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+    return { ok: true }
+  }, [])
+
   const [traysLoading, setTraysLoading] = useState(false)
   const [batches, setBatches] = useState<IncubationBatch[]>([])
   const [alerts, setAlerts] = useState<IncubatorAlert[]>([])
@@ -668,6 +743,51 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const sales = useSalesSupabase()
   const tasks = useTasksSupabase(userId)
   const settings2 = useSettings(userId, true)
+
+/** A raw PostgREST row. The provider types most tables individually; the
+ *  hypoxia ones are simple enough to map straight across. */
+type HypoxiaRow = Record<string, any>
+
+/** Rows → hypoxia types. Numerics come back as strings from PostgREST. */
+const toHypoxiaChamber = (r: HypoxiaRow): HypoxiaChamber => ({
+  id: r.id,
+  name: r.name ?? '',
+  location: r.location ?? '',
+  tbDeviceId: r.tb_device_id ?? null,
+  pod: Number(r.pod ?? 1),
+  setpointPct: Number(r.setpoint_pct ?? 10),
+  deadbandPct: Number(r.deadband_pct ?? 1),
+  active: r.active !== false,
+  lastSeenAt: r.last_seen_at ?? null,
+  notes: r.notes ?? '',
+})
+
+const toHypoxiaReading = (r: HypoxiaRow): HypoxiaReadingRow => ({
+  id: r.id,
+  chamberId: r.chamber_id,
+  at: r.at,
+  o2Pct: Number(r.o2_pct),
+  tempC: r.temp_c == null ? null : Number(r.temp_c),
+  rhPct: r.rh_pct == null ? null : Number(r.rh_pct),
+  valve1: r.valve1 === true,
+  valve2: r.valve2 === true,
+  blowerDuty: Number(r.blower_duty ?? 0),
+  circulationDuty: Number(r.circulation_duty ?? 0),
+  purging: r.purging === true,
+  maintenance: r.maintenance === true,
+  warn: r.warn === true,
+  error: r.error === true,
+})
+
+const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
+  id: r.id,
+  chamberId: r.chamber_id,
+  wire: r.wire ?? '',
+  risk: r.risk ?? 'routine',
+  sentAt: r.sent_at,
+  ok: r.ok === true,
+  error: r.error ?? null,
+})
 
   const value = useMemo<DataContextValue>(
     () => ({
@@ -1259,6 +1379,12 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
        * depot. Without this the Costs screen keeps showing the pre-fetch
        * numbers until a reload, which looks like the fetch having failed.
        */
+      hypoxiaChambers,
+      hypoxiaReadings,
+      hypoxiaCommands,
+      loadHypoxia,
+      sendHypoxiaCommand,
+      saveHypoxiaChamber,
       refreshFields: async () => {
         if (!supabase) return
         const r = await supabase
@@ -2464,6 +2590,9 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
       earlierInspectionsLoaded,
       userId,
       userLabel,
+      hypoxiaChambers,
+      hypoxiaReadings,
+      hypoxiaCommands,
     ],
   )
 

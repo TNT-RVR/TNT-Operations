@@ -433,6 +433,18 @@ function MockProvider({ children }: { children: ReactNode }) {
           .sort((a, b) => a.at.localeCompare(b.at)),
       // Mock data has no backend to re-read from; the in-memory rows are
       // already the truth.
+      /*
+       * Hypoxia chambers are real hardware bridged through ThingsBoard; there
+       * is nothing sensible to mock. The screen shows its own empty state and
+       * says the live backend is needed, which is more honest than inventing a
+       * chamber that appears to hold an atmosphere.
+       */
+      hypoxiaChambers: [],
+      hypoxiaReadings: [],
+      hypoxiaCommands: [],
+      loadHypoxia: async () => {},
+      sendHypoxiaCommand: async () => ({ ok: false, error: 'Chambers need the live backend.' }),
+      saveHypoxiaChamber: async () => ({ ok: false, error: 'Chambers need the live backend.' }),
       refreshFields: async () => {},
       saveField: (id, patch) =>
         setFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f))),

@@ -1114,3 +1114,56 @@ export interface ExperimentNote {
   createdAt: string
   items: ExperimentNoteItem[]
 }
+
+// ── Hypoxia chambers ────────────────────────────────────────────────────────
+
+/**
+ * A controlled-atmosphere storage chamber.
+ *
+ * `setpointPct`/`deadbandPct` are what the app last SENT, not what the chamber
+ * holds — the firmware owns the real values, so the screen shows the reading.
+ */
+export interface HypoxiaChamber {
+  id: string
+  name: string
+  location: string
+  /** ThingsBoard device. Null means nothing can be read from or sent to it. */
+  tbDeviceId: string | null
+  pod: number
+  setpointPct: number
+  deadbandPct: number
+  active: boolean
+  /** ISO UTC of the last telemetry, or null if never heard from. */
+  lastSeenAt: string | null
+  notes: string
+}
+
+/** One stored telemetry line. */
+export interface HypoxiaReadingRow {
+  id: string
+  chamberId: string
+  /** ISO UTC — the DEVICE's timestamp, not when it was polled. */
+  at: string
+  o2Pct: number
+  tempC: number | null
+  rhPct: number | null
+  valve1: boolean
+  valve2: boolean
+  blowerDuty: number
+  circulationDuty: number
+  purging: boolean
+  maintenance: boolean
+  warn: boolean
+  error: boolean
+}
+
+/** A command that was attempted, successful or not. */
+export interface HypoxiaCommandLog {
+  id: string
+  chamberId: string
+  wire: string
+  risk: string
+  sentAt: string
+  ok: boolean
+  error: string | null
+}

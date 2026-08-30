@@ -1,181 +1,159 @@
-# Hypoxia firmware — reporting to TNT directly
+# Hypoxia chamber — setting one up, start to finish
 
-What to change in the student's ESP32-C3 sketch so a chamber talks to TNT
-Operations instead of ThingsBoard, and how to flash it.
+Everything needed to take a built chamber and have it reporting into TNT
+Operations, with the app able to command it.
 
-The Nano is **not** changed. It keeps printing its one JSON line and keeps
-accepting the same text commands; only the bridge in the middle changes.
+The **Nano is not touched**. It keeps printing its one JSON line and keeps
+accepting the same text commands. Only the ESP32 bridge changes: it used to
+publish to the student's ThingsBoard account over MQTT, and now posts straight
+to TNT.
 
----
-
-## What this replaces
-
-The ESP32 currently opens an MQTT connection to `thingsboard.cloud`, publishes
-each telemetry line to `v1/devices/me/telemetry`, and subscribes to
-`v1/devices/me/rpc/request/+` for commands.
-
-That becomes one HTTPS POST per cycle. The reply to that POST carries the next
-queued command, so there is no broker, no persistent connection, no second
-endpoint to poll, and no inbound port on a box in a shed.
-
-It is also less code: `PubSubClient` and the whole RPC-parsing block come out.
+**You do not need a ThingsBoard account.** Nothing in this depends on one.
 
 ---
 
-## 1. Get the device key
+## Before you start
 
-In the app: **Incubation → Hypoxia → Add chamber**. Name it, and the next screen
-shows the key **once**. Copy it before closing.
-
-Only a hash is stored, so it cannot be shown again. If it is lost, use **Issue
-new key** on the chamber and reflash — that is deliberately cheaper than a
-credential anyone could look up. It is also the fix for how this arrived: the
-old sketch carried its ThingsBoard token as a string literal in a file that got
-emailed around.
-
-## 2. Edit the sketch
-
-Open `TNT_ESP32C3_CODE.ino` in the Arduino IDE.
-
-**Remove** — the ThingsBoard section:
-
-```cpp
-#include <PubSubClient.h>
-static const char* TB_HOST  = "thingsboard.cloud";
-static const int   TB_PORT  = 1883;
-static const char* TB_TOKEN = "…";        // ← and rotate this in ThingsBoard
-```
-…along with `tbOnMqtt`, `tbConnect`, the `tbMqtt` client and its `loop()` calls.
-
-**Add** — near the top:
-
-```cpp
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
-
-static const char* TNT_URL  = "https://tntoperations.netlify.app/.netlify/functions/hypoxia-ingest";
-static const char* DEVICE_KEY = "PASTE_THE_KEY_HERE";
-
-// Let's Encrypt ISRG Root X1 — the CA behind the site's certificate.
-// Pinning the root means a device on a farm Wi-Fi cannot be talked into
-// sending its telemetry, or taking its commands, from somebody else.
-static const char* ISRG_ROOT_X1 = R"CERT(
------BEGIN CERTIFICATE-----
-MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
-TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
-cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
-WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
-ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
-MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
-h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
-0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
-A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
-T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
-B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
-B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
-KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
-OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
-jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
-qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
-rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
-HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
-hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
-ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
-3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
-NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
-ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
-TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
-jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
-oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
-4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
-mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
-emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
------END CERTIFICATE-----
-)CERT";
-```
-
-**Add** — the reporting function, and call it where the ThingsBoard publish was:
-
-```cpp
-static uint32_t lastPostMs = 0;
-static const uint32_t POST_MIN_MS = 15000;   // same cadence as before
-
-// Sends the Nano's line and acts on whatever comes back.
-static void postToTnt(const String& line) {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure tls;
-  tls.setCACert(ISRG_ROOT_X1);
-
-  HTTPClient http;
-  if (!http.begin(tls, TNT_URL)) return;
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Key", DEVICE_KEY);
-  http.setTimeout(8000);
-
-  int code = http.POST(line);
-  if (code == 200) {
-    String body = http.getString();
-    // {"cmd":"PURGE"} or {}
-    int i = body.indexOf("\"cmd\":\"");
-    if (i >= 0) {
-      int j = body.indexOf('"', i + 7);
-      if (j > i) {
-        String cmd = body.substring(i + 7, j);
-        cmd.trim();
-        if (cmd.length() > 0) startBurst(cmd);   // the existing Nano path
-      }
-    }
-  } else {
-    Serial.print("TNT POST failed: "); Serial.println(code);
-  }
-  http.end();
-}
-```
-
-In `handleNanoJsonLine`, replace the ThingsBoard queueing:
-
-```cpp
-  // was: tbPendingJson = line; tbHavePending = true;
-  uint32_t now = millis();
-  if (now - lastPostMs >= POST_MIN_MS) {
-    lastPostMs = now;
-    postToTnt(line);
-  }
-```
-
-`startBurst` already exists and already repeats a command to the Nano until it
-is confirmed, so commands keep the delivery behaviour they had.
-
-## 3. Flash it
-
-1. Arduino IDE → **Tools → Board → ESP32C3 Dev Module**
-2. Select the port the board appears on
-3. **Upload**
-4. Open **Serial Monitor at 115200** and watch for `TNT POST failed` — silence
-   there means it is posting cleanly
-
-The chamber shows live readings in the app within a minute.
-
----
-
-## Checking it
-
-- **Incubation → Hypoxia** — the card leaves "Silent" and shows oxygen
-- Press **Purge now** — the chamber should act within ~15 seconds, and the
-  telemetry that follows shows `purging`
-- The history chart fills in as readings arrive
-
-## If it stays silent
-
-| Symptom | Cause |
+| | |
 |---|---|
-| `TNT POST failed: 401` | Key wrong or not saved. Issue a new one and reflash. |
-| `TNT POST failed: 403` | The chamber is marked inactive in the app. |
-| `TNT POST failed: -1` | TLS or Wi-Fi. Check the board is on the network. |
-| Nothing in Serial at all | The Nano is not sending lines — check the UART wiring. |
+| Time | About 20 minutes the first time, 5 minutes per chamber after |
+| You need | The chamber wired and powered, a USB-C cable, a computer, the Wi-Fi it will use |
+| Software | Arduino IDE 2.x — free, [arduino.cc/en/software](https://www.arduino.cc/en/software) |
+| Nothing to configure in Netlify | The endpoint uses credentials the app already has |
 
-## What did not change
+The sketch is in this repo at **`firmware/hypoxia-esp32c3/TNT_ESP32C3_CODE.ino`**
+— already patched. You only fill in one line.
 
-The Nano firmware, the command vocabulary, the purge cycle, calibration, and
-the BLE setup path. Only the bridge's transport moved.
+---
+
+## Step 1 — Create the chamber and get its key
+
+1. Open TNT Operations, sign in as an **admin**
+2. **Incubation → Hypoxia**
+3. Press **Add chamber**
+4. Give it a name the crew would use (`Stack A · Pod 1`) and where it lives (`Shed 2`)
+5. Press **Add chamber**
+
+The next screen shows the **device key**. It looks like:
+
+```
+kQ7mZ2xR9vB4nL6tW1pY8cF3jH5sD0aG
+```
+
+**Copy it now.** Only a hash of it is stored, so it cannot be shown again — the
+database genuinely cannot reveal it, and neither can a backup. If you lose it,
+use **Issue new key** on the chamber and flash again.
+
+> That is deliberate. The sketch you were sent had its ThingsBoard token written
+> into the source as plain text, so anyone who saw the file could command the
+> chamber. A key you can look up later is a key that leaks eventually.
+
+## Step 2 — Install the Arduino IDE and ESP32 support
+
+Skip if you already flash ESP32 boards.
+
+1. Install the **Arduino IDE 2.x** and open it
+2. **File → Preferences**
+3. In *Additional boards manager URLs*, paste:
+   ```
+   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   ```
+4. **OK**, then **Tools → Board → Boards Manager**
+5. Search **esp32**, install **esp32 by Espressif Systems** (a few hundred MB, a few minutes)
+
+## Step 3 — Open the sketch and paste the key
+
+1. Open `firmware/hypoxia-esp32c3/TNT_ESP32C3_CODE.ino`
+2. Near the top, find:
+   ```cpp
+   static const char* DEVICE_KEY = "PASTE_THE_KEY_HERE";
+   ```
+3. Replace `PASTE_THE_KEY_HERE` with the key from step 1, **keeping the quotes**:
+   ```cpp
+   static const char* DEVICE_KEY = "kQ7mZ2xR9vB4nL6tW1pY8cF3jH5sD0aG";
+   ```
+
+That is the only edit. Everything else is done.
+
+## Step 4 — Flash the board
+
+1. Plug the ESP32-C3 into USB
+2. **Tools → Board → esp32 → ESP32C3 Dev Module**
+3. **Tools → Port** — pick the one that appeared when you plugged it in
+   (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`)
+4. **Tools → USB CDC On Boot → Enabled** — without it the ESP32-C3 prints
+   nothing over USB and step 5 shows an empty screen
+5. Press **Upload** (the arrow)
+
+If upload fails with a port or sync error: hold **BOOT**, tap **RESET**, release
+**BOOT**, and upload again.
+
+## Step 5 — Put it on Wi-Fi
+
+The board advertises over Bluetooth as **`TNT_POD`** on first boot, or when you
+hold its button. Connect with any BLE terminal app (nRF Connect, LightBlue) and
+send:
+
+```
+SSID:YourNetworkName
+PASS:YourPassword
+```
+
+The onboard LED goes **green** when Wi-Fi is up. Credentials are saved, so it
+reconnects by itself after a power cut.
+
+## Step 6 — Check it
+
+**Tools → Serial Monitor**, set to **115200 baud**.
+
+| What you see | What it means |
+|---|---|
+| Nothing about TNT | Working. It only prints on failure. |
+| `TNT: key rejected` | The key is wrong or was not saved. Issue a new one, redo step 3. |
+| `TNT: chamber is marked inactive` | The chamber is switched off in the app. |
+| `TNT POST failed: -1` | Wi-Fi or TLS. Check the board is on the network. |
+| No output at all | USB CDC On Boot is off (step 4.4), or the Nano is not sending — check the UART wiring. |
+
+Then in the app, **Incubation → Hypoxia**:
+
+- Within about a minute the card stops saying **Silent** and shows oxygen,
+  temperature and humidity
+- Press **Purge now**. The chamber should act within ~15 seconds, and the next
+  reading comes back marked **Purging**
+
+That second test is the one worth doing — it proves both directions, not just
+that telemetry arrives.
+
+---
+
+## How it works, in one paragraph
+
+Every ~15 seconds the ESP32 posts the Nano's telemetry line to TNT over HTTPS
+with its key in a header. TNT stores the reading and answers with the next
+queued command, if there is one — so the same round trip both reports and
+collects. There is no broker, no persistent connection, and nothing listening on
+the chamber's side, which is why it works behind any ordinary farm Wi-Fi.
+
+## What you will see in the app
+
+- **Live card** — oxygen against target, temperature, humidity, valve and blower
+  state, and whether it is holding, above, below, purging, in maintenance or
+  faulting
+- **History** — oxygen over time with purges shaded, so the sawtooth reads as
+  the mechanism working rather than as repeated failure
+- **Controls** — purge, start/stop regulating, set target. Valves, blast door and
+  calibration sit behind a confirm and are admin-only
+- **Alerts** — out of band, controller fault, and gone quiet. All three can push
+  to your phone (Notifications → Settings)
+
+## Adding a second chamber
+
+Repeat steps 1, 3, 4, 5. **Each chamber needs its own key** — do not reuse one.
+Two boards sharing a key would write into the same chamber's history and both
+collect the same commands, so a purge meant for one would fire in both.
+
+## If you ever suspect a key has leaked
+
+**Issue new key** on the chamber, then reflash that board with the new one. The
+old key stops working immediately, so the chamber goes silent until it is
+flashed — which is the correct behaviour for a credential you no longer trust.

@@ -350,8 +350,18 @@ _Last reviewed 2026-08-17._
         `fetchHypoxiaReadings` (bounded at BOTH ends and returned, like
         `fetchReadings`), not the global cache, or every range would draw the
         same few hours.
-        Alerts are raised ON INGEST — the device's own post is the tick, so
-        there is no poller.
+        Alerts are raised ON INGEST — the device's own post is the tick — with
+        ONE exception. Silence cannot be: a chamber that stopped reporting will
+        not report that. `hypoxia-watch.mjs` (every 5 min) is the only scheduled
+        piece, separate on purpose for the same reason the incubator watchdog is
+        separate from the poller it watches — a check inside the thing it checks
+        dies with it. It also clears its own alert and posts an all-clear when a
+        chamber comes back, and it ignores chambers with no key issued (never
+        flashed, so never expected to report).
+        The FIRMWARE lives here too: `firmware/hypoxia-esp32c3/`, already
+        patched, one `DEVICE_KEY` line to fill in. Kept in the repo beside the
+        endpoint it talks to, and pure ASCII — the Arduino IDE and serial
+        monitors mangle anything else. Setup guide: `docs/hypoxia-firmware.md`.
         Alerts: `hypoxia_silent` / `hypoxia_fault` / `hypoxia_out_of_band`.
         Purging and maintenance are deliberately NOT alerted — both leave the
         band on purpose.

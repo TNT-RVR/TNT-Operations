@@ -82,8 +82,10 @@ matter, and both were found the hard way:
   ```
   Nothing in the sketch can fix that one.
 
-If 1.8 is already installed you can leave it. They do not conflict, and the
-board package is shared, so 2.x will not re-download the toolchain.
+If 1.8 is already installed you can leave it, or uninstall it; they do not
+conflict. Note that 2.x keeps its own data directory
+(`AppData\Local\Arduino15`) rather than 1.8's, so it downloads the ESP32
+toolchain again even if 1.8 already had it. Budget for step 2c a second time.
 
 Run it and accept the defaults. It is a few hundred MB.
 

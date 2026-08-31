@@ -55,16 +55,46 @@ One-time setup. Skip if you already flash ESP32 boards.
 ### 2a. Install the IDE
 
 Download **Arduino IDE 2.x** from
-[arduino.cc/en/software](https://www.arduino.cc/en/software). On Windows take
-the **Windows MSI installer** — the "Windows ZIP" needs unpacking by hand, and
-the Microsoft Store build sandboxes file access in ways that complicate opening
-a sketch out of a repo folder.
+[arduino.cc/en/software](https://www.arduino.cc/en/software) and take the
+**Windows MSI installer**.
+
+**It must be 2.x, and it must not be the Microsoft Store build.** Both halves
+matter, and both were found the hard way:
+
+- Espressif dropped Arduino IDE 1.8.x support at esp32 core 3.0, and the current
+  core is 3.x. On 1.8.x the pair half-works, which is worse than not working: it
+  compiles, then fails once a board setting changes, with an error that reads
+  like a fault in the sketch rather than in the IDE.
+  ```
+  riscv32-esp-elf-g++: fatal error: cannot specify '-o' with '-c' ... with multiple files
+  Multiple libraries were found for "WiFi.h"
+  ```
+  The second line is the tell. The Store build ships its own `WiFi.h`, which
+  shadows the ESP32 one, from a path containing a space — unquoted, that path
+  becomes two arguments and the compiler sees multiple files.
+
+- The Store build also runs in an AppContainer with a virtualised filesystem.
+  `arduino-builder` is a separate process and cannot see the temp folder the IDE
+  just created for it:
+  ```
+  CreateFile C:\Users\...\AppData\Local\Temp\arduino_build_636659:
+  The system cannot find the file specified.
+  ```
+  Nothing in the sketch can fix that one.
+
+If 1.8 is already installed you can leave it. They do not conflict, and the
+board package is shared, so 2.x will not re-download the toolchain.
 
 Run it and accept the defaults. It is a few hundred MB.
 
 Open it once. First launch takes a minute while it sets itself up, and Windows
 may ask to allow it through the firewall — allow it, that is the IDE talking to
 its own background process.
+
+**Move the sketchbook off OneDrive.** `File → Preferences → Sketchbook
+location`, set to something like `C:\Users\you\Arduino`. OneDrive syncing build
+artifacts mid-compile causes intermittent failures that point nowhere in
+particular.
 
 ### 2b. Add Espressif's board index
 
@@ -144,7 +174,7 @@ certificate, which pulls in mbedTLS — a few hundred KB. The alternative was
 letting anything on the farm Wi-Fi feed the chamber its commands.
 
 **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** and Verify
-again. It drops to about 46%.
+again. It drops to about 44%.
 
 Nothing is lost by that choice here. The scheme only divides up the 4 MB of
 flash, this sketch uses no SPIFFS at all (Wi-Fi credentials live in NVS, a
@@ -173,7 +203,9 @@ That is the only edit. Everything else is done.
 3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — the
    default is too small for this sketch; see 2e
 4. **Tools → Port** — pick the one that appeared when you plugged it in
-   (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`)
+   (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`). These boards use a CH340
+   serial chip, which Windows 11 drives without a driver hunt; the IDE reports it
+   as `1A86_7523` if you want to confirm you have the right port
 5. **Tools → USB CDC On Boot → Enabled** — without it the ESP32-C3 prints
    nothing over USB and step 6 shows an empty screen
 6. Press **Upload** (the arrow)

@@ -21,7 +21,7 @@ to TNT.
 | Software | Arduino IDE 2.x — free, [arduino.cc/en/software](https://www.arduino.cc/en/software) |
 | Nothing to configure in Netlify | The endpoint uses credentials the app already has |
 
-The sketch is in this repo at **`firmware/hypoxia-esp32c3/TNT_ESP32C3_CODE.ino`**
+The sketch is in this repo at **`firmware/hypoxia-esp32c3/hypoxia-esp32c3.ino`**
 — already patched. You only fill in one line.
 
 ---
@@ -50,20 +50,86 @@ use **Issue new key** on the chamber and flash again.
 
 ## Step 2 — Install the Arduino IDE and ESP32 support
 
-Skip if you already flash ESP32 boards.
+One-time setup. Skip if you already flash ESP32 boards.
 
-1. Install the **Arduino IDE 2.x** and open it
-2. **File → Preferences**
-3. In *Additional boards manager URLs*, paste:
+### 2a. Install the IDE
+
+Download **Arduino IDE 2.x** from
+[arduino.cc/en/software](https://www.arduino.cc/en/software). On Windows take
+the **Windows MSI installer** — the "Windows ZIP" needs unpacking by hand, and
+the Microsoft Store build sandboxes file access in ways that complicate opening
+a sketch out of a repo folder.
+
+Run it and accept the defaults. It is a few hundred MB.
+
+Open it once. First launch takes a minute while it sets itself up, and Windows
+may ask to allow it through the firewall — allow it, that is the IDE talking to
+its own background process.
+
+### 2b. Add Espressif's board index
+
+The ESP32 is not an Arduino board, so the IDE does not know it exists yet.
+
+1. **File → Preferences** (or `Ctrl+,`)
+2. Find **Additional boards manager URLs**, near the bottom of the dialog
+3. Paste this in:
    ```
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
-4. **OK**, then **Tools → Board → Boards Manager**
-5. Search **esp32**, install **esp32 by Espressif Systems** (a few hundred MB, a few minutes)
+   If the box already has something in it, click the small icon at its right to
+   open a multi-line editor and put this on its own line — do not replace what
+   is there.
+4. **OK**
+
+### 2c. Install the board package
+
+1. **Tools → Board → Boards Manager** (or the second icon down the left
+   sidebar — the little board/chip one)
+2. Type **esp32** in the search box
+3. Find **esp32 by Espressif Systems**. Take care: several results have similar
+   names, and the one you want says *Espressif Systems*
+4. **Install**
+
+This is the slow part. It pulls a whole compiler toolchain — a few hundred MB
+down, a couple of GB on disk, typically **5–15 minutes**. The progress bar sits
+still for long stretches; that is normal, leave it running.
+
+### 2d. Check it worked
+
+**Tools → Board** should now have an **esp32** submenu with a long list of
+boards in it. If it does, this step is done.
+
+If the submenu is missing, the URL in 2b almost always has a stray space or a
+line break in it. Re-open Preferences, clear the box, paste it again.
+
+### 2e. Compile the sketch before you touch the hardware
+
+Worth doing now, because it finds problems at a desk instead of at a chamber
+with a USB cable in your hand.
+
+1. **File → Open**, and open this file:
+
+   ```
+   C:\Users\tyler\tnt-operations\firmware\hypoxia-esp32c3\hypoxia-esp32c3.ino
+   ```
+
+2. **Tools → Board → esp32 → ESP32C3 Dev Module**
+3. Press **Verify** — the tick, not the arrow. It compiles without a board
+   attached
+
+The first compile is slow (a minute or two) because it builds the whole core.
+You want it to finish with **"Sketch uses … bytes"**.
+
+A red error instead means the sketch needs a fix — copy the last few lines from
+the black output panel and send them to me. It compiles against a toolchain I
+cannot run here, so this is the first genuine check that it builds.
+
+> The `DEVICE_KEY` placeholder does not stop it compiling — it is only a string.
+> Verify now, paste the key in later.
 
 ## Step 3 — Open the sketch and paste the key
 
-1. Open `firmware/hypoxia-esp32c3/TNT_ESP32C3_CODE.ino`
+1. Open `firmware/hypoxia-esp32c3/hypoxia-esp32c3.ino`
 2. Near the top, find:
    ```cpp
    static const char* DEVICE_KEY = "PASTE_THE_KEY_HERE";

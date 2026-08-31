@@ -6,17 +6,17 @@
   --honey-50:#FFF8EA; --honey-100:#FDEDC7; --honey-200:#FBDA8E; --honey-300:#FECC5C;
   --honey-400:#FEC047; --honey-500:#FEB836; /* BRAND PRIMARY (on dark) */
   /*
-   * The same brand, deep enough to survive a white page.
+   * Honey, deep enough to be read as TEXT on a white page.
    *
-   * #FEB836 was chosen against near-black, where it blazes. On the light theme
-   * it sits at 1.66:1 against the page — a control needs 3:1 to read as a
-   * control at all, so the primary button became a pale blob that people
-   * looked straight past. (That is exactly how it was reported: "I can't find
-   * the add user button.")
+   * Not a second brand colour — the brand stays #FEB836 in both themes. This is
+   * for the jobs a bright yellow cannot do on white: a word in brand colour, a
+   * hairline that has to be seen. Yellow is inherently light, so anything
+   * hitting 4.5:1 against white is necessarily dark, and that is fine for a
+   * 1px rule or a small label.
    *
-   * These are the same hue at a lightness that works on white: 4.8:1 against
-   * the page and 5.0:1 for white text on top, so the button announces itself
-   * AND its label is readable. Dark keeps the bright one.
+   * It is NOT a fill. Filling a button with this was the 2026-08-29 mistake:
+   * it passed every contrast check and read as brown, because a colour dark
+   * enough to be legible text is too dark to still look like honey.
    */
   --honey-deep:#9A6400; --honey-deep-hover:#8A5A00; --honey-deep-press:#7E5200;
   --honey-600:#E9A11F; --honey-700:#C0821A; --honey-800:#8A5C13; --honey-900:#4E340B;
@@ -66,6 +66,13 @@
   --brand:var(--honey-500); --brand-hover:var(--honey-400); --brand-press:var(--honey-600);
   --brand-subtle:rgba(254,184,54,0.12); --brand-ring:rgba(254,184,54,0.45);
   --on-brand:var(--ink-950); --focus-ring:var(--honey-400);
+  /*
+   * The primary button's edge. Transparent here: honey on near-black is already
+   * far past the 3:1 a control needs to read as a control. On light it becomes
+   * a deep honey rule — see the .on-light block. Declared in BOTH so the border
+   * is always 1px and the button does not change size with the theme.
+   */
+  --brand-edge:transparent;
   /* Bee mark ink: yellow on dark, black on light (see .on-light override). */
   --logo-ink:var(--honey-500);
 
@@ -139,14 +146,21 @@
   --text-primary:var(--ink-950); --text-secondary:var(--ink-600);
   --text-muted:var(--ink-400); --text-faint:var(--ink-300);
   --text-inverse:var(--white); --text-on-brand:var(--ink-950);
-  /* See --honey-deep: the bright honey cannot carry a control on white. */
-  --brand:var(--honey-deep);
-  --brand-hover:var(--honey-deep-hover);
-  --brand-press:var(--honey-deep-press);
+  /*
+   * The brand stays HONEY on light. It was briefly --honey-deep, which passed
+   * every contrast check and looked brown — the colour that reads as honey and
+   * the colour that reads as text on white are not the same colour, and one
+   * token cannot be both.
+   *
+   * So the FILL is the real honey with ink on top (11.8:1, easily read), and
+   * the 3:1 a control needs against the page comes from its EDGE instead. WCAG
+   * 1.4.11 is satisfied by a visible boundary; it does not require the fill
+   * itself to contrast.
+   */
+  --brand-edge:var(--honey-deep);
+  /* Brand-coloured TEXT and hairlines still have to be legible on white. */
   --border-brand:var(--honey-deep);
   --text-brand:var(--honey-deep);
-  /* The button is dark now, so its label is white rather than ink. */
-  --on-brand:var(--white); --text-on-brand:var(--white);
   --focus-ring:var(--honey-deep);
   --brand-ring:rgba(154,100,0,0.35);
   --logo-ink:var(--honey-deep);

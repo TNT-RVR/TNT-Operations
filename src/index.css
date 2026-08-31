@@ -148,6 +148,13 @@ input[type='checkbox'] {
   .btn-primary {
     @apply btn text-on-brand;
     background: var(--brand);
+    /*
+     * The edge is what makes this read as a control on the light theme, where
+     * honey sits at 1.66:1 against the page. Transparent on dark, where the
+     * fill already does that job. Always 1px so the button is the same size in
+     * both themes.
+     */
+    border: 1px solid var(--brand-edge);
   }
   .btn-primary:hover {
     background: var(--brand-hover);

@@ -37,7 +37,18 @@ literal hex — keep those values aligned to token hex.
   per view; everything else neutral ink. Field green is retired.
 - **Borders** are always the white-alpha hairline tokens (`--border-subtle/default/
   strong`) — never solid grey.
-- **Honey has TWO values, one per theme.** `--honey-500` (#FEB836) was picked
+- **Honey is ONE colour, in both themes.** `--honey-deep` (#9A6400) is not a
+  second brand — it is for the jobs a bright yellow cannot do on white: brand
+  TEXT and hairlines, which need 4.5:1. It is never a fill. Filling the primary
+  button with it (briefly, 2026-08-29) passed every contrast check and read as
+  BROWN, which was reported as such: a colour dark enough to be legible text is
+  too dark to still look like honey. The fill stays `--honey-500` with ink on
+  top (11.8:1) and the 3:1 a control needs against the page comes from
+  `--brand-edge` — WCAG 1.4.11 is satisfied by a visible boundary and does not
+  require the fill itself to contrast. `--brand-edge` is transparent on dark
+  (where honey already carries itself) and 1px in both, so the button does not
+  change size with the theme.
+- **The old note, kept because the first bug is still the reason:** `--honey-500` (#FEB836) was picked
   against near-black and blazes there. On the light theme it sits at **1.66:1**
   against the page — under the 3:1 a control needs to read as a control — so
   the primary button became a pale shape people looked straight past. It was

@@ -114,7 +114,9 @@ with a USB cable in your hand.
    ```
 
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
-3. Press **Verify** — the tick, not the arrow. It compiles without a board
+3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — see below,
+   it does not fit on the default
+4. Press **Verify** — the tick, not the arrow. It compiles without a board
    attached
 
 The first compile is slow (a minute or two) because it builds the whole core.
@@ -126,6 +128,29 @@ cannot run here, so this is the first genuine check that it builds.
 
 > The `DEVICE_KEY` placeholder does not stop it compiling — it is only a string.
 > Verify now, paste the key in later.
+
+#### "Sketch too big"
+
+On the DEFAULT partition scheme this does not fit:
+
+```
+Sketch uses 1386969 bytes (105%) of program storage space. Maximum is 1310720
+text section exceeds available space in board
+```
+
+That is expected, and it is the price of HTTPS. The original sketch published
+MQTT on port 1883 in the clear, so it never linked a TLS stack; this one pins a
+certificate, which pulls in mbedTLS — a few hundred KB. The alternative was
+letting anything on the farm Wi-Fi feed the chamber its commands.
+
+**Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** and Verify
+again. It drops to about 46%.
+
+Nothing is lost by that choice here. The scheme only divides up the 4 MB of
+flash, this sketch uses no SPIFFS at all (Wi-Fi credentials live in NVS, a
+separate partition), and "No OTA" costs nothing when the board is flashed over
+USB anyway. **Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)** also fits if
+you want to keep an OTA slot for later.
 
 ## Step 3 — Open the sketch and paste the key
 
@@ -145,11 +170,13 @@ That is the only edit. Everything else is done.
 
 1. Plug the ESP32-C3 into USB
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
-3. **Tools → Port** — pick the one that appeared when you plugged it in
+3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — the
+   default is too small for this sketch; see 2e
+4. **Tools → Port** — pick the one that appeared when you plugged it in
    (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`)
-4. **Tools → USB CDC On Boot → Enabled** — without it the ESP32-C3 prints
-   nothing over USB and step 5 shows an empty screen
-5. Press **Upload** (the arrow)
+5. **Tools → USB CDC On Boot → Enabled** — without it the ESP32-C3 prints
+   nothing over USB and step 6 shows an empty screen
+6. Press **Upload** (the arrow)
 
 If upload fails with a port or sync error: hold **BOOT**, tap **RESET**, release
 **BOOT**, and upload again.
@@ -178,7 +205,7 @@ reconnects by itself after a power cut.
 | `TNT: key rejected` | The key is wrong or was not saved. Issue a new one, redo step 3. |
 | `TNT: chamber is marked inactive` | The chamber is switched off in the app. |
 | `TNT POST failed: -1` | Wi-Fi or TLS. Check the board is on the network. |
-| No output at all | USB CDC On Boot is off (step 4.4), or the Nano is not sending — check the UART wiring. |
+| No output at all | USB CDC On Boot is off (step 4.5), or the Nano is not sending — check the UART wiring. |
 
 Then in the app, **Incubation → Hypoxia**:
 

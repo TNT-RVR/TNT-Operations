@@ -13,6 +13,11 @@
   Set DEVICE_KEY below to the key the app shows when you add the chamber
   (Incubation -> Hypoxia -> Add chamber). It is shown once.
 
+  BUILD SETTING: Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)".
+  The default 1.2MB app partition is too small. Pinning a certificate links
+  mbedTLS, which the original's plaintext MQTT never needed; that is the whole
+  of the difference, and it is worth it.
+
   The Nano is unchanged: same JSON line out, same text commands in.
 */
 

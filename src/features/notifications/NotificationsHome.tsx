@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { usePush } from './usePush'
+import { visibleAlerts, hiddenCount } from '@/domain/alertMutes'
 import { PageHeader, EmptyState, Switch } from '@/components/ui'
 import { useData, type NotificationPref } from '@/data/context'
 import { AlertOctagon, AlertTriangle, Info, Trash2, CheckCheck, BellRing, type LucideIcon } from 'lucide-react'
@@ -38,8 +39,22 @@ const SEV: Record<NotificationSeverity, { icon: LucideIcon; color: string }> = {
 }
 
 export default function NotificationsHome() {
-  const { notifications, markNotificationsRead, markAllNotificationsRead, deleteNotification, notificationPrefs, saveNotificationPref } =
+  const { notifications: allNotifications, markNotificationsRead, markAllNotificationsRead, deleteNotification, notificationPrefs, saveNotificationPref, mutedIncubatorIds } =
     useData()
+
+  /**
+   * The inbox is shared — one list, no recipient — so a personal mute is
+   * applied here rather than at the database. Alerts about incubators this
+   * user muted are hidden from THEM; everyone else's inbox is untouched.
+   */
+  const notifications = useMemo(
+    () => visibleAlerts(allNotifications, mutedIncubatorIds),
+    [allNotifications, mutedIncubatorIds],
+  )
+  const hidden = useMemo(
+    () => hiddenCount(allNotifications, mutedIncubatorIds),
+    [allNotifications, mutedIncubatorIds],
+  )
   const [tab, setTab] = useState<'unread' | 'read' | 'settings'>('unread')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -151,8 +166,19 @@ export default function NotificationsHome() {
             })}
           </div>
         ) : list.length === 0 ? (
-          <EmptyState>{tab === 'unread' ? 'No unread notifications. 🎉' : 'No read notifications yet.'}</EmptyState>
+          <EmptyState>
+            {tab === 'unread' ? 'No unread notifications. 🎉' : 'No read notifications yet.'}
+            {/* An inbox that quietly shows less is indistinguishable from a
+                broken one, and the person who muted an incubator is exactly
+                the person who should be reminded they did. */}
+            {hidden > 0 && (
+              <span className="mt-1 block text-xs text-faint">
+                {hidden} hidden because you muted {hidden === 1 ? 'that incubator' : 'those incubators'}.
+              </span>
+            )}
+          </EmptyState>
         ) : (
+
           <ul className="space-y-2">
             {list.map((n) => {
               const s = SEV[n.severity]

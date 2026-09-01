@@ -65,7 +65,6 @@ export interface IncubatorRow {
   incubation_start?: string | null
   capacity?: number | string | null
   sensibo_device_id?: string | null
-  temp_alerts_enabled?: boolean | null
   govee_device_id?: string | null
   govee_sku?: string | null
   sensor_online?: boolean | null
@@ -139,9 +138,6 @@ export function toIncubator(row: IncubatorRow): Incubator {
     incubationStart: row.incubation_start ?? null,
     capacity: numOrNull(row.capacity),
     sensiboDeviceId: row.sensibo_device_id ?? null,
-    // Absent means on: alerting is the default, and a column that has never
-    // been written must not read as "muted".
-    tempAlertsEnabled: row.temp_alerts_enabled !== false,
     // Both halves are needed to poll, so both are what "linked" means.
     goveeLinked: Boolean(row.govee_device_id && row.govee_sku),
     sensorOnline: row.sensor_online ?? null,
@@ -217,6 +213,7 @@ export interface NotificationRow {
   source: string
   created_at: string
   read_at: string | null
+  incubator_id?: string | null
 }
 
 export function toNotification(row: NotificationRow): AppNotification {
@@ -230,6 +227,7 @@ export function toNotification(row: NotificationRow): AppNotification {
     source: row.source,
     createdAt: row.created_at,
     readAt: row.read_at,
+    incubatorId: row.incubator_id ?? null,
   }
 }
 
@@ -494,7 +492,6 @@ export function incubatorUpdate(patch: Partial<Incubator>): Record<string, unkno
   if (patch.incubationStart !== undefined) row.incubation_start = patch.incubationStart
   if (patch.capacity !== undefined) row.capacity = patch.capacity
   if (patch.sensiboDeviceId !== undefined) row.sensibo_device_id = patch.sensiboDeviceId
-  if (patch.tempAlertsEnabled !== undefined) row.temp_alerts_enabled = patch.tempAlertsEnabled
   return row
 }
 

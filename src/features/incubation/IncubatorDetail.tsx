@@ -67,7 +67,7 @@ function inspectionChips(i: Inspection) {
 }
 
 export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
-  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings, loadEarlierInspections, earlierInspectionsLoaded } = useData()
+  const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings, loadEarlierInspections, earlierInspectionsLoaded, mutedIncubatorIds, setIncubatorMuted } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
 
@@ -286,30 +286,27 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                 />
 
                 {/*
-                  Muting one incubator.
+                  Muting this incubator, for me.
 
-                  An incubator standing empty for the season still has a sensor
-                  on it, and that sensor still drops off the network — a real
-                  fault on a unit nobody is using, reported hourly. Alerts
-                  nobody can act on are how people learn to swipe past the one
-                  that matters.
+                  Personal on purpose: the mode above is shared — switching it
+                  changes the incubator for everyone — while whether you want
+                  to hear about an idle unit whose sensor keeps dropping off is
+                  a preference. One person having heard enough must not
+                  silence the alert for the office.
 
-                  Off mutes EVERYTHING for this incubator: the temperature band
-                  and the offline watchdog both. Readings keep being collected
-                  either way, so the history stays whole and the chip on the
-                  card still says what the sensor is doing.
+                  It stops the message, not the watching: the check still runs,
+                  the alert is still recorded, and the sensor chip on the card
+                  still says what the sensor is doing.
                 */}
-                <span className="label">Alerts</span>
+                <span className="label">My alerts</span>
                 <label className="flex items-center gap-2 text-sm text-secondary">
                   <input
                     type="checkbox"
-                    checked={incubator.tempAlertsEnabled !== false}
-                    onChange={(e) =>
-                      saveIncubator(incubator.id, { tempAlertsEnabled: e.target.checked })
-                    }
+                    checked={!mutedIncubatorIds.has(incubator.id)}
+                    onChange={(e) => void setIncubatorMuted(incubator.id, !e.target.checked)}
                   />
-                  {incubator.tempAlertsEnabled === false
-                    ? 'Muted — no temperature or offline alerts'
+                  {mutedIncubatorIds.has(incubator.id)
+                    ? 'Muted for you — others still get them'
                     : 'On'}
                 </label>
               </>

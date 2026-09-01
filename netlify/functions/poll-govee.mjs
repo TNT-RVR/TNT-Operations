@@ -39,6 +39,7 @@
 
 import {
   pushOptIns,
+  mutedUsersFor,
   subscriptionsFor,
   sendToAll,
   recentlyNotified,
@@ -167,7 +168,7 @@ export default async () => {
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
 
   const incs = await fetch(
-    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode,temp_alerts_enabled`,
+    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode`,
     { headers: sb },
   ).then((r) => r.json())
 
@@ -242,12 +243,25 @@ export default async () => {
   // while alerts.alert_type stays 'temp_humidity' to match the desktop
   // app's imported history. They are deliberately different.
   const optIns = await pushOptIns(SB_URL, sb, 'temp_out_of_range').catch(() => new Set())
-  const subs = await subscriptionsFor(SB_URL, sb, optIns).catch(() => [])
+
+  /**
+   * Who should hear about THIS incubator: opted in, minus anyone who muted it.
+   *
+   * Read per incubator rather than once for the cycle, because a mute is
+   * per person AND per incubator — one shared subscription list cannot
+   * express "Darren does not want Incubator 5 but does want Incubator 2".
+   */
+  const subsFor = async (incubatorId) => {
+    const muted = await mutedUsersFor(SB_URL, sb, incubatorId).catch(() => new Set())
+    const wanted = new Set([...optIns].filter((id) => !muted.has(id)))
+    return subscriptionsFor(SB_URL, sb, wanted).catch(() => [])
+  }
 
   for (const { inc, running } of plan) {
-    // Off incubators have no band, and the per-incubator switch can mute one
-    // that's known to be misbehaving without silencing the rest.
-    if (!running || inc.temp_alerts_enabled === false) continue
+    // Off incubators have no band. Muting is per person and applied when
+    // sending, so the band is still evaluated and still logged for every
+    // running incubator regardless of who wants to hear about it.
+    if (!running) continue
     const reading = readings.find((r) => r.incubator_id === inc.id)
     if (!reading || reading.temp_c == null) continue
 
@@ -293,8 +307,9 @@ export default async () => {
         body: okMsg,
         source: 'alert_rules',
         dedupKey: clearKey,
+        incubatorId: inc.id,
       })
-      const okRes = await sendToAll(SB_URL, sb, subs, {
+      const okRes = await sendToAll(SB_URL, sb, await subsFor(inc.id), {
         title: `${inc.name} back in range`,
         body: okMsg,
         url: '/incubation',
@@ -342,7 +357,7 @@ export default async () => {
       source: 'alert_rules',
       dedupKey,
     })
-    const res = await sendToAll(SB_URL, sb, subs, {
+    const res = await sendToAll(SB_URL, sb, await subsFor(inc.id), {
       title: `${inc.name} out of range`,
       body: message,
       url: '/incubation',

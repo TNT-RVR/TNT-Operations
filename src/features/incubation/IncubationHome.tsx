@@ -19,7 +19,7 @@ const fmtRange = (a: number | null, b: number | null, unit: string, fallback: st
   a != null && b != null ? `${a}–${b}${unit}` : fallback
 
 export default function IncubationHome() {
-  const { incubators, latestReading } = useData()
+  const { incubators, latestReading, mutedIncubatorIds } = useData()
   const now = new Date()
   const [openId, setOpenId] = useState<string | null>(null)
   const open = incubators.find((i) => i.id === openId) ?? null
@@ -61,10 +61,10 @@ export default function IncubationHome() {
                   {/* Shown for every linked sensor, healthy included: the
                       point is to see all of them at a glance rather than to
                       find out by being told. A good one is quiet about it. */}
-                  {/* A muted incubator says so. Silencing one is deliberate,
-                      but a mute nobody can see is how a real fault on a
-                      running incubator goes unnoticed for a season. */}
-                  {i.tempAlertsEnabled === false && (
+                  {/* Muted for YOU. Shown because a mute nobody can see is
+                      how somebody wonders for a week why they never heard
+                      about an incubator they silenced themselves. */}
+                  {mutedIncubatorIds.has(i.id) && (
                     <span
                       className="rounded-pill px-2 py-0.5 text-xs font-semibold"
                       style={{
@@ -72,9 +72,9 @@ export default function IncubationHome() {
                         color: 'var(--text-muted)',
                         border: '1px solid var(--border-default)',
                       }}
-                      title="Temperature and offline alerts are turned off for this incubator"
+                      title="You muted this incubator's alerts. Others still receive them."
                     >
-                      Alerts off
+                      Muted for you
                     </span>
                   )}
                   {link.state !== 'none' && (

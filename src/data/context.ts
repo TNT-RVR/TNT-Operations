@@ -353,6 +353,18 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   ) => Promise<{ ok: boolean; id?: string; error?: string }>
   deleteExperimentNote: (id: string) => Promise<{ ok: boolean; error?: string }>
 
+  // ── Personal alert mutes (migration 0034) ─────────────────────────────────
+  /**
+   * Incubators THIS user has muted.
+   *
+   * Personal, unlike a mode: one person deciding they have heard enough about
+   * an idle incubator must not silence it for the office. A mute stops the
+   * message reaching them; the check still runs and the alert is still
+   * recorded.
+   */
+  mutedIncubatorIds: Set<string>
+  setIncubatorMuted: (incubatorId: string, muted: boolean) => Promise<{ ok: boolean; error?: string }>
+
   /** Alert inbox (active = not deleted), newest first. */
   notifications: AppNotification[]
   markNotificationsRead: (ids: string[]) => void

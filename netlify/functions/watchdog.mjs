@@ -29,7 +29,7 @@
  */
 
 import {
-  pushOptIns,
+  recipientsFor,
   subscriptionsFor,
   sendToAll,
   recentlyNotified,
@@ -94,7 +94,7 @@ export default async () => {
   const sb = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` }
 
   const incs = await fetch(
-    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode,temp_alerts_enabled,` +
+    `${SB_URL}/rest/v1/incubators?select=id,name,govee_device_id,govee_sku,temp_mode,` +
       `sensor_online,sensor_seen_at,sensor_checked_at`,
     { headers: sb },
   ).then((r) => (r.ok ? r.json() : []))
@@ -110,7 +110,9 @@ export default async () => {
   let pushesSent = 0
 
   for (const inc of watched) {
-    if (inc.temp_alerts_enabled === false) continue
+    // No global skip any more. The check runs for every incubator and the
+    // ALERT is always recorded; who hears about it is decided per person, at
+    // the moment of sending. A mute is "do not tell me", not "stop watching".
 
     const running = RUNNING_MODES.has(inc.temp_mode)
     const limitMin = running ? STALE_RUNNING_MIN : STALE_IDLE_MIN
@@ -162,7 +164,7 @@ export default async () => {
           source: 'watchdog',
           dedupKey: offKey,
         })
-        const offOptIns = await pushOptIns(SB_URL, sb, ALERT_TYPE)
+        const offOptIns = await recipientsFor(SB_URL, sb, ALERT_TYPE, inc.id)
         const offSubs = await subscriptionsFor(SB_URL, sb, offOptIns)
         const offRes = await sendToAll(SB_URL, sb, offSubs, {
           title: `${inc.name}: sensor offline`,
@@ -209,8 +211,9 @@ export default async () => {
             body: backMsg,
             source: 'watchdog',
             dedupKey: backKey,
+            incubatorId: inc.id,
           })
-          const backOptIns = await pushOptIns(SB_URL, sb, ALERT_TYPE)
+          const backOptIns = await recipientsFor(SB_URL, sb, ALERT_TYPE, inc.id)
           const backSubs = await subscriptionsFor(SB_URL, sb, backOptIns)
           const backRes = await sendToAll(SB_URL, sb, backSubs, {
             title: `${inc.name}: sensor back online`,
@@ -259,8 +262,9 @@ export default async () => {
         body: okMsg,
         source: 'watchdog',
         dedupKey: clearKey,
+        incubatorId: inc.id,
       })
-      const optIns = await pushOptIns(SB_URL, sb, ALERT_TYPE)
+      const optIns = await recipientsFor(SB_URL, sb, ALERT_TYPE, inc.id)
       const subs = await subscriptionsFor(SB_URL, sb, optIns)
       const res = await sendToAll(SB_URL, sb, subs, {
         title: `${inc.name} reporting again`,
@@ -304,8 +308,9 @@ export default async () => {
       body: message,
       source: 'watchdog',
       dedupKey,
+      incubatorId: inc.id,
     })
-    const optIns = await pushOptIns(SB_URL, sb, ALERT_TYPE)
+    const optIns = await recipientsFor(SB_URL, sb, ALERT_TYPE, inc.id)
     const subs = await subscriptionsFor(SB_URL, sb, optIns)
     const res = await sendToAll(SB_URL, sb, subs, {
       title: `${inc.name} has gone quiet`,

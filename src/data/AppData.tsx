@@ -120,6 +120,9 @@ function MockProvider({ children }: { children: ReactNode }) {
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([
     { id: 'cm1', crewId: 'crew1', userId: 'u_op', role: 'lead', joinedAt: new Date().toISOString(), leftAt: null },
   ])
+  /** Muted incubators, per session — mock has no per-user storage. */
+  const [mutedIncubatorIds, setMutedIncubatorIds] = useState<Set<string>>(new Set())
+
   /** Experiment notes start empty in mock: they are what a session creates. */
   const [experimentNotes, setExperimentNotes] = useState<ExperimentNote[]>([])
 
@@ -374,6 +377,17 @@ function MockProvider({ children }: { children: ReactNode }) {
       },
 
       // ── Experiment notes ────────────────────────────────────────────────
+      mutedIncubatorIds,
+      setIncubatorMuted: async (incubatorId: string, muted: boolean) => {
+        setMutedIncubatorIds((prev) => {
+          const next = new Set(prev)
+          if (muted) next.add(incubatorId)
+          else next.delete(incubatorId)
+          return next
+        })
+        return { ok: true }
+      },
+
       experimentNotes,
       loadExperimentNotes: async () => {},
       saveExperimentNote: async (input) => {
@@ -1006,6 +1020,7 @@ function MockProvider({ children }: { children: ReactNode }) {
       crewMembers,
       calendarEvents,
       experimentNotes,
+      mutedIncubatorIds,
       mockUserId,
       grants,
       grantTasks,

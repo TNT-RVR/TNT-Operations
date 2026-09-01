@@ -138,15 +138,6 @@ export interface Incubator {
    * An incubator can have more than one AC head, controlled together.
    */
   sensiboDeviceId?: string | null
-  /**
-   * Whether this incubator may raise alerts at all.
-   *
-   * False mutes it entirely — temperature AND the sensor-offline watchdog.
-   * The case it exists for is an incubator standing empty for the season whose
-   * sensor drops off the network: a real fault on a unit nobody is using, and
-   * one that trains people to ignore the alert that matters.
-   */
-  tempAlertsEnabled?: boolean
   capacity?: number | null
   /**
    * Sensor link state, written by the Govee poller.
@@ -544,6 +535,13 @@ export interface AppNotification {
   createdAt: string
   /** ISO UTC when read, or null if unread. */
   readAt: string | null
+  /**
+   * The incubator this is about, when it is about one.
+   *
+   * The inbox is shared and has no recipient, so a personal mute is applied
+   * when the list is rendered — which needs a field to filter on.
+   */
+  incubatorId?: string | null
 }
 
 /**

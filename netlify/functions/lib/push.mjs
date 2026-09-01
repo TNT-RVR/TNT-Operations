@@ -43,6 +43,40 @@ export async function pushOptIns(SB_URL, sb, type) {
   return new Set((Array.isArray(rows) ? rows : []).map((r) => r.user_id))
 }
 
+/**
+ * Who has muted this incubator.
+ *
+ * Muting is personal: incubator MODES are shared across everyone, alerts are
+ * not, and one person deciding they do not want to hear about an idle
+ * incubator must not silence it for the office.
+ *
+ * On any failure this returns an empty set — nobody muted — because the safe
+ * direction for an alert lookup is to send. A missed notification about a
+ * running incubator costs more than one somebody did not want.
+ */
+export async function mutedUsersFor(SB_URL, sb, incubatorId) {
+  if (!incubatorId) return new Set()
+  try {
+    const rows = await fetch(
+      `${SB_URL}/rest/v1/incubator_alert_mutes?select=user_id&incubator_id=eq.${encodeURIComponent(incubatorId)}`,
+      { headers: sb },
+    ).then((r) => (r.ok ? r.json() : []))
+    return new Set((Array.isArray(rows) ? rows : []).map((r) => r.user_id))
+  } catch {
+    return new Set()
+  }
+}
+
+/** Everyone opted in to this alert type MINUS anyone who muted this incubator. */
+export async function recipientsFor(SB_URL, sb, type, incubatorId) {
+  const [optIns, muted] = await Promise.all([
+    pushOptIns(SB_URL, sb, type),
+    mutedUsersFor(SB_URL, sb, incubatorId),
+  ])
+  for (const id of muted) optIns.delete(id)
+  return optIns
+}
+
 /** Live subscriptions for a set of users. Expired endpoints are excluded. */
 export async function subscriptionsFor(SB_URL, sb, userIds) {
   if (!userIds.size) return []
@@ -203,7 +237,7 @@ export async function lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly = false }
 export async function writeInAppNotification(
   SB_URL,
   sb,
-  { category, type, severity, title, body, source, dedupKey, deferPush },
+  { category, type, severity, title, body, source, dedupKey, deferPush, incubatorId },
 ) {
   await fetch(`${SB_URL}/rest/v1/app_notifications`, {
     method: 'POST',
@@ -215,6 +249,11 @@ export async function writeInAppNotification(
       title,
       body,
       source: source ?? 'alert_rules',
+      // Which incubator this is about, as a column rather than something to be
+      // parsed back out of the dedup key. The inbox is shared and has no
+      // recipient, so a personal mute can only be applied when the app renders
+      // the list — and that needs a field it can filter on.
+      ...(incubatorId ? { incubator_id: incubatorId } : {}),
       ...(dedupKey ? { dedup_key: dedupKey } : {}),
       ...(deferPush ? {} : { pushed_at: new Date().toISOString() }),
     }),

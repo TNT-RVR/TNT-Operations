@@ -359,6 +359,8 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
   const [earlierInspectionsLoaded, setEarlierInspectionsLoaded] = useState(false)
   const [crews, setCrews] = useState<Crew[]>([])
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  /** Incubators THIS user has muted. Personal, unlike an incubator's mode. */
+  const [mutedIncubatorIds, setMutedIncubatorIds] = useState<Set<string>>(new Set())
   const [experimentNotes, setExperimentNotes] = useState<ExperimentNote[]>([])
   const calendarPromiseRef = useRef<Promise<void> | null>(null)
   const [crewMembers, setCrewMembers] = useState<CrewMember[]>([])
@@ -747,6 +749,17 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
           byType[row.type] = { inApp: row.in_app, email: row.email, push: row.push }
         }
         setNotificationPrefs(byType)
+      }
+
+      // Which incubators this user has muted (RLS limits to own rows). Read
+      // with the other per-user preferences, since that is what it is.
+      const mutes = await sb.from('incubator_alert_mutes').select('incubator_id')
+      if (cancelled) return
+      if (mutes.error) console.warn('[data] load incubator mutes:', mutes.error.message)
+      else {
+        setMutedIncubatorIds(
+          new Set(((mutes.data as Array<{ incubator_id: string }>) ?? []).map((m) => m.incubator_id)),
+        )
       }
 
 
@@ -1256,6 +1269,34 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
         const { error } = await supabase.from('calendar_events').delete().eq('id', id)
         if (error) return { ok: false, error: error.message }
         setCalendarEvents((prev) => prev.filter((e) => e.id !== id))
+        return { ok: true }
+      },
+
+      // ── Personal alert mutes (migration 0034) ─────────────────────────────
+      mutedIncubatorIds,
+      setIncubatorMuted: async (incubatorId: string, muted: boolean) => {
+        if (!supabase) return { ok: false, error: 'No backend connection.' }
+        if (!userId) return { ok: false, error: 'Sign in first.' }
+
+        const res = muted
+          ? await supabase
+              .from('incubator_alert_mutes')
+              .upsert({ user_id: userId, incubator_id: incubatorId })
+          : await supabase
+              .from('incubator_alert_mutes')
+              .delete()
+              .eq('user_id', userId)
+              .eq('incubator_id', incubatorId)
+        if (res.error) {
+          console.error('[data] setIncubatorMuted:', res.error.message)
+          return { ok: false, error: res.error.message }
+        }
+        setMutedIncubatorIds((prev) => {
+          const next = new Set(prev)
+          if (muted) next.add(incubatorId)
+          else next.delete(incubatorId)
+          return next
+        })
         return { ok: true }
       },
 
@@ -2632,6 +2673,7 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
       crewMembers,
       calendarEvents,
       experimentNotes,
+      mutedIncubatorIds,
       blocksLoading,
       upsertPlacement,
       grants,

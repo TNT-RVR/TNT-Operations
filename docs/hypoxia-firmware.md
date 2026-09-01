@@ -218,12 +218,22 @@ saying so, rather than building a board that cannot authenticate.
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
 3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — the
    default is too small for this sketch; see 2e
-4. **Tools → Port** — pick the one that appeared when you plugged it in
-   (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`). These boards use a CH340
-   serial chip, which Windows 11 drives without a driver hunt; the IDE reports it
-   as `1A86_7523` if you want to confirm you have the right port
-5. **Tools → USB CDC On Boot → Disabled** — see below; on a CH340 board
-   `Enabled` sends the serial output to a USB port that is not wired to anything
+4. **Tools → Port** — pick the port that APPEARS when you plug the ESP32 in.
+   Note which ports exist first, plug the board in, and take the new one.
+
+   > **A chamber has two boards on USB-serial and they look alike.** The Nano
+   > is a CH340 (`1A86_7523`) and so are many ESP32 boards, so the chip ID does
+   > not tell them apart. Aiming the upload at the Nano gives:
+   > ```
+   > Connecting......................................
+   > A fatal error occurred: Failed to connect to ESP32-C3: No serial data received.
+   > ```
+   > which reads exactly like a board that will not enter its bootloader — and
+   > no amount of BOOT-button technique fixes it, because there is no ESP32 on
+   > that port. If in doubt, open the port in a serial monitor at 115200: the
+   > Nano announces itself with `NANO:BOOT`.
+5. **Tools → USB CDC On Boot** — depends on the board, see below. Get it from
+   the board you are actually flashing, not from the other one in the chamber
 6. **Tools → Upload Speed → 115200** if 921600 fails. CH340 clones are not
    reliable at the higher rate
 7. Press **Upload** (the arrow)

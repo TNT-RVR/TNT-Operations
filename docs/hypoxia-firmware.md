@@ -210,9 +210,9 @@ saying so, rather than building a board that cannot authenticate.
 
 ## Step 4 — Flash the board
 
-> **Disconnect the Nano's TX wire from ESP32 GPIO20 before uploading.**
-> Reconnect it afterwards. This is not optional and it is not about being
-> careful — see below.
+> **If the Nano's TX is wired to ESP32 GPIO20, disconnect it before uploading**
+> and reconnect it afterwards. See "Why GPIO20 matters" below — it is not
+> always wired, so check rather than assume.
 
 1. Plug the ESP32-C3 into USB
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
@@ -241,12 +241,16 @@ saying so, rather than building a board that cannot authenticate.
 If upload fails with a port or sync error: hold **BOOT**, tap **RESET**, release
 **BOOT**, and upload again.
 
-### Why GPIO20 has to come off first
+### Why GPIO20 matters
 
 `ESP_RX_PIN` is **GPIO20**, which on the ESP32-C3 is also **UART0 RX** — the pin
-the CH340 uses to send the bootloader handshake. The Nano's TX is wired to that
-same pin, so with the Nano powered, two chips drive one line and esptool's bytes
-never arrive intact:
+a USB-serial chip uses to send the bootloader handshake. IF the Nano's TX is
+wired there, two chips drive one line while the Nano is powered, and esptool's
+bytes never arrive intact:
+
+On the first chamber built, nothing was connected to the Nano's TX at all, so
+this was NOT the cause there — the upload was simply pointed at the wrong board.
+Check before assuming, because the symptom below has more than one origin:
 
 ```
 Connecting......................................
@@ -272,7 +276,8 @@ than failing loudly:
   Monitor stays blank while the board runs perfectly.
 - **Native USB, no serial chip** → **Enabled**, for the opposite reason.
 
-Check with the IDE's own verbose output: `1A86_7523` is a CH340, so Disabled.
+Check the ESP32's OWN port in the IDE's verbose output. Do not read it off the
+other board: `1A86_7523` on a chamber is just as likely to be the Nano.
 
 ## Step 5 — Put it on Wi-Fi
 

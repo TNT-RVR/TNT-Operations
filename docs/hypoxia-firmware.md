@@ -287,16 +287,58 @@ sharing the bench: `303A` is native USB, `1A86` is a CH340.
 ## Step 5 — Put it on Wi-Fi
 
 The board advertises over Bluetooth as **`TNT_POD`** on first boot, or when you
-hold its button. Connect with any BLE terminal app (nRF Connect, LightBlue) and
-send:
+hold its button. Connect with any BLE terminal app (nRF Connect, LightBlue).
+
+### It is ONE write, not two
+
+The credentials go in a single write, in one of these two forms:
 
 ```
-SSID:YourNetworkName
-PASS:YourPassword
+WIFI:SSID=YourNetwork;PASS=YourPassword
+```
+```
+WIFI,YourNetwork,YourPassword
+```
+
+Use the second if the password contains a `;`, the first if it contains a `,`.
+
+Anything that does not begin `WIFI:` or `WIFI,` is forwarded to the **Nano as a
+command** instead — so a line like `SSID:MyNetwork` is not rejected, it is
+simply sent somewhere else and silently does nothing. The handler is at
+`onWrite` in the sketch if this ever needs checking again.
+
+### Request a bigger MTU first
+
+In the app's menu: **Request MTU → 247**.
+
+The default BLE MTU leaves **20 usable bytes per write**, and
+`WIFI:SSID=;PASS=` is 16 bytes before the network name. Real credentials do not
+fit. A truncated write produces `WIFI_FAIL,NO_SSID`, or worse, saves a password
+cut short — which then fails to associate and looks like a wrong password.
+
+### Where to write it
+
+| | |
+|---|---|
+| Service | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` (Nordic UART) |
+| Write here | `6E400002-…` — properties **Write** |
+| Subscribe here | `6E400003-…` — properties **Notify** |
+
+Set the write format to **UTF-8 String**, not Hex.
+
+Subscribing to the notify characteristic is worth the extra tap — it is how the
+board answers:
+
+```
+WIFI_SAVED
+WIFI_OK,IP=192.168.1.47
 ```
 
 The onboard LED goes **green** when Wi-Fi is up. Credentials are saved, so it
 reconnects by itself after a power cut.
+
+`WIFI_FAIL` means it saved them but could not associate: wrong password, or a
+**5 GHz** network — the ESP32-C3 is 2.4 GHz only.
 
 ## Step 6 — Check it
 

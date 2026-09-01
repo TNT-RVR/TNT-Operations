@@ -210,74 +210,79 @@ saying so, rather than building a board that cannot authenticate.
 
 ## Step 4 — Flash the board
 
-> **If the Nano's TX is wired to ESP32 GPIO20, disconnect it before uploading**
-> and reconnect it afterwards. See "Why GPIO20 matters" below — it is not
-> always wired, so check rather than assume.
-
-1. Plug the ESP32-C3 into USB
+1. Plug **the ESP32-C3** into USB — see "Which board is which" below, because
+   getting this wrong is the single biggest time sink in this whole process
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
 3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — the
    default is too small for this sketch; see 2e
-4. **Tools → Port** — pick the port that APPEARS when you plug the ESP32 in.
-   Note which ports exist first, plug the board in, and take the new one.
+4. **Tools → Port** — the ESP32-C3 Super Mini has **native USB**, so it appears
+   as **`USB Serial Device (COMx)`**, alongside a `USB JTAG/serial debug unit`
+   in Device Manager. It is `VID_303A&PID_1001`
+5. **Tools → USB CDC On Boot → Enabled** — required on this board; see below
+6. Press **Upload** (the arrow)
 
-   > **A chamber has two boards on USB-serial and they look alike.** The Nano
-   > is a CH340 (`1A86_7523`) and so are many ESP32 boards, so the chip ID does
-   > not tell them apart. Aiming the upload at the Nano gives:
-   > ```
-   > Connecting......................................
-   > A fatal error occurred: Failed to connect to ESP32-C3: No serial data received.
-   > ```
-   > which reads exactly like a board that will not enter its bootloader — and
-   > no amount of BOOT-button technique fixes it, because there is no ESP32 on
-   > that port. If in doubt, open the port in a serial monitor at 115200: the
-   > Nano announces itself with `NANO:BOOT`.
-5. **Tools → USB CDC On Boot** — depends on the board, see below. Get it from
-   the board you are actually flashing, not from the other one in the chamber
-6. **Tools → Upload Speed → 115200** if 921600 fails. CH340 clones are not
-   reliable at the higher rate
-7. Press **Upload** (the arrow)
+Upload Speed does not matter on native USB. No BOOT/RESET dance is needed
+either: the USB Serial/JTAG peripheral resets the chip into download mode by
+itself. If an upload does fail, hold **BOOT**, tap **RESET**, release **BOOT**,
+and retry.
 
-If upload fails with a port or sync error: hold **BOOT**, tap **RESET**, release
-**BOOT**, and upload again.
+### Which board is which
 
-### Why GPIO20 matters
+A chamber has TWO boards that both present a serial port, and confusing them
+produces an error that looks like broken hardware:
 
-`ESP_RX_PIN` is **GPIO20**, which on the ESP32-C3 is also **UART0 RX** — the pin
-a USB-serial chip uses to send the bootloader handshake. IF the Nano's TX is
-wired there, two chips drive one line while the Nano is powered, and esptool's
-bytes never arrive intact:
+| | Arduino Nano | ESP32-C3 Super Mini |
+|---|---|---|
+| USB socket | mini or micro USB | **USB-C** |
+| Buttons | one (reset) | **two** (BOOT + RESET) |
+| Size | ~45 mm, 15 pins a side | ~20 mm, nearly square |
+| Shows up as | `USB-SERIAL CH340 (COMx)` | `USB Serial Device (COMx)` |
+| USB ID | `VID_1A86&PID_7523` | `VID_303A&PID_1001` |
 
-On the first chamber built, nothing was connected to the Nano's TX at all, so
-this was NOT the cause there — the upload was simply pointed at the wrong board.
-Check before assuming, because the symptom below has more than one origin:
+Point the upload at the Nano and you get:
 
 ```
 Connecting......................................
 A fatal error occurred: Failed to connect to ESP32-C3: No serial data received.
 ```
 
-That message names the port and the chip, so it reads like a cable, a driver or
-a dead board. It is none of those — nothing is wrong, the line is just busy.
+That reads exactly like a board refusing to enter its bootloader, so it invites
+hours of BOOT-button technique, cable swaps and partition guessing. None of it
+can work: there is no ESP32 on that port. **Settle it by reading the port** —
+open it at 115200 and the Nano announces itself:
 
-The wiring is the student build's and is left alone deliberately: moving the
-Nano link to a free pin (GPIO3, say) would mean re-terminating every chamber
-already built, to save one jumper pull per flash. If a chamber is ever rewired,
-change `ESP_RX_PIN` to match and this step goes away.
+```
+NANO:BOOT
+O2:NOT_FOUND
+```
 
-### USB CDC On Boot, and which way round it goes
+The surest method is to note which ports exist BEFORE plugging the ESP32 in, and
+take the one that appears.
 
-It depends on the board, and getting it wrong costs an evening at step 6 rather
-than failing loudly:
+### GPIO20 — a trap on OTHER boards, not this one
 
-- **CH340 or CP2102 on the board** (what we have) → **Disabled**. `Serial` then
-  goes out through that chip to the COM port. Enabled routes it to the C3's
-  native USB pins, which are not connected to the USB socket, so the Serial
-  Monitor stays blank while the board runs perfectly.
-- **Native USB, no serial chip** → **Enabled**, for the opposite reason.
+`ESP_RX_PIN` is **GPIO20**, which on the ESP32-C3 is also **UART0 RX**. On a
+board flashed through a USB-serial chip that is the pin carrying the bootloader
+handshake, so a Nano TX wired there would fight the upload.
 
-Check the ESP32's OWN port in the IDE's verbose output. Do not read it off the
-other board: `1A86_7523` on a chamber is just as likely to be the Nano.
+**Neither half applies to the Super Mini.** It flashes over native USB
+(GPIO18/19), not UART0, so nothing on GPIO20 can block an upload. And on the
+first chamber built, the Nano's TX was not connected to anything anyway.
+
+Worth knowing only if a chamber is ever rebuilt around a CH340-based ESP32
+board. If so, pull that wire before flashing.
+
+### USB CDC On Boot
+
+**Enabled**, for the chambers as built. The Super Mini has no serial chip, so
+`Serial` has nowhere to go but native USB; with it Disabled the Serial Monitor
+stays blank while the board runs perfectly — a silent failure that reads as a
+dead board.
+
+The opposite is true of a board WITH a CH340 or CP2102, where Enabled routes the
+output to USB pins that are not connected to the socket. Same blank screen,
+opposite cause. Read the setting off the ESP32's own USB ID, never off the Nano
+sharing the bench: `303A` is native USB, `1A86` is a CH340.
 
 ## Step 5 — Put it on Wi-Fi
 
@@ -295,9 +300,11 @@ reconnects by itself after a power cut.
 
 ## Step 6 — Check it
 
-**Tools → Serial Monitor**, set to **19200 baud** — the sketch calls
-`Serial.begin(19200)`, matching the Nano. Not 115200; at the wrong rate the
-output is punctuation.
+**Tools → Serial Monitor** on the ESP32's port. **Baud does not matter** on this
+board: over native USB CDC the rate is negotiated by the USB stack and the
+`Serial.begin(19200)` in the sketch is ignored. Pick anything.
+
+(It would matter on a CH340 board, where 19200 is the rate to choose.)
 
 | What you see | What it means |
 |---|---|
@@ -305,8 +312,8 @@ output is punctuation.
 | `TNT: key rejected` | The key is wrong or was not saved. Issue a new one, redo step 3. |
 | `TNT: chamber is marked inactive` | The chamber is switched off in the app. |
 | `TNT POST failed: -1` | Wi-Fi or TLS. Check the board is on the network. |
-| Garbled characters | Wrong baud. Set the monitor to 19200. |
-| No output at all | USB CDC On Boot is Enabled on a CH340 board (step 4.5), or the Nano's TX is off GPIO20 — it may still be unplugged from flashing. |
+| `NANO:BOOT` / `O2:NOT_FOUND` | You are on the NANO's port, not the ESP32's. See "Which board is which". |
+| No output at all | USB CDC On Boot is Disabled — on this board it must be Enabled (step 4.5). |
 
 Then in the app, **Incubation → Hypoxia**:
 

@@ -210,6 +210,10 @@ saying so, rather than building a board that cannot authenticate.
 
 ## Step 4 — Flash the board
 
+> **Disconnect the Nano's TX wire from ESP32 GPIO20 before uploading.**
+> Reconnect it afterwards. This is not optional and it is not about being
+> careful — see below.
+
 1. Plug the ESP32-C3 into USB
 2. **Tools → Board → esp32 → ESP32C3 Dev Module**
 3. **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** — the
@@ -218,12 +222,47 @@ saying so, rather than building a board that cannot authenticate.
    (Windows: `COM3`/`COM4`; Mac: `/dev/cu.usbmodem…`). These boards use a CH340
    serial chip, which Windows 11 drives without a driver hunt; the IDE reports it
    as `1A86_7523` if you want to confirm you have the right port
-5. **Tools → USB CDC On Boot → Enabled** — without it the ESP32-C3 prints
-   nothing over USB and step 6 shows an empty screen
-6. Press **Upload** (the arrow)
+5. **Tools → USB CDC On Boot → Disabled** — see below; on a CH340 board
+   `Enabled` sends the serial output to a USB port that is not wired to anything
+6. **Tools → Upload Speed → 115200** if 921600 fails. CH340 clones are not
+   reliable at the higher rate
+7. Press **Upload** (the arrow)
 
 If upload fails with a port or sync error: hold **BOOT**, tap **RESET**, release
 **BOOT**, and upload again.
+
+### Why GPIO20 has to come off first
+
+`ESP_RX_PIN` is **GPIO20**, which on the ESP32-C3 is also **UART0 RX** — the pin
+the CH340 uses to send the bootloader handshake. The Nano's TX is wired to that
+same pin, so with the Nano powered, two chips drive one line and esptool's bytes
+never arrive intact:
+
+```
+Connecting......................................
+A fatal error occurred: Failed to connect to ESP32-C3: No serial data received.
+```
+
+That message names the port and the chip, so it reads like a cable, a driver or
+a dead board. It is none of those — nothing is wrong, the line is just busy.
+
+The wiring is the student build's and is left alone deliberately: moving the
+Nano link to a free pin (GPIO3, say) would mean re-terminating every chamber
+already built, to save one jumper pull per flash. If a chamber is ever rewired,
+change `ESP_RX_PIN` to match and this step goes away.
+
+### USB CDC On Boot, and which way round it goes
+
+It depends on the board, and getting it wrong costs an evening at step 6 rather
+than failing loudly:
+
+- **CH340 or CP2102 on the board** (what we have) → **Disabled**. `Serial` then
+  goes out through that chip to the COM port. Enabled routes it to the C3's
+  native USB pins, which are not connected to the USB socket, so the Serial
+  Monitor stays blank while the board runs perfectly.
+- **Native USB, no serial chip** → **Enabled**, for the opposite reason.
+
+Check with the IDE's own verbose output: `1A86_7523` is a CH340, so Disabled.
 
 ## Step 5 — Put it on Wi-Fi
 
@@ -241,7 +280,9 @@ reconnects by itself after a power cut.
 
 ## Step 6 — Check it
 
-**Tools → Serial Monitor**, set to **115200 baud**.
+**Tools → Serial Monitor**, set to **19200 baud** — the sketch calls
+`Serial.begin(19200)`, matching the Nano. Not 115200; at the wrong rate the
+output is punctuation.
 
 | What you see | What it means |
 |---|---|
@@ -249,7 +290,8 @@ reconnects by itself after a power cut.
 | `TNT: key rejected` | The key is wrong or was not saved. Issue a new one, redo step 3. |
 | `TNT: chamber is marked inactive` | The chamber is switched off in the app. |
 | `TNT POST failed: -1` | Wi-Fi or TLS. Check the board is on the network. |
-| No output at all | USB CDC On Boot is off (step 4.5), or the Nano is not sending — check the UART wiring. |
+| Garbled characters | Wrong baud. Set the monitor to 19200. |
+| No output at all | USB CDC On Boot is Enabled on a CH340 board (step 4.5), or the Nano's TX is off GPIO20 — it may still be unplugged from flashing. |
 
 Then in the app, **Incubation → Hypoxia**:
 

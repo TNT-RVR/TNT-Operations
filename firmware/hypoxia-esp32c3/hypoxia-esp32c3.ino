@@ -10,8 +10,9 @@
   out of the SAME response - one round trip, no broker, no persistent
   connection, and no inbound port on a box in a shed.
 
-  Set DEVICE_KEY below to the key the app shows when you add the chamber
-  (Incubation -> Hypoxia -> Add chamber). It is shown once.
+  Copy secrets.example.h to secrets.h and put the chamber key in there
+  (Incubation -> Hypoxia -> Add chamber). It is shown once. secrets.h is
+  gitignored; the key must never come back into this file.
 
   The Nano is unchanged: same JSON line out, same text commands in.
 */
@@ -159,10 +160,21 @@ void clearCreds() {
 // =====================
 
 // -------------------------------------------------------------------------
-//  PASTE THE CHAMBER'S KEY HERE.
-//  Incubation -> Hypoxia -> Add chamber. Shown once; copy it before closing.
+//  The chamber's key lives in secrets.h, which is NOT in this repo.
+//
+//  Copy secrets.example.h to secrets.h and paste the key there. Arduino
+//  compiles any .h sitting in the sketch folder, so nothing else changes,
+//  and a key in a gitignored file cannot be committed by accident.
+//
+//  This file carried a real key into a public commit once. That is the same
+//  failure as the ThingsBoard token the original firmware shipped with, so
+//  the key does not live here any more.
 // -------------------------------------------------------------------------
-static const char* DEVICE_KEY = "4EJNflRDLzSf9Qv8HVk57TemyakafTEV";
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#else
+  #error "Missing secrets.h - copy secrets.example.h to secrets.h and paste the chamber key into it."
+#endif
 
 static const char* TNT_URL =
   "https://tntoperations.netlify.app/.netlify/functions/hypoxia-ingest";

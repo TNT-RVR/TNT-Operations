@@ -30,3 +30,6 @@ scripts/checklist_import.sql
 
 # Local Netlify folder
 .netlify
+
+# Firmware device keys - shown once, and this repo is public.
+firmware/**/secrets.h

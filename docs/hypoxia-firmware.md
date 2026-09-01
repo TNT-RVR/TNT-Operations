@@ -184,19 +184,29 @@ separate partition), and "No OTA" costs nothing when the board is flashed over
 USB anyway. **Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)** also fits if
 you want to keep an OTA slot for later.
 
-## Step 3 — Open the sketch and paste the key
+## Step 3 — Put the key in `secrets.h`
 
-1. Open `firmware/hypoxia-esp32c3/hypoxia-esp32c3.ino`
-2. Near the top, find:
-   ```cpp
-   static const char* DEVICE_KEY = "PASTE_THE_KEY_HERE";
-   ```
-3. Replace `PASTE_THE_KEY_HERE` with the key from step 1, **keeping the quotes**:
+**The key does not go in the `.ino`.** This repo is public, and a key committed
+to it is readable by anyone forever — deleting it in a later commit does not
+help, because the old commit is still there. The key goes in a gitignored file
+beside the sketch.
+
+1. In `firmware/hypoxia-esp32c3/`, copy **`secrets.example.h`** to
+   **`secrets.h`** (same folder, exact name)
+2. Open `secrets.h` and replace `PASTE_THE_KEY_HERE` with the key from step 1,
+   **keeping the quotes**:
    ```cpp
    static const char* DEVICE_KEY = "kQ7mZ2xR9vB4nL6tW1pY8cF3jH5sD0aG";
    ```
 
-That is the only edit. Everything else is done.
+That is the only edit. Arduino compiles any `.h` in the sketch folder, so
+nothing else changes. If `secrets.h` is missing the compile stops with a message
+saying so, rather than building a board that cannot authenticate.
+
+> This happened to us: a real key was pasted into the `.ino` and committed to
+> the public repo — the same mistake as the ThingsBoard token the original
+> firmware shipped with. `firmwareSecrets.test.ts` now fails the build on any
+> credential in a firmware source file, in either `=` or `#define` form.
 
 ## Step 4 — Flash the board
 

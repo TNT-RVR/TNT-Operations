@@ -318,6 +318,16 @@ export function SupabaseProvider({ children }: { children: ReactNode }) {
     [callDeviceFn, loadHypoxia],
   )
 
+  const deleteHypoxiaChamber = useCallback(
+    async (chamberId: string, confirmName: string) => {
+      const r = await callDeviceFn({ action: 'delete', chamberId, confirmName })
+      if (r.error) return { ok: false, error: r.error as string }
+      await loadHypoxia()
+      return { ok: true }
+    },
+    [callDeviceFn, loadHypoxia],
+  )
+
   const saveHypoxiaChamber = useCallback(async (id: string, patch: Partial<HypoxiaChamber>) => {
     if (!supabase) return { ok: false, error: 'Not connected' }
     const row: HypoxiaRow = {}
@@ -1445,6 +1455,7 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
       fetchHypoxiaReadings,
       createHypoxiaChamber,
       rekeyHypoxiaChamber,
+      deleteHypoxiaChamber,
       sendHypoxiaCommand,
       saveHypoxiaChamber,
       refreshFields: async () => {

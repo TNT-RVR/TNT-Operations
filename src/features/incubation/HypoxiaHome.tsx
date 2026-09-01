@@ -3,9 +3,9 @@
  *
  * A chamber holds its oxygen near 10% by purging with nitrogen, which slows the
  * bees' metabolism and is meant to let them store far longer than cold alone
- * allows. The hardware is an Arduino Nano per chamber, bridged to ThingsBoard
- * by an ESP32-C3; a poller copies the telemetry into Supabase and commands go
- * back out through a Netlify function.
+ * allows. The hardware is an Arduino Nano per chamber, bridged by an ESP32-C3
+ * that posts straight to TNT and reads its next command out of the same
+ * response — no broker, and nothing to poll.
  *
  * ── What this screen is careful about ────────────────────────────────────────
  *
@@ -23,11 +23,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useData } from '@/data/context'
 import { useSession } from '@/auth/session'
-import { Badge, Button, EmptyState, InfoDot, Input, PageHeader, Stat } from '@/components/ui'
-import { AlertTriangle, ChevronDown, Wind } from 'lucide-react'
+import { Badge, Button, EmptyState, IconButton, InfoDot, Input, PageHeader, Stat } from '@/components/ui'
+import { AlertTriangle, ChevronDown, Settings, Wind } from 'lucide-react'
 import type { HypoxiaChamber, HypoxiaReadingRow } from '@/data/types'
 import { HypoxiaChart } from './HypoxiaChart'
 import { LinkChamberModal } from './LinkChamberModal'
+import { ChamberSettingsModal } from './ChamberSettingsModal'
 import {
   AIR_O2_PCT,
   COMMANDS,
@@ -106,8 +107,8 @@ export default function HypoxiaHome() {
         ) : hypoxiaChambers.length === 0 ? (
           <EmptyState>
             {canLink
-              ? 'No chambers yet. Press “Add chamber” to pick one of your ThingsBoard devices — the app will read its telemetry and send its commands there.'
-              : 'No chambers yet. An admin needs to link each one to its ThingsBoard device.'}
+              ? 'No chambers yet. Press “Add chamber” to create one and issue its device key — flash that key to the chamber’s board and it starts reporting here.'
+              : 'No chambers yet. An admin needs to add each one and issue its device key.'}
           </EmptyState>
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
@@ -129,6 +130,7 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
   const [showManual, setShowManual] = useState(false)
   const [confirming, setConfirming] = useState('')
   const [setpoint, setSetpoint] = useState(String(chamber.setpointPct))
+  const [settings, setSettings] = useState(false)
 
   const canCommand = s.can('incubation', 'edit')
   // Mirrors the function's rule. The function is the gate; this only decides
@@ -159,10 +161,24 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
           <p className="text-xs text-muted">
             {chamber.location || 'No location set'}
             {!chamber.hasKey && ' · no device key'}
+            {!chamber.active && ' · out of service'}
           </p>
         </div>
-        {silent ? <Badge tone="red">Silent</Badge> : verdict && <Badge tone={TONE[verdict]}>{VERDICT_LABEL[verdict]}</Badge>}
+        <div className="flex items-center gap-2">
+          {silent ? (
+            <Badge tone="red">Silent</Badge>
+          ) : (
+            verdict && <Badge tone={TONE[verdict]}>{VERDICT_LABEL[verdict]}</Badge>
+          )}
+          {canCommand && (
+            <IconButton label="Chamber settings" onClick={() => setSettings(true)}>
+              <Settings size={16} />
+            </IconButton>
+          )}
+        </div>
       </div>
+
+      {settings && <ChamberSettingsModal chamber={chamber} onClose={() => setSettings(false)} />}
 
       {/*
         A chamber nobody is hearing from is the worst state to be unaware of, so

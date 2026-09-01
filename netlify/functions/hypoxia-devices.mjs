@@ -7,6 +7,9 @@
  *   POST { "action": "rekey", "chamberId": "…" }
  *     → { ok, deviceKey }            ← for a board being reflashed or a leak
  *
+ *   POST { "action": "delete", "chamberId": "…", "confirmName": "…" }
+ *     → { ok }                       ← readings and commands cascade with it
+ *
  * Admin only. This mints the credential that lets a box send readings and
  * collect purge, valve and blast-door commands.
  *
@@ -60,7 +63,7 @@ export default async (req) => {
     .then((r) => (r.ok ? r.json() : []))
     .then((rows) => rows?.[0]?.role)
   if (!['admin', 'developer'].includes(role)) {
-    return json({ error: 'Adding a chamber and issuing its key is admin-only.' }, 403)
+    return json({ error: 'Adding, rekeying and deleting chambers is admin-only.' }, 403)
   }
 
   let body
@@ -114,6 +117,44 @@ export default async (req) => {
      * credential you believe is compromised, and the UI says it plainly.
      */
     return json({ ok: true, deviceKey })
+  }
+
+  /*
+   * Delete a chamber, and with it every reading and command it ever had —
+   * hypoxia_readings and hypoxia_commands both cascade on this row.
+   *
+   * This exists because there is no DELETE policy on hypoxia_chambers and there
+   * should not be one: the table is written by the service role precisely so a
+   * client cannot mint or destroy the thing that holds a credential. Routing it
+   * through here keeps that property and gets an admin check on the way past.
+   *
+   * DEACTIVATING is the usual answer and the UI offers it first — an inactive
+   * chamber stops being watched for silence but keeps its history. Deletion is
+   * for a row created by mistake, so the caller must name the chamber exactly.
+   * That is not ceremony: the id comes from a button and would delete whatever
+   * it pointed at, whereas a typed name cannot be produced by clicking the
+   * wrong card.
+   */
+  if (body?.action === 'delete') {
+    const chamberId = String(body.chamberId ?? '')
+    if (!chamberId) return json({ error: 'Which chamber?' }, 400)
+
+    const [row] = await fetch(
+      `${SB_URL}/rest/v1/hypoxia_chambers?id=eq.${chamberId}&select=name&limit=1`,
+      { headers: sb },
+    ).then((r) => (r.ok ? r.json() : []))
+    if (!row) return json({ error: 'That chamber no longer exists.' }, 404)
+
+    if (String(body.confirmName ?? '').trim() !== row.name) {
+      return json({ error: `Type the chamber's name exactly ("${row.name}") to delete it.` }, 400)
+    }
+
+    const res = await fetch(`${SB_URL}/rest/v1/hypoxia_chambers?id=eq.${chamberId}`, {
+      method: 'DELETE',
+      headers: { ...sb, Prefer: 'return=minimal' },
+    })
+    if (!res.ok) return json({ error: (await res.text()).slice(0, 300) }, 502)
+    return json({ ok: true })
   }
 
   return json({ error: 'Unknown action.' }, 400)

@@ -15,7 +15,7 @@
 import { useState } from 'react'
 import { useData } from '@/data/context'
 import { Button, Input, Modal } from '@/components/ui'
-import { Check, Copy, TriangleAlert } from 'lucide-react'
+import { DeviceKeyReveal } from './DeviceKeyReveal'
 
 export function LinkChamberModal({ onClose }: { onClose: () => void }) {
   const { createHypoxiaChamber } = useData()
@@ -24,7 +24,6 @@ export function LinkChamberModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [issued, setIssued] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
 
   async function create() {
     setBusy(true)
@@ -40,44 +39,7 @@ export function LinkChamberModal({ onClose }: { onClose: () => void }) {
     return (
       <Modal title="Chamber added — copy its key now" onClose={onClose}>
         <div className="space-y-4">
-          <div className="rounded border border-warn/40 bg-warn/10 p-3">
-            <p className="mb-1 flex items-center gap-2 text-xs font-semibold text-warn">
-              <TriangleAlert size={14} /> Shown once
-            </p>
-            <p className="text-xs text-secondary">
-              Only a hash of this key is stored, so it cannot be shown again. If it is lost, issue a new one and
-              reflash the board — that is cheaper than a key anyone can look up.
-            </p>
-          </div>
-
-          <div>
-            <span className="label">Device key for {name}</span>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 break-all rounded border border-default bg-inset px-3 py-2 font-mono text-sm text-primary">
-                {issued}
-              </code>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(issued).then(
-                    () => setCopied(true),
-                    () => setCopied(false),
-                  )
-                }}
-              >
-                {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy'}
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-1 text-xs text-secondary">
-            <p className="font-semibold text-primary">Put it in the firmware</p>
-            <p>
-              In the ESP32 sketch, set <code>DEVICE_KEY</code> to this value and flash the board. It starts
-              reporting on its next cycle, and the chamber appears here with live readings.
-            </p>
-          </div>
-
+          <DeviceKeyReveal chamberName={name} deviceKey={issued} />
           <div className="border-t border-subtle pt-3">
             <Button onClick={onClose}>Done — I have copied it</Button>
           </div>

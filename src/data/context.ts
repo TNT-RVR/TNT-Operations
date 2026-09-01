@@ -164,6 +164,16 @@ export interface DataContextValue extends SalesSlice, TasksSlice, SettingsSlice 
   rekeyHypoxiaChamber: (chamberId: string) => Promise<HypoxiaKeyIssue>
 
   /**
+   * Delete a chamber and everything it recorded — readings and commands cascade.
+   *
+   * `confirmName` must equal the chamber's name; the function checks it rather
+   * than trusting the id, because an id comes from whichever card was clicked
+   * and a typed name does not. Deactivating (`saveHypoxiaChamber` with
+   * `active: false`) is the usual answer and keeps the history.
+   */
+  deleteHypoxiaChamber: (chamberId: string, confirmName: string) => Promise<{ ok: boolean; error?: string }>
+
+  /**
    * Send one command to a chamber.
    *
    * Goes through a Netlify function, never straight to ThingsBoard: the

@@ -284,6 +284,34 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
                   value={incubator.incubationStart?.slice(0, 10) ?? ''}
                   onChange={(e) => saveIncubator(incubator.id, { incubationStart: e.target.value || null })}
                 />
+
+                {/*
+                  Muting one incubator.
+
+                  An incubator standing empty for the season still has a sensor
+                  on it, and that sensor still drops off the network — a real
+                  fault on a unit nobody is using, reported hourly. Alerts
+                  nobody can act on are how people learn to swipe past the one
+                  that matters.
+
+                  Off mutes EVERYTHING for this incubator: the temperature band
+                  and the offline watchdog both. Readings keep being collected
+                  either way, so the history stays whole and the chip on the
+                  card still says what the sensor is doing.
+                */}
+                <span className="label">Alerts</span>
+                <label className="flex items-center gap-2 text-sm text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={incubator.tempAlertsEnabled !== false}
+                    onChange={(e) =>
+                      saveIncubator(incubator.id, { tempAlertsEnabled: e.target.checked })
+                    }
+                  />
+                  {incubator.tempAlertsEnabled === false
+                    ? 'Muted — no temperature or offline alerts'
+                    : 'On'}
+                </label>
               </>
             ) : (
               <>

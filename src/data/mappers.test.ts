@@ -61,6 +61,27 @@ describe('supabase row mappers', () => {
     expect(emptyData.geometry).toBeUndefined()
   })
 
+  it.each([
+    ['a column never written', undefined, true],
+    ['an explicit true', true, true],
+    ['null', null, true],
+    ['an explicit false', false, false],
+  ])('reads alerts as on for %s', (_case, stored, expected) => {
+    // Absent must mean ON. Every incubator predates this column, and a
+    // default of "muted" would silence the whole operation invisibly.
+    const inc = toIncubator({
+      id: 'i9',
+      name: 'Incubator 9',
+      location: '',
+      status: 'idle',
+      started_at: null,
+      temp_target_c: 30,
+      humidity_target_pct: 55,
+      temp_alerts_enabled: stored as boolean | null | undefined,
+    })
+    expect(inc.tempAlertsEnabled).toBe(expected)
+  })
+
   it('coerces numeric-as-string (PostgREST) and null started_at', () => {
     const inc = toIncubator({
       id: 'i3',

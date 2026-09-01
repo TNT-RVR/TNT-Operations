@@ -61,6 +61,22 @@ export default function IncubationHome() {
                   {/* Shown for every linked sensor, healthy included: the
                       point is to see all of them at a glance rather than to
                       find out by being told. A good one is quiet about it. */}
+                  {/* A muted incubator says so. Silencing one is deliberate,
+                      but a mute nobody can see is how a real fault on a
+                      running incubator goes unnoticed for a season. */}
+                  {i.tempAlertsEnabled === false && (
+                    <span
+                      className="rounded-pill px-2 py-0.5 text-xs font-semibold"
+                      style={{
+                        background: 'var(--bg-inset)',
+                        color: 'var(--text-muted)',
+                        border: '1px solid var(--border-default)',
+                      }}
+                      title="Temperature and offline alerts are turned off for this incubator"
+                    >
+                      Alerts off
+                    </span>
+                  )}
                   {link.state !== 'none' && (
                     <span
                       className="rounded-pill px-2 py-0.5 text-xs font-semibold"

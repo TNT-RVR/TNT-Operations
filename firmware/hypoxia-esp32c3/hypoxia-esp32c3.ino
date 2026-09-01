@@ -456,6 +456,123 @@ static void bleNotifyText(const String& msg) {
 }
 
 // =====================
+// SETUP LINES (BLE or USB serial)
+// =====================
+/*
+  One handler for both ways in.
+
+  Wi-Fi credentials used to arrive only over BLE, which needs a phone, an app,
+  an MTU big enough for the whole string in one write, and a format dropdown set
+  to text rather than hex. On the first chamber, two different BLE apps failed
+  to deliver a single write and the board never printed one BLE RX line, which
+  is a lot of moving parts between a person and a Wi-Fi password.
+
+  USB is already connected while flashing, already proven, and prints straight
+  back. So the same line can now be typed into the Arduino Serial Monitor.
+
+  Both paths run THIS function rather than each parsing for itself: the two
+  cannot then disagree about what "WIFI:" means, and a fix to one is a fix to
+  both.
+*/
+static void setupReply(const String& msg, bool toBle) {
+  if (toBle) bleNotifyText(msg);
+  // Always to serial as well. A reply that only went to the phone is invisible
+  // to whoever is watching the cable, and vice versa.
+  Serial.print(msg);
+}
+
+void handleSetupLine(String v, bool fromBle) {
+  v.replace("\r", "");
+  v.trim();
+  if (v.length() == 0) return;
+
+  if (v.startsWith("WIFI:") || v.startsWith("WIFI,")) {
+    String ssid = "", pass = "";
+
+    if (v.startsWith("WIFI:")) {
+      int s = v.indexOf("SSID=");
+      int p = v.indexOf("PASS=");
+      if (s >= 0) {
+        int sEnd = v.indexOf(';', s);
+        ssid = (sEnd >= 0) ? v.substring(s + 5, sEnd) : v.substring(s + 5);
+      }
+      if (p >= 0) {
+        int pEnd = v.indexOf(';', p);
+        pass = (pEnd >= 0) ? v.substring(p + 5, pEnd) : v.substring(p + 5);
+      }
+    } else {
+      int c1 = v.indexOf(',');
+      int c2 = v.indexOf(',', c1 + 1);
+      if (c1 >= 0 && c2 >= 0) {
+        ssid = v.substring(c1 + 1, c2);
+        pass = v.substring(c2 + 1);
+      }
+    }
+
+    ssid.trim();
+    pass.trim();
+
+    if (ssid.length() == 0) {
+      setupReply("WIFI_FAIL,NO_SSID\n", fromBle);
+      return;
+    }
+
+    saveCreds(ssid, pass);
+    setupReply("WIFI_SAVED\n", fromBle);
+
+    ledMode = LED_WIFI_CONNECT;
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(savedSsid.c_str(), savedPass.c_str());
+
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
+      delay(100);
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      String ip = WiFi.localIP().toString();
+      setupReply(String("WIFI_OK,IP=") + ip + "\n", fromBle);
+      ledMode = LED_WIFI_OK;
+    } else {
+      setupReply("WIFI_FAIL\n", fromBle);
+      ledMode = LED_WIFI_ERR;
+    }
+    return;
+  }
+
+  // Everything else is a command for the Nano.
+  startBurst(v);
+}
+
+/*
+  Collect a line from USB serial, character by character.
+
+  Deliberately not Serial.readStringUntil: that blocks for its timeout, and this
+  is called from the same loop that has to keep bridging the Nano's telemetry.
+  A password is typed slowly by a person, so partial input is the normal case.
+*/
+static String serialLine = "";
+
+void pollSerialSetup() {
+  while (Serial.available() > 0) {
+    char ch = (char)Serial.read();
+    if (ch == '\n' || ch == '\r') {
+      if (serialLine.length() > 0) {
+        String line = serialLine;
+        serialLine = "";
+        // Not echoed: the line contains the Wi-Fi password, and a serial
+        // monitor already shows what was typed into it.
+        Serial.println("USB RX: (line received)");
+        handleSetupLine(line, false);
+      }
+      continue;
+    }
+    // A runaway sender must not grow this without limit.
+    if (serialLine.length() < 250) serialLine += ch;
+  }
+}
+
+// =====================
 // MODE CONTROL
 // =====================
 void startBLE() {
@@ -488,67 +605,9 @@ void startBLE() {
     void onWrite(BLECharacteristic* c) override {
       String v = c->getValue();
       if (v.length() == 0) return;
-
-      v.replace("\r", "");
-
       Serial.print("BLE RX: ");
       Serial.println(v);
-
-      if (v.startsWith("WIFI:") || v.startsWith("WIFI,")) {
-        String ssid = "", pass = "";
-
-        if (v.startsWith("WIFI:")) {
-          int s = v.indexOf("SSID=");
-          int p = v.indexOf("PASS=");
-          if (s >= 0) {
-            int sEnd = v.indexOf(';', s);
-            ssid = (sEnd >= 0) ? v.substring(s + 5, sEnd) : v.substring(s + 5);
-          }
-          if (p >= 0) {
-            int pEnd = v.indexOf(';', p);
-            pass = (pEnd >= 0) ? v.substring(p + 5, pEnd) : v.substring(p + 5);
-          }
-        } else {
-          int c1 = v.indexOf(',');
-          int c2 = v.indexOf(',', c1 + 1);
-          if (c1 >= 0 && c2 >= 0) {
-            ssid = v.substring(c1 + 1, c2);
-            pass = v.substring(c2 + 1);
-          }
-        }
-
-        ssid.trim();
-        pass.trim();
-
-        if (ssid.length() == 0) {
-          bleNotifyText("WIFI_FAIL,NO_SSID\n");
-          return;
-        }
-
-        saveCreds(ssid, pass);
-        bleNotifyText("WIFI_SAVED\n");
-
-        ledMode = LED_WIFI_CONNECT;
-        WiFi.mode(WIFI_STA);
-        WiFi.begin(savedSsid.c_str(), savedPass.c_str());
-
-        uint32_t t0 = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-          delay(100);
-        }
-
-        if (WiFi.status() == WL_CONNECTED) {
-          String ip = WiFi.localIP().toString();
-          bleNotifyText(String("WIFI_OK,IP=") + ip + "\n");
-          ledMode = LED_WIFI_OK;
-        } else {
-          bleNotifyText("WIFI_FAIL\n");
-          ledMode = LED_WIFI_ERR;
-        }
-        return;
-      }
-
-      startBurst(v);
+      handleSetupLine(v, true);
     }
   };
 
@@ -850,6 +909,8 @@ void setup() {
   if (haveCreds()) tryWifiAtBoot();
   else {
     Serial.println("No WiFi creds stored -> BLE setup mode");
+    Serial.println("Or type this line here and press Enter:");
+    Serial.println("  WIFI:SSID=YourNetwork;PASS=YourPassword");
     startBLE();
   }
 
@@ -862,6 +923,7 @@ void setup() {
 void loop() {
   updateButton();
   updateLed();
+  pollSerialSetup();
   pumpNanoToBle();
   serviceBurst();
 

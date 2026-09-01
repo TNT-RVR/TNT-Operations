@@ -286,8 +286,41 @@ sharing the bench: `303A` is native USB, `1A86` is a CH340.
 
 ## Step 5 — Put it on Wi-Fi
 
-The board advertises over Bluetooth as **`TNT_POD`** on first boot, or when you
-hold its button. Connect with any BLE terminal app (nRF Connect, LightBlue).
+Two ways in. **Use the USB one.** The Bluetooth path still works and is what you
+need for a chamber already installed somewhere without a cable, but it has far
+more that can go wrong.
+
+### 5a. Over USB (recommended)
+
+The cable is already plugged in from flashing.
+
+1. **Tools → Serial Monitor**
+2. Set the line-ending dropdown to **New Line** — with "No Line Ending" the
+   sketch never sees the end of your line and nothing at all happens
+3. Type this into the send box and press Enter:
+   ```
+   WIFI:SSID=YourNetwork;PASS=YourPassword
+   ```
+
+It answers on the same screen:
+
+```
+USB RX: (line received)
+WIFI_SAVED
+WIFI_OK,IP=192.168.1.47
+```
+
+The line is not echoed back, deliberately — it carries the Wi-Fi password, and
+the monitor already shows what you typed.
+
+### 5b. Over Bluetooth
+
+The board advertises as **`TNT_POD`** on first boot, or when you hold its
+button. Connect with a BLE terminal app (nRF Connect, LightBlue).
+
+Note that a peripheral **stops advertising while a client is connected**, so if
+one app is holding the connection another will not find `TNT_POD` at all. Force
+stop the first app rather than just backing out of it.
 
 ### It is ONE write, not two
 

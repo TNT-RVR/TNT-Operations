@@ -386,7 +386,7 @@ board: over native USB CDC the rate is negotiated by the USB stack and the
 | Nothing about TNT | Working. It only prints on failure. |
 | `TNT: key rejected` | The key is wrong or was not saved. Issue a new one, redo step 3. |
 | `TNT: chamber is marked inactive` | The chamber is switched off in the app. |
-| `TNT POST failed: -1` | Wi-Fi or TLS. Check the board is on the network. |
+| `TNT POST failed: -1` | The TLS handshake did not complete. Wi-Fi is fine — the board got far enough to try. Almost always the **pinned root certificate** no longer matches what the host serves; check with `openssl s_client -connect <host>:443 -servername <host> \| openssl x509 -noout -issuer` and see the cert comment in the sketch. |
 | `NANO:BOOT` / `O2:NOT_FOUND` | You are on the NANO's port, not the ESP32's. See "Which board is which". |
 | No output at all | USB CDC On Boot is Disabled — on this board it must be Enabled (step 4.5). |
 

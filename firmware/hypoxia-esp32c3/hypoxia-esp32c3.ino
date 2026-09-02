@@ -29,6 +29,12 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
+/*
+  Bumped when something changes that a person might need to confirm is
+  running. Printed at every boot beside the compiler's own build stamp.
+*/
+#define FW_VERSION "3 - usb setup, digicert root"
+
 // =====================
 // PIN / UART SETTINGS
 // =====================
@@ -431,6 +437,22 @@ static void postToTnt(const String& line) {
   } else {
     Serial.print("TNT POST failed: ");
     Serial.println(code);
+    /*
+      -1 is HTTPClient's catch-all for "the connection did not happen", which
+      covers a rejected certificate, a refused socket and a DNS failure alike.
+      Chasing the wrong one of those cost an evening, so ask mbedTLS what it
+      actually objected to.
+    */
+    char err[128] = {0};
+    int tlsErr = tls.lastError(err, sizeof(err));
+    if (tlsErr != 0) {
+      Serial.print("TLS error ");
+      Serial.print(tlsErr);
+      Serial.print(": ");
+      Serial.println(err);
+    } else if (code == -1) {
+      Serial.println("No TLS error recorded - suspect DNS or the network blocking outbound 443.");
+    }
   }
 
   http.end();
@@ -897,6 +919,23 @@ void setup() {
   setRGB(0,0,0);
 
   Serial.println("\nESP32-C3 starting...");
+  /*
+    Say which build this is, every boot.
+
+    "Did that upload actually take?" cost real time during the first
+    commissioning: credentials survive a reflash, so the boot log of old and
+    new firmware looked identical, and the only symptom under investigation
+    (a failing POST) was the very thing the new build was meant to fix.
+
+    __DATE__ and __TIME__ are stamped by the compiler, so they cannot drift
+    from what is running the way a hand-edited version string would.
+  */
+  Serial.print("Firmware: ");
+  Serial.println(FW_VERSION);
+  Serial.print("Built: ");
+  Serial.print(__DATE__);
+  Serial.print(" ");
+  Serial.println(__TIME__);
 
   NanoLink.begin(NANO_BAUD, SERIAL_8N1, ESP_RX_PIN, ESP_TX_PIN);
   Serial.print("NanoLink UART1 RX=");

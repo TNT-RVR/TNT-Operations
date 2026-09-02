@@ -36,7 +36,10 @@ import {
   SETPOINT_MIN_PCT,
   VERDICT_LABEL,
   chamberVerdict,
+  commandConcern,
   isSilent,
+  COMMAND_STATUS_LABEL,
+  COMMAND_STATUS_NOTE,
   setpointCommand,
   type ChamberVerdict,
   type HypoxiaReading,
@@ -124,7 +127,7 @@ export default function HypoxiaHome() {
 
 function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: HypoxiaReadingRow | null }) {
   const s = useSession()
-  const { sendHypoxiaCommand } = useData()
+  const { sendHypoxiaCommand, hypoxiaCommands } = useData()
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState('')
   const [showManual, setShowManual] = useState(false)
@@ -138,6 +141,12 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
   const canManual = s.user.role === 'admin' || s.user.role === 'developer'
 
   const silent = isSilent(chamber.lastSeenAt)
+  /*
+    A command the chamber never confirmed. Shown on the card rather than buried
+    in a log: the firmware knew all along and only said so on the serial cable,
+    which is how a purge that did not happen looked exactly like one that did.
+  */
+  const concern = commandConcern(hypoxiaCommands, chamber.id, Date.now())
   const r = reading ? asReading(reading) : null
   const verdict = r ? chamberVerdict(r, chamber.setpointPct, chamber.deadbandPct) : null
 
@@ -179,6 +188,17 @@ function ChamberCard({ chamber, reading }: { chamber: HypoxiaChamber; reading: H
       </div>
 
       {settings && <ChamberSettingsModal chamber={chamber} onClose={() => setSettings(false)} />}
+
+      {concern && (
+        <div className="rounded border border-warn/40 bg-warn/10 p-3 text-xs text-secondary">
+          <p className="mb-1 flex items-center gap-2 font-semibold text-warn">
+            <AlertTriangle size={14} /> {COMMAND_STATUS_LABEL[concern.status]}:{' '}
+            <span className="font-mono">{concern.command.wire}</span>
+          </p>
+          <p>{COMMAND_STATUS_NOTE[concern.status]}</p>
+          <p className="mt-1 text-faint">Sent {when(concern.command.sentAt)}</p>
+        </div>
+      )}
 
       {/*
         A chamber nobody is hearing from is the worst state to be unaware of, so

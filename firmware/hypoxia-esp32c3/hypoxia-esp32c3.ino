@@ -33,7 +33,7 @@
   Bumped when something changes that a person might need to confirm is
   running. Printed at every boot beside the compiler's own build stamp.
 */
-#define FW_VERSION "3 - usb setup, digicert root"
+#define FW_VERSION "4 - reports command outcomes"
 
 // =====================
 // PIN / UART SETTINGS
@@ -259,6 +259,19 @@ struct NanoState {
   uint32_t lastMs = 0;
 } nanoState;
 
+/*
+  The TNT command id this burst belongs to, and the verdict waiting to be sent
+  back. The firmware has always known whether the Nano obeyed; until these
+  existed it said so only on the serial cable, so the app showed a purge as
+  sent whether the chamber purged or not.
+
+  Carried home on the NEXT telemetry post rather than in a call of its own -
+  one kind of outbound call is the whole point of this design.
+*/
+static String   burstCmdId = "";
+static String   pendingResultId = "";
+static String   pendingResultOutcome = "";
+
 static String   burstCmd = "";
 static bool     burstActive = false;
 static uint32_t burstT0 = 0;
@@ -326,7 +339,7 @@ static bool commandSatisfied(const String& cmd) {
   return false;
 }
 
-static void startBurst(String cmd) {
+static void startBurst(String cmd, const String& cmdId = "") {
   cmd.trim();
   cmd.replace("\r", "");
   cmd.replace("\n", "");
@@ -335,6 +348,7 @@ static void startBurst(String cmd) {
   if (cmd.length() == 0) return;
 
   burstCmd = cmd;
+  burstCmdId = cmdId;
   burstActive = true;
   burstT0 = millis();
   burstLastSend = 0;
@@ -354,15 +368,25 @@ static void serviceBurst() {
 
   if (commandSatisfied(burstCmd)) {
     Serial.println("TX->NANO BURST: confirmed by telemetry");
+    if (burstCmdId.length() > 0) {
+      pendingResultId = burstCmdId;
+      pendingResultOutcome = "confirmed";
+    }
     burstActive = false;
     burstCmd = "";
+    burstCmdId = "";
     return;
   }
 
   if (now - burstT0 >= BURST_TIMEOUT_MS) {
     Serial.println("TX->NANO BURST: timeout (no telemetry confirm)");
+    if (burstCmdId.length() > 0) {
+      pendingResultId = burstCmdId;
+      pendingResultOutcome = "timeout";
+    }
     burstActive = false;
     burstCmd = "";
+    burstCmdId = "";
     return;
   }
 
@@ -411,11 +435,29 @@ static void postToTnt(const String& line) {
   }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", DEVICE_KEY);
+  /*
+    How the previous command went, riding along with the next reading. Sent
+    before the response is read, so a verdict is not lost if the reply is.
+  */
+  bool sentResult = false;
+  if (pendingResultId.length() > 0) {
+    http.addHeader("X-Cmd-Result", pendingResultId + ":" + pendingResultOutcome);
+    sentResult = true;
+  }
   http.setTimeout(8000);
 
   int code = http.POST(line);
 
   if (code == 200) {
+    /*
+      Cleared only on a 200. A verdict dropped because the post failed would
+      leave the app permanently unsure whether a purge happened, which is the
+      exact gap this was added to close - so it is kept and retried instead.
+    */
+    if (sentResult) {
+      pendingResultId = "";
+      pendingResultOutcome = "";
+    }
     String body = http.getString();
     int i = body.indexOf("\"cmd\":\"");
     if (i >= 0) {
@@ -423,10 +465,19 @@ static void postToTnt(const String& line) {
       if (j > i) {
         String cmd = body.substring(i + 7, j);
         cmd.trim();
+
+        // The id it was issued under, so the verdict can name it later.
+        String cmdId = "";
+        int k = body.indexOf("\"id\":\"");
+        if (k >= 0) {
+          int m = body.indexOf('"', k + 6);
+          if (m > k) cmdId = body.substring(k + 6, m);
+        }
+
         if (cmd.length() > 0) {
           Serial.print("TNT cmd: ");
           Serial.println(cmd);
-          startBurst(cmd);
+          startBurst(cmd, cmdId);
         }
       }
     }

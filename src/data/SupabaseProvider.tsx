@@ -869,6 +869,9 @@ const toHypoxiaCommand = (r: HypoxiaRow): HypoxiaCommandLog => ({
   sentAt: r.sent_at,
   ok: r.ok === true,
   error: r.error ?? null,
+  deliveredAt: r.delivered_at ?? null,
+  outcome: r.outcome === 'confirmed' || r.outcome === 'timeout' ? r.outcome : null,
+  confirmedAt: r.confirmed_at ?? null,
 })
 
   const value = useMemo<DataContextValue>(

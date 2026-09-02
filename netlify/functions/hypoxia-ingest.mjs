@@ -2,10 +2,17 @@
  * The chamber's one call. Telemetry in, next command out.
  *
  *   POST /.netlify/functions/hypoxia-ingest
- *   X-Device-Key: <the chamber's key>
+ *   X-Device-Key:  <the chamber's key>
+ *   X-Cmd-Result:  <command id>:confirmed|timeout      ← optional, see below
  *   {"pod":1,"o2":10.4,"t":4.2,"rh":38,"v1":0,...}   ← the Nano's line, verbatim
  *
- *   → 200 {"cmd":"PURGE"}   or   200 {}
+ *   → 200 {"cmd":"PURGE","id":"<uuid>"}   or   200 {}
+ *
+ * The id comes back so the device can report, on a LATER post, whether the
+ * chamber actually did it. The firmware repeats a command to the Nano until the
+ * Nano's telemetry confirms it, then gives up; until this header existed that
+ * verdict reached a serial cable and nothing else, and the app showed a purge
+ * as sent whether or not the chamber purged.
  *
  * ── Why one round trip ──────────────────────────────────────────────────────
  *
@@ -123,6 +130,40 @@ export default async (req) => {
     body: JSON.stringify({ last_seen_at: at }),
   })
 
+  /*
+   * ── How the LAST command went ──
+   *
+   * The device reports the outcome of a command it was handed earlier, on a
+   * later post: `X-Cmd-Result: <command id>:confirmed|timeout`.
+   *
+   * Piggybacked on the telemetry post rather than given its own endpoint,
+   * because the whole point of this design is that a chamber makes one kind of
+   * call. A second endpoint would mean a second failure mode in a shed.
+   *
+   * Scoped to THIS chamber's rows. The device key authenticates one chamber,
+   * so it must not be able to write a verdict onto another chamber's command
+   * by quoting its id.
+   */
+  const result = (req.headers.get('x-cmd-result') ?? '').trim()
+  if (result) {
+    const [cmdId, outcome] = result.split(':')
+    const validId = /^[0-9a-f-]{36}$/i.test(cmdId ?? '')
+    if (validId && (outcome === 'confirmed' || outcome === 'timeout')) {
+      await fetch(
+        `${SB_URL}/rest/v1/hypoxia_commands?id=eq.${cmdId}&chamber_id=eq.${chamber.id}`,
+        {
+          method: 'PATCH',
+          headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify({ outcome, confirmed_at: new Date().toISOString() }),
+        },
+      )
+    } else {
+      // Not fatal: a malformed verdict must never cost us the telemetry that
+      // came with it. Logged so a firmware bug is findable.
+      console.log('[hypoxia-ingest] ignored X-Cmd-Result:', result.slice(0, 80))
+    }
+  }
+
   // ── The next command, if there is one ──
   const pending = await fetch(
     `${SB_URL}/rest/v1/hypoxia_commands?select=id,wire&chamber_id=eq.${chamber.id}&delivered_at=is.null&order=sent_at.asc&limit=1`,
@@ -145,7 +186,9 @@ export default async (req) => {
   })
   if (!marked.ok) return json({})
 
-  return json({ cmd: pending.wire })
+  // The id goes with it so the device can say later how this one went. Without
+  // it the firmware would have to guess which command a verdict belonged to.
+  return json({ cmd: pending.wire, id: pending.id })
 }
 
 /** Fault and out-of-band alerts. Mirrors what the ThingsBoard poller did. */

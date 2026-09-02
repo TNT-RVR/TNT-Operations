@@ -297,3 +297,100 @@ export function collapseSpans(
   if (open && points.length) out.push({ start: open.start, end: points[points.length - 1].at, kind: open.kind })
   return out
 }
+
+/**
+ * ── What happened to a command ───────────────────────────────────────────────
+ *
+ * Four different things were all showing as "sent", and only one of them means
+ * the chamber did anything:
+ *
+ *   refused      the function would not queue it (role, unknown command)
+ *   queued       accepted, the device has not collected it yet
+ *   working      collected, no verdict back yet
+ *   confirmed    the Nano's own telemetry showed it take effect
+ *   unconfirmed  the firmware repeated it for its burst window and the Nano
+ *                never confirmed. Something may still have moved — on the
+ *                first chamber a purge was audible — but nothing verified it
+ *   stalled      collected, and then the device went quiet without reporting
+ *
+ * `unconfirmed` and `stalled` are the two that were previously invisible, and
+ * they are the two that matter: a purge is what keeps a sealed box at 10%
+ * oxygen, so "I asked and nothing came back" must not look like success.
+ */
+export type CommandStatus =
+  | 'refused'
+  | 'queued'
+  | 'working'
+  | 'confirmed'
+  | 'unconfirmed'
+  | 'stalled'
+
+/**
+ * How long a delivered command may sit without a verdict before it is stalled.
+ *
+ * The firmware gives up on the Nano after 8 s and sends its verdict on the next
+ * telemetry post, ~15 s later. Two minutes is generous against that, so this
+ * fires on a device that stopped talking rather than on one merely being slow.
+ */
+export const COMMAND_VERDICT_GRACE_MS = 120_000
+
+export function commandStatus(
+  c: {
+    ok: boolean
+    deliveredAt: string | null
+    outcome: 'confirmed' | 'timeout' | null
+    sentAt: string
+  },
+  nowMs: number,
+): CommandStatus {
+  if (!c.ok) return 'refused'
+  if (c.outcome === 'confirmed') return 'confirmed'
+  if (c.outcome === 'timeout') return 'unconfirmed'
+  if (!c.deliveredAt) return 'queued'
+  const delivered = Date.parse(c.deliveredAt)
+  if (!Number.isFinite(delivered)) return 'working'
+  return nowMs - delivered > COMMAND_VERDICT_GRACE_MS ? 'stalled' : 'working'
+}
+
+export const COMMAND_STATUS_LABEL: Record<CommandStatus, string> = {
+  refused: 'Refused',
+  queued: 'Queued',
+  working: 'Sent, waiting',
+  confirmed: 'Confirmed',
+  unconfirmed: 'Not confirmed',
+  stalled: 'No response',
+}
+
+/**
+ * The plain-words consequence, for the two states that need explaining.
+ *
+ * Empty for the states that speak for themselves — a badge saying "Confirmed"
+ * needs no paragraph, and attaching one to everything is how people stop
+ * reading them.
+ */
+export const COMMAND_STATUS_NOTE: Partial<Record<CommandStatus, string>> = {
+  unconfirmed:
+    'The chamber was told, repeatedly, and never reported the change. Check it before assuming this took effect.',
+  stalled: 'The chamber collected this and then stopped reporting. Its state is unknown from here.',
+}
+
+/**
+ * The most recent command worth warning about, or null.
+ *
+ * Only looks at the newest command per chamber: an old unconfirmed purge that
+ * has since been followed by a confirmed one is history, not a live concern,
+ * and surfacing every past failure would bury the current one.
+ */
+export function commandConcern<T extends { chamberId: string; sentAt: string; ok: boolean; deliveredAt: string | null; outcome: 'confirmed' | 'timeout' | null }>(
+  commands: T[],
+  chamberId: string,
+  nowMs: number,
+): { command: T; status: CommandStatus } | null {
+  const mine = commands
+    .filter((c) => c.chamberId === chamberId)
+    .sort((a, b) => Date.parse(b.sentAt) - Date.parse(a.sentAt))
+  const latest = mine[0]
+  if (!latest) return null
+  const status = commandStatus(latest, nowMs)
+  return status === 'unconfirmed' || status === 'stalled' ? { command: latest, status } : null
+}

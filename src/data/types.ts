@@ -1176,8 +1176,22 @@ export interface HypoxiaCommandLog {
   wire: string
   risk: string
   sentAt: string
+  /** Whether the app ACCEPTED it into the queue. Not whether anything happened. */
   ok: boolean
   error: string | null
+  /** When the device collected it. Null = still queued, or refused before queuing. */
+  deliveredAt: string | null
+  /**
+   * What the chamber did with it, reported by the device on a later post.
+   *
+   * `confirmed` — the Nano's own telemetry showed the command take effect.
+   * `timeout` — the firmware repeated it for its burst window and the Nano
+   * never confirmed; something may still have moved, but nothing verified it.
+   * `null` — no verdict yet, which on an old delivered command means the
+   * device went quiet mid-command.
+   */
+  outcome: 'confirmed' | 'timeout' | null
+  confirmedAt: string | null
 }
 
 /** A newly issued device key. Returned once, at creation, and never again. */

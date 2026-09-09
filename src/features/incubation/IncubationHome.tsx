@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHeader, Badge, Gauge, EmptyState } from '@/components/ui'
 import { sensorLinkChip, readingStaleness } from '@/domain/sensorLink'
 import { useData } from '@/data/context'
 import { incubationProgress, getIncubationDay, incubatorDisplay } from '@/domain/incubation'
 import type { Incubator } from '@/data/types'
-import { IncubatorDetail } from './IncubatorDetail'
 
 type Tone = 'brand' | 'green' | 'amber' | 'red' | 'blue'
 
@@ -21,8 +20,6 @@ const fmtRange = (a: number | null, b: number | null, unit: string, fallback: st
 export default function IncubationHome() {
   const { incubators, latestReading, mutedIncubatorIds } = useData()
   const now = new Date()
-  const [openId, setOpenId] = useState<string | null>(null)
-  const open = incubators.find((i) => i.id === openId) ?? null
 
   return (
     <div>
@@ -47,9 +44,9 @@ export default function IncubationHome() {
           const day = showProgress ? getIncubationDay({ startDate: i.incubationStart }, now) : null
 
           return (
-            <button
+            <Link
               key={i.id}
-              onClick={() => setOpenId(i.id)}
+              to={`/incubation/${i.id}`}
               className="card block w-full text-left transition hover:border-brand hover:shadow-md"
             >
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -143,13 +140,12 @@ export default function IncubationHome() {
               )}
 
               <p className="mt-3 text-xs font-medium text-brand">View details →</p>
-            </button>
+            </Link>
           )
         })}
         {incubators.length === 0 && <EmptyState>No incubators yet.</EmptyState>}
       </div>
 
-      {open && <IncubatorDetail incubator={open} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

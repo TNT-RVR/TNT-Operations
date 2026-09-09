@@ -25,6 +25,7 @@ import ScheduleHome from './features/field/ScheduleHome'
 import ExperimentsHome from './features/experiments/ExperimentsHome'
 import WorkOrderDetail from './features/field/WorkOrderDetail'
 import IncubationHome from './features/incubation/IncubationHome'
+import IncubatorPage from './features/incubation/IncubatorPage'
 import SamplesHome from './features/incubation/SamplesHome'
 import TraysHome from './features/incubation/TraysHome'
 import LineageHome from './features/incubation/LineageHome'
@@ -124,6 +125,9 @@ export default function App() {
         <Route path="incubation/alerts" element={<Protected module="incubation"><AlertsHome /></Protected>} />
         <Route path="incubation/scan" element={<Protected module="incubation"><ScanHome /></Protected>} />
         <Route path="incubation/hypoxia" element={<Protected module="incubation"><HypoxiaHome /></Protected>} />
+        {/* Last, and dynamic: the static siblings above win on React Router's
+            ranking regardless of order, and writing it here says so. */}
+        <Route path="incubation/:id" element={<Protected module="incubation"><IncubatorPage /></Protected>} />
 {/* Filed under the blocks module: an experiment note is field work, and
             the people who write them are the ones who scan blocks. */}
         <Route path="experiments" element={<Protected module="blocks"><ExperimentsHome /></Protected>} />

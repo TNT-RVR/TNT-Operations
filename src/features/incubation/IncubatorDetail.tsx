@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { QrCode, RefreshCw, ClipboardPen, ChevronDown } from 'lucide-react'
-import { Modal, Badge, Gauge } from '@/components/ui'
+import { QrCode, RefreshCw, ClipboardPen, ChevronDown, ChevronLeft } from 'lucide-react'
+import { PageHeader, Badge, Gauge } from '@/components/ui'
 import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
 import { supabase } from '@/data/supabaseClient'
@@ -66,7 +66,18 @@ function inspectionChips(i: Inspection) {
   ))
 }
 
-export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; onClose: () => void }) {
+/**
+ * One incubator, as a page.
+ *
+ * It was a modal, which cost more than space: on a phone the back button and
+ * the back gesture left the app instead of closing it, and an alert about a
+ * particular incubator could only ever link to the list. A route fixes both —
+ * back means back, and /incubation/<id> is a link somebody can be sent.
+ *
+ * The dashboard is unchanged: every incubator at a glance is the right home
+ * screen, and this is what one of them opens into.
+ */
+export function IncubatorDetail({ incubator }: { incubator: Incubator }) {
   const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings, loadEarlierInspections, earlierInspectionsLoaded, mutedIncubatorIds, setIncubatorMuted } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
@@ -241,8 +252,18 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
   }
 
   return (
-    <Modal title={incubator.name} onClose={onClose} wide>
-      <div className="space-y-5">
+    <div>
+      <PageHeader
+        title={incubator.name}
+        subtitle={incubator.location || undefined}
+        actions={
+          <Link to="/incubation" className="flex items-center gap-1 text-sm text-secondary">
+            <ChevronLeft size={16} />
+            All incubators
+          </Link>
+        }
+      />
+      <div className="space-y-5 p-4 md:p-6">
         {/* Mode + progress */}
         <div className="space-y-3">
           {/*
@@ -324,7 +345,8 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               not set, and mixing them in with the controls is what made the
               header look like a pile. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            {incubator.location && <span className="text-muted">{incubator.location}</span>}
+            {/* Location lives in the page subtitle now; repeating it here was
+                the same words twice, four lines apart. */}
             {day != null && <span className="font-medium text-secondary">Day {day}</span>}
             {incubator.capacity != null && (
               <span className="text-faint">capacity {incubator.capacity}</span>
@@ -333,7 +355,6 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
               <Link
                 to={`/incubation/scan?incubator=${incubator.id}`}
                 className="btn-primary ml-auto px-3 py-1.5 text-sm"
-                onClick={onClose}
               >
                 <QrCode size={16} className="mr-1 inline" />
                 Add trays
@@ -689,6 +710,6 @@ export function IncubatorDetail({ incubator, onClose }: { incubator: Incubator; 
           )}
         </section>
       </div>
-    </Modal>
+    </div>
   )
 }

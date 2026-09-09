@@ -1,10 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useData } from '@/data/context'
 import type { SensorReading } from '@/data/types'
+import { niceTicks, niceStep, tickDecimals } from '@/domain/chartTicks'
 
 const TZ = 'America/Edmonton'
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+/**
+ * Axis timestamps: short on purpose.
+ *
+ * Two full timestamps at each end of a 300px chart very nearly touch, and
+ * "a.m." is four of the characters doing the least work — a 24-hour clock says
+ * the same thing in half the space and cannot be misread.
+ */
+const fmtAxis = (iso: string) =>
+  new Date(iso).toLocaleString('en-CA', {
+    timeZone: TZ,
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 
 // Chart colours come from the token layer so the chart tracks light/dark.
 const LINE = 'var(--data-honey)'
@@ -56,6 +71,67 @@ export function ReadingsChart({
   const [range, setRange] = useState<RangeKey>('24h')
   const [loading, setLoading] = useState(false)
 
+  /**
+   * The chart is drawn at the container's real pixel width.
+   *
+   * It used to draw into a fixed 560-wide viewBox scaled with `w-full`, which
+   * on a phone meant every unit shrank by about 40% — a 10px label rendered at
+   * 6px and the whole plot was 97px tall. Measuring instead means one SVG unit
+   * is one CSS pixel: text is the size it says it is, on any screen.
+   */
+  const [boxW, setBoxW] = useState(560)
+  const roRef = useRef<ResizeObserver | null>(null)
+  /**
+   * A callback ref, not an effect.
+   *
+   * This component swaps between an empty state and the chart, so the measured
+   * node is a DIFFERENT element depending on the branch. A mount-only effect
+   * attaches to whichever was rendered first and then observes a detached node
+   * forever — which is exactly what happened: the chart kept drawing at the
+   * 560 fallback and scaling itself back down.
+   *
+   * Measuring in the callback also gets a width on the first paint rather than
+   * on the observer's first delivery.
+   */
+  const nodeRef = useRef<HTMLDivElement | null>(null)
+  const measure = useCallback((node: HTMLDivElement | null) => {
+    roRef.current?.disconnect()
+    roRef.current = null
+    nodeRef.current = node
+    if (!node) return
+    const w = Math.round(node.getBoundingClientRect().width)
+    if (w > 0) setBoxW(w)
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(([entry]) => {
+      const next = Math.round(entry.contentRect.width)
+      if (next > 0) setBoxW(next)
+    })
+    ro.observe(node)
+    roRef.current = ro
+  }, [])
+
+  /**
+   * A window-resize fallback, belt and braces.
+   *
+   * ResizeObserver is the right tool — it catches a sidebar collapsing, which
+   * changes this element without changing the window — but it is not always
+   * delivered (it was silently never firing in one embedded browser during
+   * testing). Rotating a phone or resizing a window is the common case and
+   * costs one listener to cover, so the chart is never left at a stale width.
+   */
+  useEffect(() => {
+    const onResize = () => {
+      const w = Math.round(nodeRef.current?.getBoundingClientRect().width ?? 0)
+      if (w > 0) setBoxW(w)
+    }
+    window.addEventListener('resize', onResize)
+    window.addEventListener('orientationchange', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('orientationchange', onResize)
+    }
+  }, [])
+
   // Hydration only holds a recent window per incubator, so a longer range has
   // to go and get the rest — otherwise 7D and 30D render the same ~16h as 24H.
   const hours = RANGES.find((r) => r.key === range)?.hours ?? 24
@@ -82,7 +158,7 @@ export function ReadingsChart({
         <button
           key={r.key}
           onClick={() => setRange(r.key)}
-          className={`rounded-sm px-2 py-0.5 text-xs tracking-wide transition ${
+          className={`rounded-sm px-3 py-1.5 text-sm font-medium tracking-wide transition ${
  r.key === range
               ? 'bg-brand text-on-brand'
               : 'text-muted hover:bg-[color:var(--hover-wash)] hover:text-secondary'
@@ -97,7 +173,10 @@ export function ReadingsChart({
 
   if (pts.length < 2) {
     return (
-      <div>
+      // Measured here too, so the width is already known when the readings
+      // arrive — otherwise the first frame of a real chart is drawn at the
+      // fallback width and visibly resizes.
+      <div ref={measure}>
         {picker}
         <div className="grid h-28 place-items-center rounded-lg border border-dashed border-default text-sm text-muted">
           {loading
@@ -110,12 +189,17 @@ export function ReadingsChart({
     )
   }
 
-  const W = 560
-  const H = 160
-  const padL = 34
-  const padR = 12
-  const padT = 12
-  const padB = 24
+  // One unit per CSS pixel, so nothing is scaled and the type is legible.
+  const W = boxW
+  // Taller on a phone than the old scaled height: on a narrow screen the chart
+  // is the only thing on the line, and 100px of plot cannot show a shape.
+  const H = W < 480 ? 240 : 200
+  const FONT = 12
+  // Room for a label like "17.5" at 12px, and for the time under the axis.
+  const padL = 40
+  const padR = 14
+  const padT = 16
+  const padB = 34
 
   const temps = pts.map((p) => p.tempC)
   const times = pts.map((p) => Date.parse(p.at))
@@ -136,19 +220,59 @@ export function ReadingsChart({
   const y = (v: number) => padT + (1 - (v - yLo) / (yHi - yLo)) * (H - padT - padB)
 
   const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(times[i]).toFixed(1)} ${y(p.tempC).toFixed(1)}`).join(' ')
+
+  // Rounded gridlines rather than "the highest and lowest reading": three
+  // numbers a person reads without decoding them.
+  const tickStep = niceStep(yHi - yLo, 3)
+  const yTicks = niceTicks(yLo, yHi, 3)
+  const tickDp = tickDecimals(tickStep)
+  const last = pts[pts.length - 1]
   // Clamp the shaded band to the plot area so it never bleeds past the axes.
   const yTarget = targetC == null ? null : y(targetC)
   const bandTop = targetC == null ? 0 : Math.max(padT, y(targetC + tolerance))
   const bandBottom = targetC == null ? 0 : Math.min(H - padB, y(targetC - tolerance))
 
   return (
-    <div>
+    <div ref={measure}>
       {picker}
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Temperature over time">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width={W}
+        height={H}
+        className="w-full"
+        role="img"
+        aria-label={`Temperature over time, ${pts.length} readings, latest ${last.tempC.toFixed(1)} degrees`}
+      >
         {/* in-range band (target ± tolerance) — omitted when there's no target */}
         {targetC != null && bandBottom > bandTop && (
-          <rect x={padL} y={bandTop} width={W - padL - padR} height={bandBottom - bandTop} fill={BAND} opacity={0.1} />
+          <rect x={padL} y={bandTop} width={W - padL - padR} height={bandBottom - bandTop} fill={BAND} opacity={0.12} />
         )}
+
+        {/* Gridlines at the rounded ticks. Faint on purpose: they are there to
+            be measured against, not looked at. */}
+        {yTicks.map((t) => (
+          <g key={t}>
+            <line
+              x1={padL}
+              y1={y(t)}
+              x2={W - padR}
+              y2={y(t)}
+              stroke={AXIS}
+              strokeOpacity={0.5}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={padL - 8}
+              y={y(t) + FONT / 3}
+              textAnchor="end"
+              style={LABEL}
+              fontSize={FONT}
+              fontFamily="var(--font-mono)"
+            >
+              {t.toFixed(tickDp)}
+            </text>
+          </g>
+        ))}
 
         {/* axes */}
         <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke={AXIS} />
@@ -157,30 +281,45 @@ export function ReadingsChart({
         {/* target reference line — an incubator that's off has no target */}
         {yTarget != null && (
           <>
-            <line x1={padL} y1={yTarget} x2={W - padR} y2={yTarget} stroke={REF} strokeDasharray="4 3" />
-            <text x={W - padR} y={yTarget - 4} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
+            <line x1={padL} y1={yTarget} x2={W - padR} y2={yTarget} stroke={REF} strokeDasharray="5 4" />
+            <text
+              x={W - padR}
+              y={yTarget - 5}
+              textAnchor="end"
+              style={LABEL}
+              fontSize={FONT}
+              fontFamily="var(--font-mono)"
+            >
               target {targetC}°C
             </text>
           </>
         )}
 
-        {/* y range labels */}
-        <text x={padL - 6} y={y(tMax) + 3} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
-          {tMax.toFixed(1)}
-        </text>
-        <text x={padL - 6} y={y(tMin) + 3} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
-          {tMin.toFixed(1)}
-        </text>
-
         {/* temperature line */}
-        <path d={linePath} fill="none" stroke={LINE} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
+        <path d={linePath} fill="none" stroke={LINE} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* The latest reading, marked and labelled. It is the number people
+            came to the chart for, and hunting for the end of a line to find it
+            is work the chart can do instead. */}
+        <circle cx={x(times[times.length - 1])} cy={y(last.tempC)} r={4} fill={LINE} />
+        <text
+          x={Math.min(x(times[times.length - 1]) + 8, W - padR)}
+          y={Math.max(y(last.tempC) - 9, padT + FONT)}
+          textAnchor={x(times[times.length - 1]) > W - padR - 60 ? 'end' : 'start'}
+          fontSize={FONT}
+          fontWeight={600}
+          fontFamily="var(--font-mono)"
+          fill={LINE}
+        >
+          {last.tempC.toFixed(1)}°
+        </text>
 
         {/* x end labels */}
-        <text x={padL} y={H - 8} textAnchor="start" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
-          {fmtTime(pts[0].at)}
+        <text x={padL} y={H - 10} textAnchor="start" style={LABEL} fontSize={FONT} fontFamily="var(--font-mono)">
+          {fmtAxis(pts[0].at)}
         </text>
-        <text x={W - padR} y={H - 8} textAnchor="end" style={LABEL} fontSize="10" fontFamily="var(--font-mono)">
-          {fmtTime(pts[pts.length - 1].at)}
+        <text x={W - padR} y={H - 10} textAnchor="end" style={LABEL} fontSize={FONT} fontFamily="var(--font-mono)">
+          {fmtAxis(pts[pts.length - 1].at)}
         </text>
       </svg>
       <p className="mt-1 text-right text-xs text-faint">{pts.length} readings</p>

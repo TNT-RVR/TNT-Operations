@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { PageHeader, EmptyState } from '@/components/ui'
 import { useData } from '@/data/context'
 import { IncubatorDetail } from './IncubatorDetail'
+import { neighbours } from '@/domain/incubatorNav'
 
 /**
  * The route wrapper for one incubator.
@@ -37,5 +38,10 @@ export default function IncubatorPage() {
     )
   }
 
-  return <IncubatorDetail incubator={incubator} />
+  // Worked out here rather than inside the detail: the page owns the list and
+  // the URL, and the detail should not have to know how it was reached.
+  const { prev, next, index, total } = neighbours(incubators, incubator.id)
+  return (
+    <IncubatorDetail incubator={incubator} prev={prev} next={next} index={index} total={total} />
+  )
 }

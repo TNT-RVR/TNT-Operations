@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { QrCode, RefreshCw, ClipboardPen, ChevronDown, ChevronLeft } from 'lucide-react'
+import { QrCode, RefreshCw, ClipboardPen, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { PageHeader, Badge, Gauge } from '@/components/ui'
 import { AcControl } from './AcControl'
 import { useData, type TrayObservation } from '@/data/context'
@@ -77,7 +77,20 @@ function inspectionChips(i: Inspection) {
  * The dashboard is unchanged: every incubator at a glance is the right home
  * screen, and this is what one of them opens into.
  */
-export function IncubatorDetail({ incubator }: { incubator: Incubator }) {
+export function IncubatorDetail({
+  incubator,
+  prev,
+  next,
+  index,
+  total,
+}: {
+  incubator: Incubator
+  /** The incubators either side, for stepping through without going back. */
+  prev?: Incubator | null
+  next?: Incubator | null
+  index?: number
+  total?: number
+}) {
   const { inspections, trayInspections, trays, readings, latestReading, addInspection, saveIncubator, loadTrays, loadReadings, loadEarlierInspections, earlierInspectionsLoaded, mutedIncubatorIds, setIncubatorMuted } = useData()
   const s = useSession()
   const canEdit = s.can('incubation', 'edit')
@@ -257,10 +270,48 @@ export function IncubatorDetail({ incubator }: { incubator: Incubator }) {
         title={incubator.name}
         subtitle={incubator.location || undefined}
         actions={
-          <Link to="/incubation" className="flex items-center gap-1 text-sm text-secondary">
-            <ChevronLeft size={16} />
-            All incubators
-          </Link>
+          <div className="flex items-center gap-1">
+            {/*
+              Stepping sideways.
+
+              The arrows name where they lead rather than just pointing: with
+              eight incubators that wrap round, "next" alone leaves you to work
+              out whether you have looped. The name is hidden on a phone, where
+              the arrow and the heading below it are enough.
+            */}
+            {prev && (
+              <Link
+                to={`/incubation/${prev.id}`}
+                className="flex items-center gap-1 rounded-md border border-default px-2 py-1.5 text-sm text-secondary"
+                aria-label={`Previous incubator, ${prev.name}`}
+                title={prev.name}
+              >
+                <ChevronLeft size={16} />
+                <span className="hidden sm:inline">{prev.name}</span>
+              </Link>
+            )}
+            {/* The way back, and the only label between the arrows. Underlined
+                because on a phone it is the whole of "all incubators" and a
+                bare "3 of 3" does not read as something you can tap. */}
+            <Link
+              to="/incubation"
+              className="px-2 text-sm text-secondary underline decoration-dotted underline-offset-4"
+              title="Back to every incubator"
+            >
+              {index && total ? `${index} of ${total}` : 'All'}
+            </Link>
+            {next && (
+              <Link
+                to={`/incubation/${next.id}`}
+                className="flex items-center gap-1 rounded-md border border-default px-2 py-1.5 text-sm text-secondary"
+                aria-label={`Next incubator, ${next.name}`}
+                title={next.name}
+              >
+                <span className="hidden sm:inline">{next.name}</span>
+                <ChevronRight size={16} />
+              </Link>
+            )}
+          </div>
         }
       />
       <div className="space-y-5 p-4 md:p-6">

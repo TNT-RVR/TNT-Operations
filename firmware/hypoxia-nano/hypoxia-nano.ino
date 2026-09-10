@@ -73,7 +73,7 @@ BOOT / DISPLAY
 
 // Printed at boot. Bumped when a change is one somebody might need to confirm
 // is actually running -- the same problem the ESP32 side has.
-#define NANO_FW_VERSION "2 - purge restore fix, i2c report"
+#define NANO_FW_VERSION "3 - absent O2 reads null, not zero"
 
 // ---------- Nano Pin Values ----------
 const uint8_t PIN_VALVE1 = 6;    // N2 valve
@@ -136,6 +136,28 @@ const uint8_t RM2 = 0x5A;
 
 // ---------- Telemetry / UI ----------
 float o2_disp = NAN;
+
+/*
+  Whether the O2 sensor answered at boot.
+
+  This exists because DFRobot_OxygenSensor returns 0.0 - not NaN - when the
+  sensor is absent. 0.0 is a perfectly valid-looking number, so it flows
+  through applyCal(), through the EMA, into telemetry, and out to the app as a
+  confident reading of zero percent oxygen.
+
+  It was hidden until now. gErr is raised by
+  `isnan(o2_disp) || isnan(tC) || isnan(rH)`, and on the first chamber the
+  temp/humidity sensor was ALSO missing, so NaN from that raised the fault and
+  the app showed Fault. Reconnecting the HS300x removed the thing that was
+  accidentally covering for this: real temperature, real humidity, a numeric
+  0.0 for oxygen, and gErr back to 0. The chamber would then have reported 0%
+  oxygen as fact, and the app would have called it "below target" rather than
+  "broken".
+
+  For a box that exists to hold oxygen at 10%, a believable zero is the worst
+  possible reading to trust.
+*/
+bool o2Present = false;
 unsigned long lastUI = 0, lastTX = 0;
 uint8_t gWarn = 0;
 uint8_t gErr  = 0;
@@ -1311,6 +1333,7 @@ void setup() {
   lcdWriteFixed_P(1, PSTR("READY IN: ----s"));
 
   bool o2_ok = oxygen.begin(O2_ADDR);
+  o2Present = o2_ok;
   if (!o2_ok) {
     lcdWriteFixed_P(1, PSTR("O2 NOT FOUND   "));
     Serial.println(F("O2:NOT_FOUND"));
@@ -1391,6 +1414,21 @@ void loop() {
   // sensor reads
   float o2_raw = readO2libInstant();
   float o2 = applyCal(o2_raw);
+
+  /*
+    Refuse a reading the sensor did not give us.
+
+    Two ways it can be absent: missing at boot (o2Present), or unplugged since
+    (the library keeps returning 0.0 either way). The 0.1 floor catches the
+    second, and matches what calSample3_raw already rejects as implausible --
+    this chamber targets 10% and a real reading never approaches zero, so an
+    exact 0.0 is the library's way of saying "nothing answered".
+
+    NAN is the honest answer, and it is the one the rest of this file already
+    understands: it raises gErr below, and sendTelemetry converts it to -1.0,
+    which the app reads as "no figure" rather than as a measurement.
+  */
+  if (!o2Present || o2_raw < 0.1f) o2 = NAN;
   float tC = HS300x.readTemperature();
   float rH = HS300x.readHumidity();
 
@@ -1486,6 +1524,12 @@ void loop() {
   // TELEMETRY
   if (now - lastTX >= 5000) {
     lastTX = now;
+
+    // A sensor connected after boot should start working without a power
+    // cycle. Retried here rather than in the main loop so it costs one bus
+    // transaction every five seconds, not one per iteration.
+    if (!o2Present) o2Present = oxygen.begin(O2_ADDR);
+
     float o2_send = isnan(o2_disp) ? -1.0f : o2_disp;
     float t_send  = isnan(tC)      ? -1.0f : tC;
     int   rh_i    = isnan(rH)      ? -1    : (int)round(rH);

@@ -8,12 +8,20 @@
   The question underneath it is simply "is the sensor alive, and at what
   address" - and there was no way to ask.
 
-  The obvious tool is an I2C scanner on the Nano. That would erase the chamber
-  firmware, and TNT2_NANO.ino is not in this repo, so there would be no way to
-  put it back. NEVER reflash a Nano until that file is somewhere safe.
+  TRY THE NANO'S OWN REPORT FIRST. Since firmware/hypoxia-nano was added, the
+  Nano prints what is on its bus at every boot:
 
-  The ESP32 can be reflashed freely, because its source IS here. So the sensor
-  moves to the ESP32 for a minute instead, and the Nano is never touched.
+      I2C: lcd(0x27)=yes hs300x(0x44)=NO o2(0x73)=NO
+      I2C: others none
+
+  That answers the usual question without moving a single wire, so this sketch
+  is now the SECOND thing to reach for, not the first.
+
+  It still earns its place for one case the Nano cannot report on: a bus wedged
+  by a device holding SDA low makes everything look absent, including devices
+  that are fine. Moving one sensor onto a known-clean bus tells you whether the
+  sensor or the bus is at fault. The ESP32 is the board to do that with, since
+  its source is here and reflashing it costs nothing.
 
   WIRING (temporary - four wires, then put them back)
   ---------------------------------------------------

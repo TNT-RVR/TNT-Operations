@@ -18,7 +18,13 @@ export default defineConfig({
   test: {
     environment: 'node',
     // Netlify functions are plain .mjs and cannot import the TS domain, so the
-    // rules they own live beside them and are tested there.
-    include: ['src/**/*.{test,spec}.{ts,tsx}', 'netlify/**/*.{test,spec}.mjs'],
+    // rules they own live beside them and are tested there. Same for the
+    // operator scripts: the run-sql seatbelt is regexes, which is exactly the
+    // kind of thing that stops matching without anyone noticing.
+    include: [
+      'src/**/*.{test,spec}.{ts,tsx}',
+      'netlify/**/*.{test,spec}.mjs',
+      'scripts/**/*.{test,spec}.mjs',
+    ],
   },
 })

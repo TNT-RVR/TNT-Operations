@@ -120,6 +120,31 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   THEIR table. Only the Management API running the file in one transaction —
   and a later statement failing — prevented it. TNT's own is
   `public.pollination_fields`.
+- **Backups: a Supabase restore is PROJECT-WIDE, which the shared project makes
+  a problem.** Restoring TNT to this morning — daily backup or PITR — also
+  rolls the old beetent-maps app's `crews`/`scans`/`fields` back to this
+  morning. There is no per-table restore on that path. So
+  `.github/workflows/database-backup.yml` takes a nightly `pg_dump -Fc` of
+  `public` to a GitHub artifact (90 days), which `pg_restore --table=` CAN
+  recover one table from, and which lives off Supabase. It dumps DATA only —
+  not auth users, storage objects or dashboard settings. **Run it by hand
+  (workflow_dispatch) before any migration**; the dump worth having is the one
+  taken five minutes before the statement that broke something. Needs
+  `SUPABASE_DB_URL` (the SESSION POOLER string — the direct host is IPv6-only
+  and GitHub runners have no IPv6) as a repo secret, or it skips.
+  PITR was evaluated 2026-09-14 and deliberately NOT bought: it is ~$100/mo, it
+  cannot restore one table, and the dump plus a pre-migration run covers the
+  realistic failure, which is a bad statement rather than lost hardware.
+- **`run-sql.mjs`'s guard list is `scripts/lib/sqlGuards.mjs`, and it is
+  tested.** It refuses DROP TABLE/SCHEMA/DATABASE, TRUNCATE, DROP COLUMN, and a
+  DELETE or UPDATE with no WHERE. The UPDATE one is the reason it exists: DELETE
+  announces itself, an unqualified UPDATE succeeds, reports a row count nobody
+  reads, and leaves every row holding the same value until a report looks
+  wrong. Guards run against SQL with comments, string literals and
+  dollar-quoted function bodies BLANKED — this repo's migrations explain
+  themselves in prose and are built on `on conflict … do update set`, and a
+  guard that refuses those is one that gets bypassed. Verified against all 52
+  migrations and 7 import files.
 
 ## Migration status (porting the two Python apps)
 _Last reviewed 2026-08-17._

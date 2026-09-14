@@ -1,0 +1,140 @@
+# A copy of the data that TNT owns, kept somewhere Supabase is not.
+#
+# Supabase's own backups are the first line and this does not replace them. It
+# covers the two things they do not:
+#
+#   1. ONE TABLE. A Supabase restore — daily backup or Point-in-Time — restores
+#      the WHOLE PROJECT. This project is SHARED with the old beetent-maps app
+#      (see CLAUDE.md), so rolling TNT back to this morning also rolls their
+#      crews/scans/fields back to this morning. A custom-format dump restores
+#      one table with `pg_restore --table=`, which is what a bad migration
+#      actually needs.
+#   2. A COPY OFF THE PROVIDER. If the account is lost, so is everything stored
+#      inside it, backups included.
+#
+# What this is NOT: a full project restore. It dumps `public` — the data — not
+# auth users, storage objects, Edge config or the dashboard's settings. Losing
+# the project means recreating those by hand. This is table-level recovery.
+#
+# ── Setup: one repository secret (Settings → Secrets and variables → Actions)
+#
+#   SUPABASE_DB_URL   the SESSION POOLER connection string, with the password
+#
+# Dashboard → Project Settings → Database → Connection string → Session pooler.
+# It looks like:
+#   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+#
+# The POOLER on port 5432, not `db.<ref>.supabase.co` — that host is IPv6-only
+# without the IPv4 add-on, and GitHub's runners have no IPv6. A direct-host URL
+# here fails with a connection timeout that reads like the database is down.
+#
+# Use a read-only role if you make one; this never writes. Without the secret
+# the job skips instead of failing nightly, because a workflow that is always
+# red is one nobody reads.
+#
+# ── Restoring one table
+#
+#   pg_restore -l backup.dump | grep trays          # find it
+#   pg_restore --data-only --table=trays \
+#     --dbname="$SUPABASE_DB_URL" backup.dump
+#
+# Restore into a scratch database first and look at it. A restore aimed at the
+# live database during pollination season is the same class of action as the
+# migration that made you need it.
+
+name: Database backup
+
+on:
+  schedule:
+    # 09:10 UTC — 03:10 Edmonton in summer, after the day's field work is in and
+    # before anyone starts. The offset from the hour keeps it off the crowded
+    # top-of-hour slot, where GitHub's scheduler runs latest.
+    - cron: '10 9 * * *'
+  # Run this BY HAND before any migration. That is the highest-value use of
+  # this file: the dump you want is the one taken five minutes before the
+  # statement that broke something, not the one from last night.
+  workflow_dispatch:
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install a pg_dump new enough for the server
+        run: |
+          # Ubuntu ships an older client, and pg_dump refuses a server newer
+          # than itself. Take the client straight from PGDG so the runner's
+          # image moving does not decide whether backups work.
+          set -euo pipefail
+          key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sS -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          repo="https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"
+          echo "deb [signed-by=$key] $repo" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Dump the public schema
+        id: dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "SUPABASE_DB_URL not set — skipping (see the comment at the top of this file)."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          name="tnt-$(date -u +%Y-%m-%d).dump"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+          # --format=custom is what makes a single-table restore possible, and
+          # it is compressed already. --no-owner/--no-privileges because the
+          # roles on the far side of a restore are rarely the ones here, and an
+          # ownership error stops a restore you are running under pressure.
+          pg_dump "$SUPABASE_DB_URL" \
+            --format=custom \
+            --schema=public \
+            --no-owner \
+            --no-privileges \
+            --file="$name"
+
+      - name: Check the dump is real
+        if: steps.dump.outputs.skipped != 'true'
+        run: |
+          # A backup that silently produces nothing is worse than no backup: it
+          # reports success every night and is empty on the one morning it is
+          # needed. pg_dump exits 0 on an empty schema, so exit status is not
+          # the check — the contents are.
+          set -euo pipefail
+          name="${{ steps.dump.outputs.name }}"
+          bytes=$(stat -c%s "$name")
+          tables=$(pg_restore -l "$name" | grep -c 'TABLE DATA' || true)
+          echo "$name — $bytes bytes, $tables tables with data"
+
+          if [ "$bytes" -lt 51200 ]; then
+            echo "::error::Dump is only $bytes bytes. This database holds tens of thousands of rows."
+            exit 1
+          fi
+          # Comfortably under the real count (CLAUDE.md describes far more than
+          # this), high enough that a dump of an empty or wrong database fails.
+          if [ "$tables" -lt 20 ]; then
+            echo "::error::Only $tables tables carry data. Expected the full public schema."
+            exit 1
+          fi
+
+      - name: Keep it
+        if: steps.dump.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.dump.outputs.name }}
+          path: ${{ steps.dump.outputs.name }}
+          # The longest GitHub allows. Beyond this the answer is a copy pulled
+          # down somewhere you keep things, not a longer retention setting.
+          retention-days: 90
+          if-no-files-found: error

@@ -17,22 +17,15 @@
  * `SUPABASE_ACCESS_TOKEN` in `.env.local` (gitignored). It is account-wide, not
  * project-scoped, and this endpoint executes arbitrary SQL as an owner — so
  * read what you are about to run. It refuses obviously destructive statements
- * below; that guard is a seatbelt, not a permission system.
+ * (see `lib/sqlGuards.mjs`); that guard is a seatbelt, not a permission system.
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { refusalFor } from './lib/sqlGuards.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_REF = 'pmqbkezevsuwkoryxief' // the shared project; see CLAUDE.md
-
-/** Statements this script will not send. Say them out loud in the dashboard. */
-const REFUSE = [
-  /\bdrop\s+(table|schema|database)\b/i,
-  /\btruncate\b/i,
-  /\bdelete\s+from\b(?![^;]*\bwhere\b)/i,
-  /\bdrop\s+column\b/i,
-]
 
 function fromEnvFile(key) {
   const path = join(ROOT, '.env.local')
@@ -68,9 +61,8 @@ if (!token && !dryRun) {
 }
 
 async function run(label, sql) {
-  for (const pattern of REFUSE) {
-    if (pattern.test(sql)) die(`${label} contains ${pattern} — run that one in the dashboard, deliberately.`)
-  }
+  const refusal = refusalFor(sql)
+  if (refusal) die(`${label} contains ${refusal.why}. Run that one in the dashboard, deliberately.`)
   console.log(`\n▸ ${label} (${sql.length.toLocaleString()} chars)`)
   if (dryRun) {
     console.log(sql.slice(0, 400) + (sql.length > 400 ? '\n  …' : ''))

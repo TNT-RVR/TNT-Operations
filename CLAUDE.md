@@ -655,6 +655,15 @@ _Last reviewed 2026-08-17._
           NOTE this is a NODE runtime (Netlify), so the ordinary `web-push`
           npm package is correct here. The Deno/JSR workaround that a Supabase
           Edge Function needs does NOT apply.
+          **`icon` and `badge` are not interchangeable.** `badge` is Android's
+          STATUS-BAR icon, and Android throws its colours away and uses the
+          ALPHA as a stencil for the bar's tint. Every icon
+          `scripts/build_app_icons.py` makes is deliberately opaque, so pointing
+          `badge` at `icon-192.png` drew a plain WHITE BOX — and only while the
+          shade was collapsed, since expanding it shows `icon` instead, which
+          always looked right. `badge-96.png` is the mark as a silhouette on
+          transparency (`render_badge`); `pushBadgeIcon.test.ts` decodes the
+          PNG and fails if it loses its alpha or goes back to an app icon.
         - **Icon badge** (`domain/appBadge.ts` + `useAppBadge`, mounted in
           `Layout`) — the red count on an installed app's icon, via the
           Badging API. A separate feature from push with none of its cost: no

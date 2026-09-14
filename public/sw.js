@@ -95,7 +95,14 @@ self.addEventListener('push', (e) => {
       // The generated 192px icon, not the 3000px source: a push notification
       // draws this at about 48px and the phone should not fetch 133 KB for it.
       icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      // NOT the same file. `badge` is the small status-bar icon, and Android
+      // discards its colours and uses the ALPHA as a stencil for the status-bar
+      // tint. icon-192 is deliberately opaque (a transparent PWA icon gets
+      // composited onto whatever the launcher likes), so as a stencil it has no
+      // holes and the phone drew a plain white box — visible only while the
+      // shade was COLLAPSED, because expanding it shows `icon` instead.
+      // badge-96 is the mark as a silhouette on transparency.
+      badge: '/badge-96.png',
       // Same tag replaces an earlier notice for the same incubator instead of
       // stacking six of them; renotify still buzzes so it isn't missed.
       tag: d.tag || 'tnt-alert',

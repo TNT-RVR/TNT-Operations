@@ -15,6 +15,8 @@ So each size is generated properly:
                          drawn to the edges loses its edges
   apple-touch-icon       180 px, what iOS uses for the home screen
   favicon-32 / -16       the browser tab
+  badge-96               the ANDROID STATUS-BAR icon, which is a different kind
+                         of thing entirely — see render_badge()
 
 Run: python scripts/build_app_icons.py
 """
@@ -47,6 +49,10 @@ BACKGROUND = (0, 0, 0)
 # outside that is decoration; art at the edge is a haircut.
 SAFE_ZONE = 0.60
 
+# Material draws the status-bar icon at 24dp with the art inside about 22 of
+# them, so a hair of inset rather than art running to the edge.
+BADGE_COVERAGE = 0.90
+
 
 def mark() -> Image.Image:
     img = Image.open(SRC).convert("RGBA")
@@ -68,6 +74,37 @@ def render(size: int, coverage: float, path: Path) -> None:
     print(f"  {path.relative_to(ROOT)}  {size}x{size}  {path.stat().st_size // 1024} KB")
 
 
+def render_badge(size: int, path: Path) -> None:
+    """The notification BADGE: a silhouette on transparency, not a picture.
+
+    Android takes the small icon (what the web calls `badge`), throws away
+    every colour channel, and uses the ALPHA as a stencil it fills with the
+    status-bar tint. So an OPAQUE image — which every icon above is, on
+    purpose — is a stencil with no holes, and the phone draws a solid white
+    box. That is the whole bug: collapsed notifications show only this icon,
+    expanded ones show `icon`, which is why the logo appeared the moment the
+    shade was pulled down.
+
+    The mark saves this: it is line art, so its own alpha already IS the
+    silhouette — strokes opaque, everything between them transparent. Filling
+    that mask with white keeps the shape readable when the tint lands on it.
+    """
+    art = mark()
+    target = int(size * BADGE_COVERAGE)
+    w, h = art.size
+    scale = target / max(w, h)
+    stencil = art.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+
+    canvas = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    # White through the mark's own alpha. The colour is decoration — Android
+    # replaces it — but a platform that does NOT tint still gets a visible mark
+    # rather than honey-on-honey.
+    solid = Image.new("RGBA", stencil.size, (255, 255, 255, 255))
+    canvas.paste(solid, ((size - stencil.width) // 2, (size - stencil.height) // 2), stencil)
+    canvas.save(path, optimize=True)
+    print(f"  {path.relative_to(ROOT)}  {size}x{size}  {path.stat().st_size // 1024} KB  (silhouette)")
+
+
 def main() -> None:
     if not SRC.exists():
         raise SystemExit(f"missing {SRC}")
@@ -79,6 +116,8 @@ def main() -> None:
     render(180, 0.72, OUT / "apple-touch-icon.png")
     render(32, 0.80, OUT / "favicon-32.png")
     render(16, 0.86, OUT / "favicon-16.png")
+    # 96 px is 24dp at xxxhdpi — the largest an Android status bar asks for.
+    render_badge(96, OUT / "badge-96.png")
 
 
 if __name__ == "__main__":

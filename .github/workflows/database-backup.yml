@@ -78,6 +78,66 @@ jobs:
           sudo apt-get install -y -qq postgresql-client-17
           pg_dump --version
 
+      # A wrong connection string fails inside pg_dump as "password
+      # authentication failed", which is the same message for a bad password, a
+      # missing tenant suffix and an unencoded character. The pooler also strips
+      # the `.<ref>` before reporting, so the error cannot tell them apart. This
+      # checks the SHAPE first and says which one it is. It never prints the
+      # string or the password — only verdicts about them.
+      - name: Check the connection string before using it
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          # An `&&` one-liner here would exit the script under `set -e` whenever
+          # the test is false, which is the normal case.
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "Not set — the dump step will skip."
+            exit 0
+          fi
+          python3 - <<'EOF'
+          import os, sys
+          from urllib.parse import urlsplit, unquote
+
+          try:
+              u = urlsplit(os.environ["SUPABASE_DB_URL"].strip())
+              user, host, port = u.username or "", u.hostname or "", u.port
+              raw = u.password or ""
+          except ValueError as e:
+              # Raised by a non-numeric port or a malformed authority — usually an
+              # unencoded character in the password breaking the URI apart.
+              print(f"::error::The connection string does not parse as a URI ({e}).")
+              raise SystemExit(1)
+          bad = []
+
+          print(f"user={user}  host={host}  port={port}  db={u.path.lstrip('/')}")
+          print(f"password: {len(raw)} chars as written")
+
+          if "YOUR-PASSWORD" in raw or raw.startswith("["):
+              bad.append("The password placeholder is still in the string — replace [YOUR-PASSWORD], brackets included.")
+          if host.startswith("db.") and host.endswith(".supabase.co"):
+              bad.append(f"{host} is the DIRECT host. It is IPv6-only and unreachable from here — use the session pooler.")
+          if port == 6543:
+              bad.append("Port 6543 is the TRANSACTION pooler. pg_dump needs a session — use the session pooler on 5432.")
+          if "pooler.supabase.com" in host and "." not in user:
+              bad.append(f'Through the pooler the user must be "postgres.<project-ref>", not "{user}".')
+          # Characters that change meaning inside a URI. If the written form
+          # decodes to something different, the password reaching the server is
+          # not the one that was pasted.
+          if unquote(raw) != raw:
+              print("note: the password contains %-escapes and will be decoded before it is sent.")
+          rough = set('@:/?#[]%')
+          hit = sorted(rough & set(raw))
+          if hit:
+              bad.append("The password contains " + " ".join(hit) + " which must be percent-encoded in a URI.")
+
+          if bad:
+              for b in bad:
+                  print(f"::error::{b}")
+              sys.exit(1)
+          print("Shape looks right.")
+          EOF
+
       - name: Dump the public schema
         id: dump
         env:

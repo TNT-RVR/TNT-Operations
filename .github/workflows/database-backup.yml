@@ -99,8 +99,19 @@ jobs:
           import os, sys
           from urllib.parse import urlsplit, unquote
 
+          text = os.environ["SUPABASE_DB_URL"].strip()
+
+          # Checked on the RAW string, before parsing. The brackets in the
+          # placeholder read as an IPv6 literal, so leaving it in fails during
+          # parse with a message about the host not being an IP address — which
+          # sends you looking at the wrong half of the string entirely.
+          if "YOUR-PASSWORD" in text:
+              print("::error::The secret still contains the [YOUR-PASSWORD] placeholder. "
+                    "Replace it, square brackets included, with the database password.")
+              raise SystemExit(1)
+
           try:
-              u = urlsplit(os.environ["SUPABASE_DB_URL"].strip())
+              u = urlsplit(text)
               user, host, port = u.username or "", u.hostname or "", u.port
               raw = u.password or ""
           except ValueError as e:
@@ -113,8 +124,6 @@ jobs:
           print(f"user={user}  host={host}  port={port}  db={u.path.lstrip('/')}")
           print(f"password: {len(raw)} chars as written")
 
-          if "YOUR-PASSWORD" in raw or raw.startswith("["):
-              bad.append("The password placeholder is still in the string — replace [YOUR-PASSWORD], brackets included.")
           if host.startswith("db.") and host.endswith(".supabase.co"):
               bad.append(f"{host} is the DIRECT host. It is IPv6-only and unreachable from here — use the session pooler.")
           if port == 6543:

@@ -1,0 +1,143 @@
+# Prove the backup restores. A backup nobody has restored is a hypothesis.
+#
+# This takes the newest artifact `Database backup` produced, stands up a
+# throwaway Postgres of the same major version, and pulls ONE TABLE out of it —
+# because that is the specific claim the backup exists to make. Supabase's own
+# restore is project-wide, and this project shares its database with the old
+# beetent-maps app, so "recover one table" is the thing that has to work.
+#
+# It NEVER connects to the live database. The scratch server lives and dies
+# inside the job, so a drill cannot damage what it is drilling on. That is also
+# why it needs no secrets.
+#
+# Failure here means the backups are not backups. Read it as that, not as a
+# flaky workflow.
+
+name: Restore drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      table:
+        description: 'Table to recover from the backup'
+        required: false
+        default: 'trays'
+  schedule:
+    # Monthly, on the 3rd at 10:20 UTC. Often enough that a backup format or
+    # client change is caught within weeks; rare enough to stay readable.
+    - cron: '20 10 3 * *'
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+
+    services:
+      # Same MAJOR version as the Supabase server the dump came from. A custom
+      # archive is readable by its own major version and newer, not older.
+      scratch:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - name: Install the matching client
+        run: |
+          set -euo pipefail
+          key=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -sS -o "$key" https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          repo="https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main"
+          echo "deb [signed-by=$key] $repo" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          # Versioned binary, not the pg_wrapper — see database-backup.yml.
+          PG_BIN=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+          [ -x "$PG_BIN/pg_restore" ] || { echo "::error::No versioned pg_restore."; exit 1; }
+          echo "PG_BIN=$PG_BIN" >> "$GITHUB_ENV"
+          "$PG_BIN/pg_restore" --version
+
+      - name: Fetch the newest backup artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "Database backup" \
+            --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful Database backup run to drill against."
+            exit 1
+          fi
+          echo "Drilling against backup run $run_id"
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --dir ./backup
+
+          dump=$(find ./backup -name '*.dump' | head -1)
+          if [ -z "$dump" ]; then
+            echo "::error::That run produced no .dump file."
+            exit 1
+          fi
+          echo "DUMP=$dump" >> "$GITHUB_ENV"
+          echo "Archive: $dump ($(stat -c%s "$dump") bytes)"
+
+      - name: Read the archive's table of contents
+        run: |
+          set -euo pipefail
+          # If this fails the archive is corrupt, and nothing after it matters.
+          "$PG_BIN/pg_restore" --list "$DUMP" > toc.txt
+          echo "Archive lists $(grep -c 'TABLE DATA' toc.txt) tables with data."
+          echo "--- first 15 ---"
+          grep 'TABLE DATA' toc.txt | head -15
+
+      - name: Recover one table into the scratch database
+        env:
+          PGPASSWORD: drill
+          TABLE: ${{ inputs.table || 'trays' }}
+        run: |
+          set -euo pipefail
+          psql() { "$PG_BIN/psql" -h localhost -U postgres -v ON_ERROR_STOP=1 "$@"; }
+
+          if ! grep -q "TABLE DATA public $TABLE " toc.txt; then
+            echo "::error::'$TABLE' is not in the archive. Pick one from the list above."
+            exit 1
+          fi
+
+          psql -d postgres -q -c 'drop database if exists scratch' -c 'create database scratch'
+
+          # --table restores that table's own definition and rows, not the rest
+          # of the schema. Errors are NOT suppressed: this is the drill, and a
+          # restore that half-works should look like a failure.
+          "$PG_BIN/pg_restore" \
+            --host=localhost --username=postgres --dbname=scratch \
+            --table="$TABLE" --no-owner --no-privileges \
+            --exit-on-error \
+            "$DUMP"
+
+          rows=$(psql -d scratch -tAc "select count(*) from public.\"$TABLE\"")
+          cols=$(psql -d scratch -tAc "select count(*) from information_schema.columns
+                                       where table_schema='public' and table_name='$TABLE'")
+          echo "Recovered public.$TABLE — $rows rows, $cols columns."
+
+          # A restore that creates an empty table is the failure this whole
+          # exercise is meant to catch: it exits 0 and looks like success.
+          if [ "$rows" -lt 1 ]; then
+            echo "::error::$TABLE restored with no rows. The backup is not usable."
+            exit 1
+          fi
+
+          echo "--- a few rows, to prove it is real data ---"
+          psql -d scratch -c "select * from public.\"$TABLE\" limit 3" || true
+
+      - name: Say what was proven
+        if: success()
+        run: |
+          echo "### Restore drill passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "A single table was recovered from the newest backup artifact into a" >> "$GITHUB_STEP_SUMMARY"
+          echo "throwaway Postgres 17, with rows in it. The live database was never" >> "$GITHUB_STEP_SUMMARY"
+          echo "contacted." >> "$GITHUB_STEP_SUMMARY"

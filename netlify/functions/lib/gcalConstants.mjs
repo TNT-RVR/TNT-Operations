@@ -70,13 +70,16 @@ export function incubationStartFor(incubator, trays) {
  * Every milestone for every running incubator — mirrors `milestoneEvents`.
  *
  * Day 1 IS the start date, so the offset is `day - 1`. An incubator whose
- * temperature mode is 'off' is skipped: it is not running, and putting a
- * schedule on the calendar for it would be fiction.
+ * temperature mode is 'off' or 'cool_storage' is skipped: neither is
+ * developing bees, and putting a schedule on the calendar for one would be
+ * fiction.
  */
 export function milestoneEvents(incubators, trays) {
   const out = []
   for (const inc of incubators) {
-    if (inc.temp_mode === 'off') continue
+    // Mirrors the domain: off and cool storage both skip. Held at 4°C the
+    // bees are not developing, so a day-7 Vapona In is a schedule for nothing.
+    if (inc.temp_mode === 'off' || inc.temp_mode === 'cool_storage') continue
     const start = incubationStartFor(inc, trays)
     if (!start) continue
     for (const m of MILESTONES) {

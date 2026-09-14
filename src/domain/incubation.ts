@@ -600,7 +600,10 @@ export function milestoneEvents(
   const out: MilestoneEvent[] = []
   for (const inc of incubators) {
     // `tempMode` absent = the caller doesn't model modes; assume running.
-    if (inc.tempMode === 'off') continue
+    // Off and cool storage both skip. Bees held at 4°C are not developing, so
+    // "Vapona In on day 7" counted from a start date is a schedule for a run
+    // that is not happening — the same fiction as putting one on an idle box.
+    if (inc.tempMode === 'off' || inc.tempMode === 'cool_storage') continue
     const start = incubationStartFor(inc, trays)
     if (!start) continue
     for (const m of INCUBATION_MILESTONES) {

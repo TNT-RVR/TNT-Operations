@@ -295,6 +295,43 @@ describe('the Netlify mirror matches the domain', () => {
     ).toEqual([])
   })
 
+  it('skips an incubator in cool storage, on both sides', async () => {
+    // Held at 4°C the bees are not developing, so Vapona In and the rest are a
+    // schedule for nothing — and the calendar, the Google sync and the push
+    // must all agree on that, or one of them keeps announcing it.
+    const mirror = await import('../../netlify/functions/lib/gcalConstants.mjs')
+    const domain = await import('./incubation')
+    expect(
+      domain.milestoneEvents(
+        [{ id: 'a', name: 'A', incubationStart: '2026-08-01', tempMode: 'cool_storage' }],
+        [],
+      ),
+    ).toEqual([])
+    expect(
+      mirror.milestoneEvents(
+        [{ id: 'a', name: 'A', incubation_start: '2026-08-01', temp_mode: 'cool_storage' }],
+        [],
+      ),
+    ).toEqual([])
+  })
+
+  it('still schedules an incubator in holding', async () => {
+    // Holding comes after incubation, while waiting to release: the release
+    // milestones are exactly what matters then.
+    const mirror = await import('../../netlify/functions/lib/gcalConstants.mjs')
+    const domain = await import('./incubation')
+    const d = domain.milestoneEvents(
+      [{ id: 'a', name: 'A', incubationStart: '2026-08-01', tempMode: 'holding' }],
+      [],
+    )
+    const m = mirror.milestoneEvents(
+      [{ id: 'a', name: 'A', incubation_start: '2026-08-01', temp_mode: 'holding' }],
+      [],
+    )
+    expect(d.length).toBeGreaterThan(0)
+    expect(m.length).toBe(d.length)
+  })
+
   it('falls back to the modal tray in-date identically', async () => {
     const mirror = await import('../../netlify/functions/lib/gcalConstants.mjs')
     const domain = await import('./incubation')

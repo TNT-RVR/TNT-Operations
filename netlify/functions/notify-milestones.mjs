@@ -38,8 +38,14 @@ const MILESTONES = [
   { day: 37, label: 'Latest Release' },
 ]
 
-/** Anything that isn't `off` is mid-run. */
-const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
+/**
+ * Modes where the milestone schedule means something.
+ *
+ * Not cool storage: bees held at 4°C are not developing, so a "Vapona In due
+ * today" push counted from a start date would announce a step for a run that
+ * is not happening. Mirrors milestoneEvents in the domain and gcalConstants.
+ */
+const RUNNING_MODES = new Set(['incubation', 'holding'])
 
 /** Local calendar date (YYYY-MM-DD) in the crew's timezone. */
 const ymd = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone: TZ })

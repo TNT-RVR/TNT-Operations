@@ -397,11 +397,24 @@ describe('incubation milestones', () => {
     ).toBe(INCUBATION_MILESTONES.length)
   })
 
-  it('keeps plotting through holding and cool storage — a run continues while cooling', () => {
-    for (const tempMode of ['holding', 'cool_storage']) {
-      const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01', tempMode }], [])
-      expect(evs.length).toBe(INCUBATION_MILESTONES.length)
-    }
+  it('keeps plotting through holding', () => {
+    // Holding follows incubation while waiting to release, and the release
+    // milestones are exactly what matters then.
+    const evs = milestoneEvents([{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01', tempMode: 'holding' }], [])
+    expect(evs.length).toBe(INCUBATION_MILESTONES.length)
+  })
+
+  it('plots nothing in cool storage', () => {
+    // Reversed on 2026-09-14 at the operation's request. This used to keep
+    // plotting on the grounds that a run continues while cooling; in practice
+    // Vapona In and the other development steps are noise for bees held at
+    // 4°C, and while cooled the day-counted dates are not accurate anyway —
+    // development is paused, the calendar is not.
+    const evs = milestoneEvents(
+      [{ id: 'i1', name: 'Inc 1', incubationStart: '2026-06-01', tempMode: 'cool_storage' }],
+      [],
+    )
+    expect(evs).toEqual([])
   })
 
   it('assumes running when the caller does not model modes', () => {

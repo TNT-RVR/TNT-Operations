@@ -76,7 +76,22 @@ jobs:
           echo "deb [signed-by=$key] $repo" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
-          pg_dump --version
+
+          # Call the VERSIONED binary, never bare `pg_dump`.
+          #
+          # /usr/bin/pg_dump is postgresql-common's pg_wrapper, and it resolved
+          # to the image's preinstalled 16 even with 17 installed alongside —
+          # which pg_dump then refuses against a 17.6 server ("aborting because
+          # of server version mismatch"). Picking the newest bin directory takes
+          # the wrapper's guess out of it, and survives Supabase upgrading
+          # Postgres as long as the matching client package is installed above.
+          PG_BIN=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+          if [ -z "$PG_BIN" ] || [ ! -x "$PG_BIN/pg_dump" ]; then
+            echo "::error::No versioned pg_dump found under /usr/lib/postgresql."
+            exit 1
+          fi
+          echo "PG_BIN=$PG_BIN" >> "$GITHUB_ENV"
+          "$PG_BIN/pg_dump" --version
 
       # A wrong connection string fails inside pg_dump as "password
       # authentication failed", which is the same message for a bad password, a
@@ -166,7 +181,7 @@ jobs:
           # it is compressed already. --no-owner/--no-privileges because the
           # roles on the far side of a restore are rarely the ones here, and an
           # ownership error stops a restore you are running under pressure.
-          pg_dump "$SUPABASE_DB_URL" \
+          "$PG_BIN/pg_dump" "$SUPABASE_DB_URL" \
             --format=custom \
             --schema=public \
             --no-owner \
@@ -183,7 +198,7 @@ jobs:
           set -euo pipefail
           name="${{ steps.dump.outputs.name }}"
           bytes=$(stat -c%s "$name")
-          tables=$(pg_restore -l "$name" | grep -c 'TABLE DATA' || true)
+          tables=$("$PG_BIN/pg_restore" -l "$name" | grep -c 'TABLE DATA' || true)
           echo "$name — $bytes bytes, $tables tables with data"
 
           if [ "$bytes" -lt 51200 ]; then

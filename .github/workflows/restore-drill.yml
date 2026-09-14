@@ -77,7 +77,11 @@ jobs:
           echo "Drilling against backup run $run_id"
           gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --dir ./backup
 
-          dump=$(find ./backup -name '*.dump' | head -1)
+          # -type f matters: `gh run download` unpacks each artifact into a
+          # DIRECTORY named after it, and the artifact is named for the file it
+          # holds — so `./backup/tnt-<date>.dump` is a folder containing
+          # `tnt-<date>.dump`. Without -type f, find returns the folder.
+          dump=$(find ./backup -type f -name '*.dump' | head -1)
           if [ -z "$dump" ]; then
             echo "::error::That run produced no .dump file."
             exit 1

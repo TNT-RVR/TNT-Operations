@@ -243,10 +243,12 @@ export function ReadingsChart({
   const tickDp = tickDecimals(tickStep)
   const last = pts[pts.length - 1]
 
-  // Time ticks sized to the width available: roughly one per 80px, which is
-  // what "Sep 11" or "14:00" needs at 12px with breathing room either side.
+  // Time ticks sized to the width available: roughly one per 60px. "Sep 11"
+  // is about 44px at 12px mono, so that still leaves a clear gap. It was one
+  // per 80px, which on a phone allowed only three ticks — too few for any
+  // step but a week, so a 7-day chart showed one date, or none.
   const plotW = W - padL - padR
-  const xTicks = timeTicks(xMin, xMax, Math.max(2, Math.floor(plotW / 80)), tzOffsetMs)
+  const xTicks = timeTicks(xMin, xMax, Math.max(3, Math.floor(plotW / 60)), tzOffsetMs)
     // A label centred on a tick right at an edge would spill past the chart.
     .filter((k) => x(k.t) - padL > 22 && W - padR - x(k.t) > 22)
   // Clamp the shaded band to the plot area so it never bleeds past the axes.

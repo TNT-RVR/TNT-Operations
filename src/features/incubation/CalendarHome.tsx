@@ -218,6 +218,36 @@ export default function CalendarHome() {
       .slice(0, 8)
   }, [events])
 
+  /** The day whose entries are listed under the grid. */
+  const [selected, setSelected] = useState<string | null>(today)
+
+  /** Everything on a day, in one shape: typed events, field work, milestones. */
+  const itemsFor = (ymd: string): DayItem[] => [
+    // Typed events first: they are the ones somebody chose to put there.
+    ...(eventsByDate.get(ymd) ?? []).map((e) => ({
+      key: `ev-${e.id}`,
+      kind: 'event' as const,
+      text: `${e.startTime ? `${e.startTime} ` : ''}${e.title}`,
+      title: `${e.title}${e.notes ? ` — ${e.notes}` : ''}`,
+      dot: 'var(--brand)',
+      event: e,
+    })),
+    ...(checklistByDate.get(ymd) ?? []).map((e) => ({
+      key: `cl-${e.fieldName}-${e.step}`,
+      kind: e.kind === 'done' ? ('done' as const) : ('planned' as const),
+      text: `${e.stepLabel} · ${e.fieldName}`,
+      title: `${e.fieldName} — ${e.stepLabel} (${e.kind === 'done' ? 'done' : 'planned'})`,
+      dot: e.kind === 'done' ? 'var(--done-fill)' : 'var(--text-faint)',
+    })),
+    ...(byDate.get(ymd) ?? []).map((e) => ({
+      key: `ms-${e.incubatorId}-${e.day}`,
+      kind: 'milestone' as const,
+      text: `${e.incubatorName} · ${e.label}`,
+      title: `${e.incubatorName} — ${e.label} (Day ${e.day})`,
+      dot: colorOf.get(e.incubatorId) ?? 'var(--brand)',
+    })),
+  ]
+
   function step(delta: number) {
     const m = month0 + delta
     setYear((y) => y + Math.floor(m / 12))
@@ -253,135 +283,172 @@ export default function CalendarHome() {
         <>
             {/* Month controls */}
             <div className="flex flex-wrap items-center gap-2">
-              <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(-1)} aria-label="Previous month">
-                <ChevronLeft size={18} />
-              </button>
-              <span className="min-w-44 text-center font-display text-lg font-bold text-primary">
-                {MONTHS[month0]} {year}
-              </span>
-              <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(1)} aria-label="Next month">
-                <ChevronRight size={18} />
-              </button>
-              <button
-                className="btn-ghost px-2 py-1 text-xs"
-                onClick={() => {
-                  setYear(Number(today.slice(0, 4)))
-                  setMonth0(Number(today.slice(5, 7)) - 1)
-                }}
-              >
-                Today
-              </button>
-              <button className="btn-ghost ml-auto px-2 py-1 text-xs" onClick={exportIcs}>
-                <Download size={14} className="mr-1 inline" />
-                Export .ics
-              </button>
+              <div className="flex items-center gap-1">
+                <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(-1)} aria-label="Previous month">
+                  <ChevronLeft size={20} />
+                </button>
+                <button className="btn-ghost tap-target px-2 py-1" onClick={() => step(1)} aria-label="Next month">
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+              <h2 className="font-display text-2xl font-bold text-primary">
+                {MONTHS[month0]} <span className="font-normal text-muted">{year}</span>
+              </h2>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  className="btn-ghost px-3 py-1.5 text-sm"
+                  onClick={() => {
+                    setYear(Number(today.slice(0, 4)))
+                    setMonth0(Number(today.slice(5, 7)) - 1)
+                    setSelected(today)
+                  }}
+                >
+                  Today
+                </button>
+                <button className="btn-ghost px-3 py-1.5 text-sm" onClick={exportIcs}>
+                  <Download size={15} className="mr-1.5 inline" />
+                  Export
+                </button>
+              </div>
             </div>
 
-            {/* Month grid */}
-            <div className="overflow-x-auto">
-              <div className="min-w-[640px] overflow-hidden rounded-lg border border-subtle">
-                <div className="grid grid-cols-7 border-b border-subtle bg-overlay">
-                  {DOW.map((d) => (
-                    <div key={d} className="px-2 py-1 text-xs text-muted">
-                      {d}
-                    </div>
-                  ))}
-                </div>
-                {weeks.map((week) => (
-                  <div key={week[0]} className="grid grid-cols-7 border-b border-subtle last:border-b-0">
-                    {week.map((ymd) => {
-                      const inMonth = Number(ymd.slice(5, 7)) - 1 === month0
-                      const isToday = ymd === today
-                      const dayEvents = byDate.get(ymd) ?? []
-                      return (
-                        <div
-                          key={ymd}
-                          className={`min-h-20 border-r border-subtle p-1 last:border-r-0 ${
- inMonth ? '' : 'opacity-40'
-                          } ${isToday ? 'bg-brand-subtle' : ''}`}
-                        >
-                          <div className="flex items-baseline justify-between">
-                            <span
-                              className={`text-xs ${isToday ? 'font-bold text-brand' : 'text-faint'}`}
-                            >
-                              {Number(ymd.slice(8, 10))}
-                            </span>
-                            {canEdit && inMonth && (
-                              <button
-                                className="px-1 text-xs leading-none text-faint hover:text-brand"
-                                onClick={() => setEditing({ startDate: ymd, title: '' })}
-                                aria-label={`Add an event on ${ymd}`}
-                                title="Add an event"
-                              >
-                                +
-                              </button>
-                            )}
-                          </div>
-                          {/* Cool days: a thin bar per incubator that sat below
-                              the incubation band that day. */}
-                          <div className="flex gap-0.5">
-                            {scheduled
-                              .filter(({ inc }) => held.get(inc.id)?.has(ymd))
-                              .map(({ inc }) => (
-                                <span
-                                  key={inc.id}
-                                  className="h-1 flex-1 rounded-full opacity-60"
-                                  style={{ background: colorOf.get(inc.id) }}
-                                  title={`${inc.name} — at holding temperature this day`}
-                                />
-                              ))}
-                          </div>
-                          <div className="mt-0.5 space-y-0.5">
-                            {/* Typed events first: they are the ones somebody
-                                chose to put there. */}
-                            {(eventsByDate.get(ymd) ?? []).map((e) => (
-                              <button
-                                key={e.id}
-                                className="block w-full truncate rounded-sm border-l-2 bg-overlay px-1 py-0.5 text-left text-[10px] leading-tight text-primary"
-                                style={{ borderColor: 'var(--brand)' }}
-                                title={`${e.title}${e.notes ? ` — ${e.notes}` : ''}`}
-                                onClick={() => setEditing(e)}
-                              >
-                                {e.startTime ? `${e.startTime} ` : ''}
-                                {e.title}
-                              </button>
-                            ))}
-                            {(checklistByDate.get(ymd) ?? []).map((e) => (
-                              <div
-                                key={`cl-${e.fieldName}-${e.step}`}
-                                className={`truncate rounded-sm px-1 py-0.5 text-[10px] leading-tight ${
- e.kind === 'done'
-                                    ? 'font-semibold'
-                                    : 'border border-dashed border-default text-secondary'
-                                }`}
-                                style={
-                                  e.kind === 'done'
-                                    ? { background: 'var(--done-fill)', color: 'var(--on-done)' }
-                                    : undefined
-                                }
-                                title={`${e.fieldName} — ${e.stepLabel} (${e.kind === 'done' ? 'done' : 'planned'})`}
-                              >
-                                {e.stepLabel} · {e.fieldName}
-                              </div>
-                            ))}
-                            {dayEvents.map((e) => (
-                              <div
-                                key={`${e.incubatorId}-${e.day}`}
-                                className="truncate rounded-sm px-1 py-0.5 text-[10px] leading-tight text-on-brand"
-                                style={{ background: colorOf.get(e.incubatorId) }}
-                                title={`${e.incubatorName} — ${e.label} (Day ${e.day})`}
-                              >
-                                {e.incubatorName} · {e.label}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
+            {/* Month grid. On a phone the cells shrink to a number and coloured
+                dots, and tapping a day lists what is on it underneath —
+                squeezing labels into a 50px cell, or scrolling a wide grid
+                sideways, is unreadable either way. */}
+            <div className="overflow-hidden rounded-xl border border-subtle bg-raised shadow-sm">
+              <div className="grid grid-cols-7 border-b border-subtle bg-overlay">
+                {DOW.map((d, i) => (
+                  <div
+                    key={d}
+                    className={`px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide md:px-3 md:text-left ${
+                      i >= 5 ? 'text-faint' : 'text-muted'
+                    }`}
+                  >
+                    {d}
                   </div>
                 ))}
               </div>
+              {weeks.map((week) => (
+                <div key={week[0]} className="grid grid-cols-7 border-b border-subtle last:border-b-0">
+                  {week.map((ymd) => {
+                    const inMonth = Number(ymd.slice(5, 7)) - 1 === month0
+                    const isToday = ymd === today
+                    const isSelected = ymd === selected
+                    const items = itemsFor(ymd)
+                    const holding = scheduled.filter(({ inc }) => held.get(inc.id)?.has(ymd))
+                    return (
+                      <div
+                        key={ymd}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelected(ymd)}
+                        onKeyDown={(ev) => {
+                          if (ev.key === 'Enter') setSelected(ymd)
+                        }}
+                        className={`group relative flex min-h-16 min-w-0 cursor-pointer flex-col border-r border-subtle p-1 outline-none transition-colors last:border-r-0 hover:bg-overlay md:min-h-32 md:p-2 ${
+                          inMonth ? '' : 'bg-overlay'
+                        } ${isSelected ? 'ring-2 ring-inset ring-[var(--brand)]' : ''}`}
+                      >
+                        <div className="flex items-center justify-center md:justify-between">
+                          <span
+                            className={`flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+                              isToday
+                                ? 'bg-brand font-bold text-on-brand'
+                                : inMonth
+                                  ? 'font-medium text-primary'
+                                  : 'text-faint'
+                            }`}
+                          >
+                            {Number(ymd.slice(8, 10))}
+                          </span>
+                          {canEdit && inMonth && (
+                            <button
+                              className="hidden h-6 w-6 items-center justify-center rounded-md text-base leading-none text-faint opacity-0 hover:bg-raised hover:text-brand focus:opacity-100 group-hover:opacity-100 md:flex"
+                              onClick={(ev) => {
+                                ev.stopPropagation()
+                                setEditing({ startDate: ymd, title: '' })
+                              }}
+                              aria-label={`Add an event on ${ymd}`}
+                              title="Add an event"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Holding days: a bar per incubator held that day. */}
+                        {holding.length > 0 && (
+                          <div className="mt-1 flex gap-0.5 px-0.5">
+                            {holding.map(({ inc }) => (
+                              <span
+                                key={inc.id}
+                                className="h-1 flex-1 rounded-full opacity-70"
+                                style={{ background: colorOf.get(inc.id) }}
+                                title={`${inc.name} — at holding temperature this day`}
+                              />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Phone: dots only. */}
+                        {items.length > 0 && (
+                          <div className="mt-1 flex flex-wrap justify-center gap-0.5 md:hidden">
+                            {items.slice(0, 4).map((it) => (
+                              <span key={it.key} className="h-1.5 w-1.5 rounded-full" style={{ background: it.dot }} />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Wider screens: the entries themselves. */}
+                        <div className="mt-1 hidden min-w-0 space-y-1 md:block">
+                          {items.slice(0, 3).map((it) => (
+                            <EntryChip key={it.key} item={it} onOpen={setEditing} />
+                          ))}
+                          {items.length > 3 && (
+                            <p className="px-1 text-xs font-medium text-muted">+{items.length - 3} more</p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
             </div>
+
+            {/* The selected day, in full. */}
+            {selected && (
+              <section className="rounded-xl border border-subtle bg-raised p-4 shadow-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <h3 className="font-semibold text-primary">
+                    {new Date(`${selected}T12:00:00Z`).toLocaleDateString('en-CA', {
+                      timeZone: 'UTC',
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                  </h3>
+                  {canEdit && (
+                    <Button
+                      className="ml-auto shrink-0 whitespace-nowrap"
+                      variant="ghost"
+                      onClick={() => setEditing({ startDate: selected, title: '' })}
+                    >
+                      + Add event
+                    </Button>
+                  )}
+                </div>
+                {itemsFor(selected).length === 0 ? (
+                  <p className="text-sm text-muted">Nothing on this day.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {itemsFor(selected).map((it) => (
+                      <EntryChip key={it.key} item={it} onOpen={setEditing} large />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* What's coming */}
             {upcoming.length > 0 && (
@@ -632,5 +699,64 @@ function EventDialog({
         </div>
       </div>
     </Modal>
+  )
+}
+
+interface DayItem {
+  key: string
+  kind: 'event' | 'done' | 'planned' | 'milestone'
+  text: string
+  title: string
+  dot: string
+  event?: CalendarEvent
+}
+
+/** One entry on the calendar — the same look in a cell and in the day list. */
+function EntryChip({
+  item,
+  onOpen,
+  large = false,
+}: {
+  item: DayItem
+  onOpen: (e: CalendarEvent) => void
+  large?: boolean
+}) {
+  const size = large ? 'px-3 py-2 text-sm' : 'px-1.5 py-1 text-xs'
+  const base = `flex w-full min-w-0 items-center gap-1.5 rounded-md text-left leading-tight ${size}`
+  const dot = <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: item.dot }} />
+  const label = <span className="truncate">{item.text}</span>
+
+  if (item.kind === 'event' && item.event) {
+    const ev = item.event
+    return (
+      <button
+        className={`${base} bg-brand-subtle font-medium text-primary hover:brightness-95`}
+        title={item.title}
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpen(ev)
+        }}
+      >
+        {dot}
+        {label}
+      </button>
+    )
+  }
+  if (item.kind === 'milestone') {
+    return (
+      <div className={`${base} font-medium text-on-brand`} style={{ background: item.dot }} title={item.title}>
+        {label}
+      </div>
+    )
+  }
+  return (
+    <div
+      className={`${base} ${item.kind === 'done' ? 'font-semibold' : 'border border-dashed border-default text-secondary'}`}
+      style={item.kind === 'done' ? { background: 'var(--done-fill)', color: 'var(--on-done)' } : undefined}
+      title={item.title}
+    >
+      {item.kind === 'planned' && dot}
+      {label}
+    </div>
   )
 }

@@ -3,7 +3,7 @@ import type { CrewTask } from '@/domain/supplies'
 import { useSession } from '@/auth/session'
 import type { CalendarEvent } from '@/data/types'
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
-import { PageHeader, Badge, Modal, Input, Select, Button } from '@/components/ui'
+import { PageHeader, Modal, Input, Select, Button } from '@/components/ui'
 import { useData } from '@/data/context'
 import {
   checklistCalendarEntries,
@@ -11,8 +11,6 @@ import {
   type ChecklistCell,
 } from '@/domain/fieldChecklist'
 import {
-  INCUBATION_MILESTONES,
-  TEMP_MODES,
   milestoneEvents,
   milestonesToIcs,
   incubationStartFor,
@@ -416,9 +414,15 @@ export default function CalendarHome() {
               ))}
             </div>
 
-            {/* The selected day, in full. */}
-            {selected && (
-              <section className="rounded-xl border border-subtle bg-raised p-4 shadow-sm">
+            {/* The selected day, in full. An empty day shows nothing on a wide
+                screen, where the grid's "+" adds events; a phone keeps it for
+                its Add button, since cells there are too small for one. */}
+            {selected && (canEdit || itemsFor(selected).length > 0) && (
+              <section
+                className={`rounded-xl border border-subtle bg-raised p-4 shadow-sm ${
+                  itemsFor(selected).length === 0 ? 'md:hidden' : ''
+                }`}
+              >
                 <div className="mb-3 flex items-center gap-2">
                   <h3 className="font-semibold text-primary">
                     {new Date(`${selected}T12:00:00Z`).toLocaleDateString('en-CA', {
@@ -438,9 +442,7 @@ export default function CalendarHome() {
                     </Button>
                   )}
                 </div>
-                {itemsFor(selected).length === 0 ? (
-                  <p className="text-sm text-muted">Nothing on this day.</p>
-                ) : (
+                {itemsFor(selected).length > 0 && (
                   <div className="space-y-1.5">
                     {itemsFor(selected).map((it) => (
                       <EntryChip key={it.key} item={it} onOpen={setEditing} large />
@@ -472,36 +474,6 @@ export default function CalendarHome() {
               </section>
             )}
 
-            {/* Legend: the schedule itself, and where each incubator sits in it */}
-            <section className="space-y-2">
-              <div className="flex flex-wrap gap-1">
-                {INCUBATION_MILESTONES.map((m) => (
-                  <Badge key={m.day} tone="brand">
-                    {m.label} · Day {m.day}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-xs text-faint">
-                A bar under a date marks a day that incubator sat at holding temperature ({TEMP_MODES.holding.min}–
-                {TEMP_MODES.holding.max}°C) during its run. Development slows while held, so a held run can emerge
-                later than these fixed milestones suggest — the dates are not adjusted, because how much holding
-                delays emergence isn’t recorded anywhere.
-              </p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-                {scheduled.map(({ inc, start }) => (
-                  <span key={inc.id} className="flex items-center gap-1.5">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ background: colorOf.get(inc.id) }}
-                    />
-                    {inc.name} — started {start}
-                    {(held.get(inc.id)?.size ?? 0) > 0 && (
-                      <span className="text-faint">· {held.get(inc.id)!.size} holding d</span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            </section>
         </>
       </div>
       {editing && (

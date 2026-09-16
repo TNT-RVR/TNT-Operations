@@ -190,9 +190,10 @@ export default function CalendarHome() {
       key: `ev-${e.id}`,
       kind: 'event' as const,
       text: `${e.startTime ? `${e.startTime} ` : ''}${e.title}`,
-      title: `${e.title}${e.notes ? ` — ${e.notes}` : ''}`,
-      dot: 'var(--brand)',
+      title: `${e.crewId && e.task ? `${JOB[e.task].label} — ` : ''}${e.title}${e.notes ? ` — ${e.notes}` : ''}`,
+      dot: e.crewId && e.task ? JOB[e.task].dot : 'var(--brand)',
       event: e,
+      job: e.crewId && e.task ? JOB[e.task] : undefined,
     })),
     ...(checklistByDate.get(ymd) ?? []).map((e) => ({
       key: `cl-${e.fieldName}-${e.step}`,
@@ -630,6 +631,18 @@ interface DayItem {
   title: string
   dot: string
   event?: CalendarEvent
+  /** Set when the event is a work order: its job type's colours. */
+  job?: (typeof JOB)[CrewTask]
+}
+
+/**
+ * Work-order colours, by job — the same tones as the job badges on the work
+ * order screen, so a shelter placement is amber in both places.
+ */
+const JOB: Record<CrewTask, { label: string; dot: string; fg: string; bg: string; bd: string }> = {
+  shelter: { label: 'Shelter placement', dot: 'var(--amber-500)', fg: 'var(--warn-fg)', bg: 'var(--warn-bg)', bd: 'var(--warn-bd)' },
+  tray: { label: 'Tray placement', dot: 'var(--green-500)', fg: 'var(--ok-fg)', bg: 'var(--ok-bg)', bd: 'var(--ok-bd)' },
+  removal: { label: 'Shelter removal', dot: 'var(--blue-500)', fg: 'var(--info-fg)', bg: 'var(--info-bg)', bd: 'var(--info-bd)' },
 }
 
 /** One entry on the calendar — the same look in a cell and in the day list. */
@@ -649,9 +662,11 @@ function EntryChip({
 
   if (item.kind === 'event' && item.event) {
     const ev = item.event
+    const job = item.job
     return (
       <button
-        className={`${base} bg-brand-subtle font-medium text-primary hover:brightness-95`}
+        className={`${base} ${job ? 'border' : 'bg-brand-subtle text-primary'} font-medium hover:brightness-95`}
+        style={job ? { background: job.bg, color: job.fg, borderColor: job.bd } : undefined}
         title={item.title}
         onClick={(e) => {
           e.stopPropagation()

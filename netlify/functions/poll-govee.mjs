@@ -46,6 +46,7 @@ import {
   lastAlertAt,
   writeInAppNotification,
 } from './lib/push.mjs'
+import { goveeRaw, fToC } from './lib/goveeUnits.mjs'
 
 export const config = {
   // Runs at the FAST rate; idle incubators are throttled per-incubator below.
@@ -89,10 +90,18 @@ const RECOVERY_LOOKBACK_H = 24
 const V2_STATE = 'https://openapi.api.govee.com/router/api/v1/device/state'
 const V1_STATE = 'https://developer-api.govee.com/v1/devices/state'
 
-/** Govee reports integers in 0.01 units (2942 → 29.42). */
-const rawVal = (raw) => (typeof raw !== 'number' ? null : raw > 100 ? raw / 100 : raw)
-/** Some sensors report °F; the desktop poller treats >50 as °F and converts. */
-const toC = (t) => (t != null && t > 50 ? Math.round(((t - 32) * 5) / 9 * 100) / 100 : t)
+/** Govee reports plain values or integers in hundredths — see lib/goveeUnits. */
+const rawVal = goveeRaw
+/**
+ * The desktop app's unit GUESS: above 50 means Fahrenheit.
+ *
+ * Kept ONLY for the legacy v1 fallback below, whose unit has never been
+ * verified and which answers 400 for every sensor we own. The v2 path does not
+ * use it: v2 reports Fahrenheit, and this guess stored every reading at or
+ * below 10 °C as a fake 32–50 °C (lib/goveeUnits explains). Do not reach for
+ * this in new code.
+ */
+const legacyToC = (t) => (t != null && t > 50 ? fToC(t) : t)
 
 function parseV2(caps = []) {
   let temp = null
@@ -128,7 +137,8 @@ export async function pollDevice(key, device, sku) {
     const j = await r.json()
     if (j.code === 200) {
       const { temp, hum, online } = parseV2(j.payload?.capabilities || [])
-      if (temp != null && hum != null) return { temp: toC(temp), hum, online }
+      // v2 is Fahrenheit, always. No threshold: the threshold was the bug.
+      if (temp != null && hum != null) return { temp: fToC(temp), hum, online }
       // An offline sensor answers with empty strings for both numbers. There is
       // no reading to keep, but the fact that it is off the network IS the
       // news, so it is returned rather than being lost to a null.
@@ -148,7 +158,7 @@ export async function pollDevice(key, device, sku) {
       if ('temperature' in p) temp = rawVal(p.temperature)
       if ('humidity' in p) hum = rawVal(p.humidity)
     }
-    if (temp != null && hum != null) return { temp: toC(temp), hum, online: true }
+    if (temp != null && hum != null) return { temp: legacyToC(temp), hum, online: true }
   } catch {
     /* give up on this device this cycle */
   }

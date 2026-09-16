@@ -55,3 +55,62 @@ export function tickDecimals(step: number): number {
   if (!Number.isFinite(step) || step <= 0) return 0
   return Number.isInteger(step) ? 0 : String(step).split('.')[1]?.length ?? 0
 }
+
+// ── Time axis ───────────────────────────────────────────────────────────────
+
+const MIN = 60_000
+const HOUR = 60 * MIN
+const DAY = 24 * HOUR
+
+/**
+ * Steps a time axis may use, smallest first. Each is a unit people count in —
+ * nobody reads "every 5 hours" or "every 3 days" as easily as 6h or 1 week.
+ */
+const TIME_STEPS = [15 * MIN, 30 * MIN, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 7 * DAY]
+
+export interface TimeTick {
+  /** Epoch ms of the tick. */
+  t: number
+  /** Whether the tick lands on a local midnight — labelled with the date. */
+  isDay: boolean
+}
+
+/**
+ * Ticks for a time axis, on local clock boundaries.
+ *
+ * A chart labelled only at its two ends leaves a week of data with nothing to
+ * read a day off. These fall on whole local hours and midnights — "14:00",
+ * "Sep 11" — never on the arbitrary instant the first reading happened to land.
+ *
+ * `offsetMs(t)` is the local offset from UTC at instant t (negative west of
+ * Greenwich). Passed in rather than read from the machine, so the axis follows
+ * the operation's timezone whatever device draws it, and so it can be tested.
+ */
+export function timeTicks(
+  start: number,
+  end: number,
+  maxTicks: number,
+  offsetMs: (t: number) => number,
+): TimeTick[] {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || maxTicks < 1) return []
+  const span = end - start
+  const step = TIME_STEPS.find((s) => span / s <= maxTicks) ?? TIME_STEPS[TIME_STEPS.length - 1]
+
+  // Align in LOCAL time: shift to wall-clock, floor to the step, shift back.
+  // Steps of a week still align to midnight, just not to a particular weekday.
+  const align = Math.min(step, DAY)
+  const off = offsetMs(start)
+  const firstLocal = Math.ceil((start + off) / align) * align
+  const out: TimeTick[] = []
+  for (let local = firstLocal, i = 0; i < 400; local += align, i++) {
+    const t = local - offsetMs(local - off)
+    if (t > end) break
+    if (t < start) continue
+    // Keep only ticks on the chosen step (the loop walks the finer alignment
+    // so weekly steps still land on midnights).
+    if (step > DAY && Math.round((local - firstLocal) / DAY) % Math.round(step / DAY) !== 0) continue
+    const localMs = t + offsetMs(t)
+    out.push({ t, isDay: ((localMs % DAY) + DAY) % DAY === 0 })
+  }
+  return out
+}

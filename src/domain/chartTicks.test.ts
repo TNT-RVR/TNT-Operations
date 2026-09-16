@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { niceStep, niceTicks, tickDecimals } from './chartTicks'
+import { niceStep, niceTicks, tickDecimals, timeTicks } from './chartTicks'
 
 describe('niceStep', () => {
   it.each([
@@ -58,5 +58,55 @@ describe('tickDecimals', () => {
     expect(tickDecimals(5)).toBe(0)
     expect(tickDecimals(2.5)).toBe(1)
     expect(tickDecimals(0.25)).toBe(2)
+  })
+})
+
+describe('timeTicks', () => {
+  // Edmonton in summer: six hours behind UTC.
+  const MDT = () => -6 * 3600_000
+  const utc = (s: string) => Date.parse(s)
+  const localHour = (t: number) => new Date(t - 6 * 3600_000).getUTCHours()
+
+  it('labels a week once a day, at local midnight', () => {
+    // The screenshot's range: Sep 8 19:00 to Sep 15 18:45, Edmonton time.
+    const ticks = timeTicks(utc('2026-09-09T01:00:00Z'), utc('2026-09-16T00:45:00Z'), 8, MDT)
+    expect(ticks).toHaveLength(7)
+    expect(ticks.every((t) => t.isDay)).toBe(true)
+    expect(ticks.every((t) => localHour(t.t) === 0)).toBe(true)
+  })
+
+  it('labels a day in round hours', () => {
+    const ticks = timeTicks(utc('2026-09-15T14:10:00Z'), utc('2026-09-16T14:10:00Z'), 6, MDT)
+    expect(ticks.length).toBeGreaterThanOrEqual(3)
+    expect(ticks.length).toBeLessThanOrEqual(6)
+    for (const t of ticks) {
+      expect(new Date(t.t).getUTCMinutes()).toBe(0)
+      expect(localHour(t.t) % 6).toBe(0)
+    }
+  })
+
+  it('marks the midnight inside a day-long range as a date', () => {
+    const ticks = timeTicks(utc('2026-09-15T14:10:00Z'), utc('2026-09-16T14:10:00Z'), 6, MDT)
+    expect(ticks.filter((t) => t.isDay)).toHaveLength(1)
+  })
+
+  it('never puts more ticks on the axis than asked for', () => {
+    const ticks = timeTicks(utc('2026-08-17T00:00:00Z'), utc('2026-09-16T00:00:00Z'), 6, MDT)
+    expect(ticks.length).toBeLessThanOrEqual(6)
+    expect(ticks.length).toBeGreaterThan(0)
+  })
+
+  it('keeps every tick inside the range', () => {
+    const a = utc('2026-09-15T14:10:00Z')
+    const b = utc('2026-09-15T20:10:00Z')
+    for (const t of timeTicks(a, b, 6, MDT)) {
+      expect(t.t).toBeGreaterThanOrEqual(a)
+      expect(t.t).toBeLessThanOrEqual(b)
+    }
+  })
+
+  it('returns nothing for an empty or backwards range', () => {
+    expect(timeTicks(10, 10, 5, MDT)).toEqual([])
+    expect(timeTicks(20, 10, 5, MDT)).toEqual([])
   })
 })

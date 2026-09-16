@@ -1,25 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useData } from '@/data/context'
 import type { SensorReading } from '@/data/types'
-import { niceTicks, niceStep, tickDecimals } from '@/domain/chartTicks'
+import { niceTicks, niceStep, tickDecimals, timeTicks } from '@/domain/chartTicks'
 
 const TZ = 'America/Edmonton'
 /**
- * Axis timestamps: short on purpose.
- *
- * Two full timestamps at each end of a 300px chart very nearly touch, and
- * "a.m." is four of the characters doing the least work — a 24-hour clock says
- * the same thing in half the space and cannot be misread.
+ * The operation's UTC offset at an instant, for aligning ticks to local clock
+ * boundaries. Read from Intl rather than the device, so a phone in another
+ * timezone still labels midnight in Alberta as midnight.
  */
-const fmtAxis = (iso: string) =>
-  new Date(iso).toLocaleString('en-CA', {
+const tzOffsetMs = (t: number): number => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ,
-    month: 'short',
-    day: 'numeric',
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
-  })
+    second: '2-digit',
+  }).formatToParts(new Date(t))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0)
+  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  return asUtc - Math.floor(t / 1000) * 1000
+}
+
+/**
+ * A tick's label: the date at midnight, the time otherwise.
+ *
+ * A 24-hour clock on the time ticks — "14:00" says in five characters what
+ * "2:00 p.m." says in nine, and the axis has room for neither to be wasted.
+ */
+const tickLabel = (t: number, isDay: boolean) =>
+  isDay
+    ? new Date(t).toLocaleDateString('en-CA', { timeZone: TZ, month: 'short', day: 'numeric' })
+    : new Date(t).toLocaleTimeString('en-CA', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false })
 
 // Chart colours come from the token layer so the chart tracks light/dark.
 const LINE = 'var(--data-honey)'
@@ -227,6 +242,13 @@ export function ReadingsChart({
   const yTicks = niceTicks(yLo, yHi, 3)
   const tickDp = tickDecimals(tickStep)
   const last = pts[pts.length - 1]
+
+  // Time ticks sized to the width available: roughly one per 80px, which is
+  // what "Sep 11" or "14:00" needs at 12px with breathing room either side.
+  const plotW = W - padL - padR
+  const xTicks = timeTicks(xMin, xMax, Math.max(2, Math.floor(plotW / 80)), tzOffsetMs)
+    // A label centred on a tick right at an edge would spill past the chart.
+    .filter((k) => x(k.t) - padL > 22 && W - padR - x(k.t) > 22)
   // Clamp the shaded band to the plot area so it never bleeds past the axes.
   const yTarget = targetC == null ? null : y(targetC)
   const bandTop = targetC == null ? 0 : Math.max(padT, y(targetC + tolerance))
@@ -314,13 +336,40 @@ export function ReadingsChart({
           {last.tempC.toFixed(1)}°
         </text>
 
-        {/* x end labels */}
-        <text x={padL} y={H - 10} textAnchor="start" style={LABEL} fontSize={FONT} fontFamily="var(--font-mono)">
-          {fmtAxis(pts[0].at)}
-        </text>
-        <text x={W - padR} y={H - 10} textAnchor="end" style={LABEL} fontSize={FONT} fontFamily="var(--font-mono)">
-          {fmtAxis(pts[pts.length - 1].at)}
-        </text>
+        {/*
+          Time ticks along the bottom.
+
+          The axis used to be labelled only at its two ends, which left a week
+          of data with nothing to read a day off. These land on local midnights
+          and whole hours, with a faint rule up the plot so a bump can be traced
+          down to when it happened. The latest time is already in the header
+          above, so the ends need no label of their own.
+        */}
+        {xTicks.map((k) => (
+          <g key={k.t}>
+            <line
+              x1={x(k.t)}
+              y1={padT}
+              x2={x(k.t)}
+              y2={H - padB}
+              stroke={AXIS}
+              strokeOpacity={k.isDay ? 0.55 : 0.3}
+              strokeDasharray="2 4"
+            />
+            <line x1={x(k.t)} y1={H - padB} x2={x(k.t)} y2={H - padB + 4} stroke={AXIS} />
+            <text
+              x={x(k.t)}
+              y={H - 10}
+              textAnchor="middle"
+              style={LABEL}
+              fontSize={FONT}
+              fontWeight={k.isDay ? 600 : 400}
+              fontFamily="var(--font-mono)"
+            >
+              {tickLabel(k.t, k.isDay)}
+            </text>
+          </g>
+        ))}
       </svg>
       <p className="mt-1 text-right text-xs text-faint">{pts.length} readings</p>
     </div>

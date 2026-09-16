@@ -89,9 +89,11 @@ describe('readingStaleness', () => {
     expect(readingStaleness(agoMin(20), true, NOW)).toEqual({ stale: false, label: null })
   })
 
-  it('calls an hour-old reading stale while a run is on', () => {
-    // Running polls every 15 minutes; an hour is four missed cycles.
-    expect(readingStaleness(agoMin(90), true, NOW).stale).toBe(true)
+  it('calls a reading stale after two hours while a run is on', () => {
+    // Matches the watchdog, which waits two hours so internet blips at the
+    // incubator do not page anyone.
+    expect(readingStaleness(agoMin(90), true, NOW).stale).toBe(false)
+    expect(readingStaleness(agoMin(150), true, NOW).stale).toBe(true)
   })
 
   it('gives an idle incubator until a day before saying so', () => {

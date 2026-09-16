@@ -52,10 +52,16 @@ const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
  * How old a reading may get before it means something is wrong.
  *
  * A running incubator polls every 15 minutes; an idle one every 6 hours (see
- * IDLE_HEARTBEAT_H in poll-govee.mjs). Both thresholds sit at roughly four
- * missed cycles so a single failed request never wakes anyone.
+ * IDLE_HEARTBEAT_H in poll-govee.mjs).
+ *
+ * Two hours for a running incubator, set by the operation on 2026-09-16: the
+ * internet at Incubator 1 drops out regularly, and anything shorter paged
+ * somebody for outages that fixed themselves. Matches OFFLINE_RUNNING_MIN
+ * below, because an internet drop can reach either check — Govee may report
+ * the sensor offline, or simply return nothing — and one outage must not alert
+ * sooner by one path than the other.
  */
-const STALE_RUNNING_MIN = 60
+const STALE_RUNNING_MIN = 120
 const STALE_IDLE_MIN = 24 * 60
 
 /**
@@ -72,15 +78,15 @@ const EPISODE_GAP_MIN = 150
  * How long a sensor may say it is off the network before that is news.
  *
  * Govee reports `online` per device, and it flickers: a sensor briefly out of
- * range of its gateway comes back on the next cycle. These are long enough to
- * ride that out, and still far quicker than waiting for silence to age into a
- * stale-feed alert — an hour running, a day idle.
+ * range of its gateway, or the building's internet dropping for a while,
+ * comes back on its own. Two hours running (see STALE_RUNNING_MIN for why the
+ * two match), twelve idle.
  *
  * An idle incubator gets a longer rope on purpose. A sensor sitting in an empty
  * room over winter drops off for all sorts of ordinary reasons, and an alert
  * nobody acts on is how people learn to swipe this one away.
  */
-const OFFLINE_RUNNING_MIN = 45
+const OFFLINE_RUNNING_MIN = 120
 const OFFLINE_IDLE_MIN = 12 * 60
 
 const ALERT_TYPE = 'sensor_offline'

@@ -32,11 +32,11 @@ export interface LinkChip {
 /**
  * How old a reading may get before showing it as current is a lie.
  *
- * The same thresholds the watchdog alerts on (netlify/functions/watchdog.mjs):
- * a running incubator polls every 15 minutes, an idle one every 6 hours, and
- * both of these sit at roughly four missed cycles.
+ * The same thresholds the watchdog alerts on (netlify/functions/watchdog.mjs),
+ * so the card greys a reading at the moment an alert would call it stale —
+ * two hours for a running incubator, a day for an idle one.
  */
-const STALE_RUNNING_MIN = 60
+const STALE_RUNNING_MIN = 120
 const STALE_IDLE_MIN = 24 * 60
 
 const ago = (from: string, now: number): string => {

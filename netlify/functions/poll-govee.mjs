@@ -42,7 +42,7 @@ import {
   mutedUsersFor,
   subscriptionsFor,
   sendToAll,
-  recentlyNotified,
+  alreadyAnnounced,
   lastAlertAt,
   writeInAppNotification,
 } from './lib/push.mjs'
@@ -79,7 +79,14 @@ const TEMP_BANDS = {
  * the same alert would fire four times an hour until someone fixed it — which
  * just teaches people to ignore alerts.
  */
-const ALERT_COOLDOWN_MIN = 120
+/**
+ * How long a gap in the log ends a temperature episode.
+ *
+ * A running incubator is polled every 15 minutes and logs a row every cycle
+ * while it is out of band, so an hour without one means it came back — and
+ * the next excursion is a new one, announced again.
+ */
+const TEMP_EPISODE_GAP_MIN = 60
 
 /**
  * Only announce a recovery for a problem raised within this window. An
@@ -280,8 +287,13 @@ export default async () => {
       const lastProblem = await lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly: true }).catch(() => null)
       if (!lastProblem) continue
       // Ignore stale episodes: an all-clear for something that went wrong days
-      // ago and was never seen is noise, not news.
-      if (Date.now() - new Date(lastProblem).getTime() > RECOVERY_LOOKBACK_H * 3600_000) continue
+      // ago and is long over is noise, not news. Measured from the LAST time
+      // the problem was seen, not from when it was announced — announcing is
+      // now once per episode, so the announcement of a long excursion can be
+      // days old while the excursion ended minutes ago, and that recovery is
+      // exactly the news somebody is waiting for.
+      const lastSeen = (await lastAlertAt(SB_URL, sb, dedupKey).catch(() => null)) ?? lastProblem
+      if (Date.now() - new Date(lastSeen).getTime() > RECOVERY_LOOKBACK_H * 3600_000) continue
       // Already cleared this episode? The clear must be NEWER than the problem.
       const lastClear = await lastAlertAt(SB_URL, sb, clearKey).catch(() => null)
       if (lastClear && new Date(lastClear) > new Date(lastProblem)) continue
@@ -328,11 +340,16 @@ export default async () => {
     const message =
       `${inc.name}: Temp ${t.toFixed(1)}°C ` +
       `${above ? 'above maximum' : 'below minimum'} ${(above ? max : min).toFixed(1)}°C`
-    // On lookup failure assume "already notified": a quiet miss beats a storm.
-    const quiet = await recentlyNotified(SB_URL, sb, dedupKey, ALERT_COOLDOWN_MIN).catch(() => true)
+    // Once per episode, not once per two hours: announced when the temperature
+    // leaves the band, silent while it stays out, over at the all-clear.
+    const quiet = await alreadyAnnounced(SB_URL, sb, {
+      dedupKey,
+      clearKey,
+      gapMin: TEMP_EPISODE_GAP_MIN,
+    })
 
-    // Log EVERY occurrence (that's the alert history); notify only past the
-    // cooldown. `notified` is what the cooldown lookup reads next cycle.
+    // Log EVERY occurrence (that's the alert history); notify once per episode.
+    // `notified` is what marks the episode as announced for the next cycle.
     await fetch(`${SB_URL}/rest/v1/alerts`, {
       method: 'POST',
       headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },

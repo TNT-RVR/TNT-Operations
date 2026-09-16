@@ -32,7 +32,7 @@ import {
   recipientsFor,
   subscriptionsFor,
   sendToAll,
-  recentlyNotified,
+  alreadyAnnounced,
   lastAlertAt,
   writeInAppNotification,
 } from './lib/push.mjs'
@@ -58,8 +58,15 @@ const RUNNING_MODES = new Set(['incubation', 'cool_storage', 'holding'])
 const STALE_RUNNING_MIN = 60
 const STALE_IDLE_MIN = 24 * 60
 
-/** Don't repeat the same silence every hour. */
-const COOLDOWN_MIN = 6 * 60
+/**
+ * How long a gap in the log means an episode has ended.
+ *
+ * The watchdog runs hourly and logs a row on every run while a problem holds,
+ * so two and a half hours without one means it stopped — whatever comes next
+ * is a new problem and is announced. Long enough that one missed run does not
+ * restart the episode and re-send it.
+ */
+const EPISODE_GAP_MIN = 150
 
 /**
  * How long a sensor may say it is off the network before that is news.
@@ -139,7 +146,13 @@ export default async () => {
           : `${inc.name}: the sensor has been off the network for ${fmtAge(offlineFor)}. ` +
             `Check its battery and that it is in range of the gateway.`
 
-      const quietOff = await recentlyNotified(SB_URL, sb, offKey, COOLDOWN_MIN)
+      // Once per episode: announced when the sensor drops off, silent while it
+      // stays off, over when the "back on the network" clear is recorded.
+      const quietOff = await alreadyAnnounced(SB_URL, sb, {
+        dedupKey: offKey,
+        clearKey: `${ALERT_TYPE}_link_clear:${inc.id}`,
+        gapMin: EPISODE_GAP_MIN,
+      })
       await fetch(`${SB_URL}/rest/v1/alerts`, {
         method: 'POST',
         headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
@@ -284,7 +297,11 @@ export default async () => {
         : `${inc.name}: no sensor reading for ${fmtAge(ageMin)}. ` +
           `The temperature is NOT being watched — check the sensor, its battery, and the poller.`
 
-    const quiet = await recentlyNotified(SB_URL, sb, dedupKey, COOLDOWN_MIN)
+    const quiet = await alreadyAnnounced(SB_URL, sb, {
+      dedupKey,
+      clearKey: `${ALERT_TYPE}_clear:${inc.id}`,
+      gapMin: EPISODE_GAP_MIN,
+    })
     await fetch(`${SB_URL}/rest/v1/alerts`, {
       method: 'POST',
       headers: { ...sb, 'Content-Type': 'application/json', Prefer: 'return=minimal' },

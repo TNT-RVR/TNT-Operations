@@ -9,6 +9,7 @@
  * Every function here is defensive about push being unconfigured: alerting must
  * keep working (and keep logging to the DB) even when nobody has set up VAPID.
  */
+import { shouldNotify } from './alertEpisode.mjs'
 import webpush from 'web-push'
 
 let configured = null
@@ -196,6 +197,30 @@ export async function sendToAll(SB_URL, sb, subs, payload) {
  * band, so without this the same alert would fire four times an hour until
  * someone fixed it — which trains people to ignore alerts.
  */
+/**
+ * Has this problem's current EPISODE already been announced?
+ *
+ * Replaces the cooldown for the incubator alerts: see lib/alertEpisode.mjs for
+ * the rule. Reads the last notified occurrence, the last all-clear, and the
+ * last logged occurrence of any kind — so it must be called BEFORE this check
+ * logs its own row, or it will find itself.
+ *
+ * On a lookup failure it answers "not yet announced", i.e. send. For these
+ * alerts a duplicate is an annoyance and a missed one is a dead batch.
+ */
+export async function alreadyAnnounced(SB_URL, sb, { dedupKey, clearKey, gapMin }) {
+  try {
+    const [lastNotifiedAt, lastClearAt, lastProblemAt] = await Promise.all([
+      lastAlertAt(SB_URL, sb, dedupKey, { notifiedOnly: true }),
+      lastAlertAt(SB_URL, sb, clearKey),
+      lastAlertAt(SB_URL, sb, dedupKey),
+    ])
+    return !shouldNotify({ lastNotifiedAt, lastClearAt, lastProblemAt, now: Date.now(), gapMin })
+  } catch {
+    return false
+  }
+}
+
 export async function recentlyNotified(SB_URL, sb, dedupKey, cooldownMin) {
   const since = new Date(Date.now() - cooldownMin * 60_000).toISOString()
   const rows = await fetch(

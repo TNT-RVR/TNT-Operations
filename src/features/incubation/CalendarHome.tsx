@@ -16,9 +16,6 @@ import {
   incubationStartFor,
   formatDays,
   daysFromNow,
-  dailyMeanTempByIncubator,
-  holdingDays,
-  runWindow,
   type MilestoneEvent,
 } from '@/domain/incubation'
 
@@ -68,8 +65,6 @@ export default function CalendarHome() {
   const {
     incubators,
     trays,
-    readings,
-    loadReadings,
     loadTrays,
     fields,
     calendarEvents,
@@ -175,37 +170,6 @@ export default function CalendarHome() {
         .filter((r): r is { inc: (typeof incubators)[number]; start: string } => r.start !== null),
     [incubators, trays],
   )
-
-  // (scheduled is declared above so the holding-day window can use it)
-  // Readings are hydrated only for a recent window, so pull the visible month
-  // for the incubators on a schedule (loadReadings is cached per incubator).
-  const monthStartIso = useMemo(() => new Date(Date.UTC(year, month0, 1)).toISOString(), [year, month0])
-  useEffect(() => {
-    for (const inc of incubators) void loadReadings(inc.id, monthStartIso)
-  }, [incubators, monthStartIso, loadReadings])
-
-  /**
-   * Days each incubator sat at HOLDING temperature, limited to its own run
-   * window. Shown, not applied: holding slows development, but by how much
-   * isn't recorded, so the milestone dates stay put and these days explain why
-   * a run may run late.
-   */
-  const held = useMemo(() => {
-    const toYmd = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
-    const all = holdingDays(dailyMeanTempByIncubator(readings, toYmd))
-    // Only mark days that fall inside the run — an idle box between seasons
-    // isn't "holding", it's just sitting there.
-    const windows = new Map(scheduled.map(({ inc, start }) => [inc.id, runWindow(start)]))
-    const out = new Map<string, Set<string>>()
-    for (const [incId, days] of all) {
-      const w = windows.get(incId)
-      if (!w) continue
-      const inRun = new Set([...days].filter((d) => d >= w.from && d <= w.to))
-      if (inRun.size) out.set(incId, inRun)
-    }
-    return out
-  }, [readings, scheduled])
-
 
   const upcoming = useMemo(() => {
     const now = new Date()
@@ -334,7 +298,6 @@ export default function CalendarHome() {
                     const isToday = ymd === today
                     const isSelected = ymd === selected
                     const items = itemsFor(ymd)
-                    const holding = scheduled.filter(({ inc }) => held.get(inc.id)?.has(ymd))
                     return (
                       <div
                         key={ymd}
@@ -374,20 +337,6 @@ export default function CalendarHome() {
                             </button>
                           )}
                         </div>
-
-                        {/* Holding days: a bar per incubator held that day. */}
-                        {holding.length > 0 && (
-                          <div className="mt-1 flex gap-0.5 px-0.5">
-                            {holding.map(({ inc }) => (
-                              <span
-                                key={inc.id}
-                                className="h-1 flex-1 rounded-full opacity-70"
-                                style={{ background: colorOf.get(inc.id) }}
-                                title={`${inc.name} — at holding temperature this day`}
-                              />
-                            ))}
-                          </div>
-                        )}
 
                         {/* Phone: dots only. */}
                         {items.length > 0 && (

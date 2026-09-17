@@ -33,6 +33,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { resolveSecret } from './lib/envConfig.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const TEMPLATES = join(ROOT, 'supabase', 'email-templates')
@@ -88,25 +89,14 @@ const MAILS = [
   },
 ]
 
-/** Minimal KEY=value reader — no dependency for one secret. */
-function fromEnvFile(key) {
-  const path = join(ROOT, '.env.local')
-  if (!existsSync(path)) return null
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const m = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line)
-    if (m && m[1] === key) return m[2].trim().replace(/^["']|["']$/g, '')
-  }
-  return null
-}
-
 function die(message) {
   console.error(`\n✗ ${message}\n`)
   process.exit(1)
 }
 
 const dryRun = process.argv.includes('--dry-run')
-const ref = process.env.SUPABASE_PROJECT_REF || fromEnvFile('SUPABASE_PROJECT_REF') || DEFAULT_REF
-const token = process.env.SUPABASE_ACCESS_TOKEN || fromEnvFile('SUPABASE_ACCESS_TOKEN')
+const ref = resolveSecret(ROOT, 'SUPABASE_PROJECT_REF', { announce: false }) || DEFAULT_REF
+const token = resolveSecret(ROOT, 'SUPABASE_ACCESS_TOKEN')
 
 if (!token && !dryRun) {
   die(

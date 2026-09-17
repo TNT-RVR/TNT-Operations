@@ -145,6 +145,16 @@ real operational data. Scheduled work runs as **Netlify functions**, not Edge Fu
   themselves in prose and are built on `on conflict … do update set`, and a
   guard that refuses those is one that gets bypassed. Verified against all 52
   migrations and 7 import files.
+- **Operator scripts say WHICH secret they are using** (`scripts/lib/envConfig.mjs`,
+  shared by `run-sql.mjs` and `push-email-templates.mjs`). Environment beats
+  `.env.local` — ordinary precedence, kept — but never silently. A stale
+  `SUPABASE_ACCESS_TOKEN` in the Windows USER environment shadowed a good one
+  in the file, and every run failed with "your account does not have the
+  necessary privileges": a message that points at the account, at Supabase, at
+  the org role, at anything except the lookup that picked the wrong string.
+  Under it sat a SECOND shadow — the file defined the key twice and the reader
+  took the first, which was truncated. Both are warnings now, and the value is
+  fingerprinted (last 6 + length), never printed.
 
 ## Migration status (porting the two Python apps)
 _Last reviewed 2026-08-17._

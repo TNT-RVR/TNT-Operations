@@ -20,7 +20,7 @@
  * Env (server-side): GOVEE_API_KEY, SUPABASE_SERVICE_ROLE, SUPABASE_URL.
  */
 
-import { pollDevice } from './poll-govee.mjs'
+import { pollDevice, probeDevice } from './poll-govee.mjs'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -105,7 +105,19 @@ export default async (req) => {
   if (!rd || rd.temp == null || rd.hum == null) {
     // Distinguish "the sensor didn't answer" from "we never asked": this is the
     // difference between a flat battery and a broken deploy.
-    return json({ error: `The sensor on ${inc.name} did not answer. Check it is powered and online.` }, 502)
+    //
+    // And say WHY where Govee gave a reason. A revoked key, a rate limit and a
+    // Govee outage stop every sensor at once and read identically from here;
+    // the reason is what separates "go change the battery" from "nobody needs
+    // to drive anywhere".
+    const why = await probeDevice(GOVEE, inc.govee_device_id.trim(), inc.govee_sku.trim())
+    return json(
+      {
+        error: `The sensor on ${inc.name} did not answer. Check it is powered and online.`,
+        detail: why,
+      },
+      502,
+    )
   }
 
   await noteLink(rd.online)

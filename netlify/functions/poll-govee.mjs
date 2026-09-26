@@ -162,6 +162,64 @@ export async function pollDevice(key, device, sku) {
   return null
 }
 
+/**
+ * What did Govee actually say?
+ *
+ * pollDevice throws every failure away and answers null, which is right for a
+ * poller — one bad cycle is not news. It is wrong for a person pressing "Read
+ * now" and being told only that the sensor "did not answer": a revoked API
+ * key, a rate limit and a Govee outage all look identical, and the difference
+ * is the whole diagnosis.
+ *
+ * So this asks the same two endpoints and REPORTS, rather than reading. Never
+ * used on the scheduled path; only after a manual read has already failed.
+ * Returns a short human sentence, or null if both calls looked fine (in which
+ * case the sensor itself is what is quiet).
+ */
+export async function probeDevice(key, device, sku) {
+  const notes = []
+  try {
+    const r = await fetch(V2_STATE, {
+      method: 'POST',
+      headers: { 'Govee-API-Key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId: crypto.randomUUID(), payload: { sku, device } }),
+    })
+    const text = await r.text()
+    let j = null
+    try {
+      j = JSON.parse(text)
+    } catch {
+      /* not JSON — the raw text is the evidence */
+    }
+    if (!r.ok || (j && j.code !== 200)) {
+      const msg = j?.message || j?.msg || text.slice(0, 200)
+      notes.push(`Govee API: HTTP ${r.status}${j?.code ? ` (code ${j.code})` : ''} — ${msg}`)
+    }
+  } catch (e) {
+    notes.push(`Govee API could not be reached: ${e?.message ?? e}`)
+  }
+
+  try {
+    const url = `${V1_STATE}?device=${encodeURIComponent(device)}&model=${encodeURIComponent(sku)}`
+    const r = await fetch(url, { headers: { 'Govee-API-Key': key } })
+    const text = await r.text()
+    let j = null
+    try {
+      j = JSON.parse(text)
+    } catch {
+      /* as above */
+    }
+    if (!r.ok || (j && j.code && j.code !== 200)) {
+      const msg = j?.message || j?.msg || text.slice(0, 200)
+      notes.push(`Older Govee API: HTTP ${r.status}${j?.code ? ` (code ${j.code})` : ''} — ${msg}`)
+    }
+  } catch (e) {
+    notes.push(`Older Govee API could not be reached: ${e?.message ?? e}`)
+  }
+
+  return notes.length ? notes.join(' · ') : null
+}
+
 export default async () => {
   const GOVEE = process.env.GOVEE_API_KEY
   const SB_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL

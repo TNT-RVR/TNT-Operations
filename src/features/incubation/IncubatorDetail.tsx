@@ -133,7 +133,12 @@ export function IncubatorDetail({
         body: JSON.stringify({ incubatorId: incubator.id }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.error ?? `Could not read the sensor (${res.status}).`)
+      // `detail` carries what Govee itself said when it refused us — the line
+      // that tells a dead key apart from a dead battery.
+      if (!res.ok)
+        throw new Error(
+          [body?.error ?? `Could not read the sensor (${res.status}).`, body?.detail].filter(Boolean).join(' '),
+        )
       if (body.stored === false) setPollError('Read the sensor but could not save the reading.')
       // Re-fetch so the new row arrives through the data layer rather than
       // being pasted into local state — one source of truth for the chart.

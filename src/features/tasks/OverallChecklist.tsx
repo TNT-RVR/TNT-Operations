@@ -320,7 +320,12 @@ export default function OverallChecklist() {
             Nothing recorded for {year}, and no field carries that season on the map.
           </EmptyState>
         ) : (
-          <div className="card overflow-x-auto p-0">
+          <>
+          {/* The season grid. Fourteen fields by nine steps only fits a wide
+              screen; the phone gets the same marks as a card per field below,
+              because a grid that scrolls sideways shows three columns at a time
+              and hides which field you are looking at. */}
+          <div className="card hidden overflow-x-auto p-0 md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -423,6 +428,101 @@ export default function OverallChecklist() {
               </tbody>
             </table>
           </div>
+
+          {/* Phone: one card per field, every step visible, nothing sideways. */}
+          <div className="space-y-3 md:hidden">
+            {rows.map((row) => {
+              const filed = row.filed
+              const doneCount = steps.filter((s) => cellState(byKey.get(cellKey(filed, s.key))) === 'done').length
+              return (
+                <div key={row.key} className="card p-3">
+                  <div className="mb-2 flex items-baseline gap-2">
+                    <h3 className="font-semibold text-primary">
+                      {row.fieldId && canSeeMaps ? (
+                        <Link to={`/maps?field=${row.fieldId}`} className="hover:text-brand hover:underline">
+                          {row.label}
+                        </Link>
+                      ) : (
+                        row.label
+                      )}
+                    </h3>
+                    <span className="ml-auto shrink-0 text-xs text-muted">
+                      {doneCount}/{steps.length} done
+                    </span>
+                  </div>
+                  {!row.onMap && (
+                    <p className="mb-2 text-xs text-faint">not on this season&rsquo;s map</p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    {steps.map((s) => {
+                      const cell = byKey.get(cellKey(filed, s.key))
+                      const state = cellState(cell)
+                      const late = daysLate(cell)
+                      const key = cellKey(filed, s.key)
+                      return (
+                        <div key={s.key} className="rounded-md border border-subtle p-2">
+                          <p className="mb-1 truncate text-xs text-muted" title={s.hint}>
+                            {s.label}
+                          </p>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={!canEdit}
+                              onClick={() => setEditing({ fieldName: filed, step: s.key })}
+                              title={cell?.note || `${row.label} — ${s.label}`}
+                              className={
+                                state === 'done'
+                                  ? 'tap-cell flex-1 rounded-sm border border-transparent px-2 py-1.5 text-xs font-semibold'
+                                  : state === 'planned'
+                                    ? 'tap-cell flex-1 rounded-sm border border-dashed border-default px-2 py-1.5 text-xs text-muted'
+                                    : 'tap-cell flex-1 rounded-sm border border-transparent px-2 py-1.5 text-xs text-faint'
+                              }
+                              style={
+                                state === 'done'
+                                  ? { background: 'var(--done-fill)', color: 'var(--on-done)' }
+                                  : undefined
+                              }
+                            >
+                              {state === 'done'
+                                ? shortDate(cell?.completedDate ?? null)
+                                : state === 'planned'
+                                  ? shortDate(cell?.plannedDate ?? null)
+                                  : '—'}
+                              {late != null && late !== 0 && (
+                                <span
+                                  className="ml-1 font-normal"
+                                  style={
+                                    state === 'done'
+                                      ? { color: 'var(--on-done)', opacity: 0.8 }
+                                      : { color: 'var(--text-muted)' }
+                                  }
+                                >
+                                  {late > 0 ? `+${late}d` : `${late}d`}
+                                </span>
+                              )}
+                            </button>
+                            {canEdit && state !== 'done' && (
+                              <button
+                                type="button"
+                                aria-label={`Mark ${s.label} done for ${row.label}`}
+                                title="Mark done today"
+                                disabled={busy === key}
+                                onClick={() => void save(filed, s.key, { completedDate: todayInTz() })}
+                                className="icon-btn inline-grid shrink-0 place-items-center rounded-sm p-1.5 text-faint transition hover:bg-[color:var(--hover-wash)] hover:text-info disabled:opacity-50"
+                              >
+                                <Check size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          </>
         )}
 
         <p className="text-xs text-faint">

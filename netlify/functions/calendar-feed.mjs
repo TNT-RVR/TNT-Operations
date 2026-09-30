@@ -31,6 +31,15 @@ import { MILESTONES, addDays, incubationStartFor, syncWindow } from './lib/gcalC
 
 const TZ = 'America/Edmonton'
 
+/** Checklist steps, spelled the way the Overall Checklist spells them. */
+const STEP_LABEL = {
+  flag: 'Flag',
+  structures_in: 'Structures In',
+  mouse_poison: 'Mouse Poison',
+  bees_in: 'Bees In',
+  structures_out: 'Structures Out',
+}
+
 /** Job types, spelled the way the work order screen spells them. */
 const JOB_LABEL = {
   shelter: 'Shelter placement',
@@ -169,6 +178,38 @@ export default async (req) => {
     } catch {
       // A calendar that loses its milestones because a work order query failed
       // is worse than one missing the work orders.
+    }
+
+    /**
+     * Field work from the Overall Checklist.
+     *
+     * Same rule the app's own calendar uses (src/domain/fieldChecklist.ts):
+     * a step shows on the day it was DONE, or on the day it is planned for
+     * while it is still outstanding. Derived from the marks rather than copied
+     * anywhere, so ticking a step off moves it here on the next poll.
+     */
+    try {
+      const from = addDays(today, -30)
+      const to = addDays(today, 120)
+      const cells = await get(
+        `field_checklist?select=id,field_name,step,planned_date,completed_date&or=(planned_date.not.is.null,completed_date.not.is.null)`,
+      )
+      for (const c of cells) {
+        const date = c.completed_date ?? c.planned_date
+        if (!date || date < from || date > to) continue
+        const label = STEP_LABEL[c.step] ?? c.step
+        extras.push({
+          uid: `checklist-${c.id}@tnt-operations`,
+          start: date,
+          end: addDays(date, 1),
+          summary: `${label} · ${c.field_name}${c.completed_date ? '' : ' (planned)'}`,
+          description: c.completed_date
+            ? 'Done. From the Overall Checklist in TNT Operations.'
+            : 'Planned, not yet done. From the Overall Checklist in TNT Operations.',
+        })
+      }
+    } catch {
+      /* as above — the rest of the calendar still stands */
     }
   }
 

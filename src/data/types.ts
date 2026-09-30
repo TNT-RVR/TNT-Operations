@@ -1053,6 +1053,8 @@ export interface GcalStatus {
 /** The subscribable calendar feed. The token IS the credential — see 0023. */
 export interface CalendarFeed {
   token: string
+  /** The staff link: the same feed plus work orders and typed events. */
+  staffToken: string | null
   enabled: boolean
   lastFetchedAt: string | null
   fetchCount: number

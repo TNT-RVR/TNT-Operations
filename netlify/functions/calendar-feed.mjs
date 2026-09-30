@@ -31,6 +31,13 @@ import { MILESTONES, addDays, incubationStartFor, syncWindow } from './lib/gcalC
 
 const TZ = 'America/Edmonton'
 
+/** Job types, spelled the way the work order screen spells them. */
+const JOB_LABEL = {
+  shelter: 'Shelter placement',
+  tray: 'Tray placement',
+  removal: 'Shelter removal',
+}
+
 const text = (body, status = 200, headers = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', ...headers } })
 
@@ -67,7 +74,7 @@ export default async (req) => {
 
   let feed
   try {
-    const rows = await get('calendar_feed?select=token,enabled&limit=1')
+    const rows = await get('calendar_feed?select=token,staff_token,enabled&limit=1')
     feed = rows[0]
   } catch {
     return text('Feed unavailable', 503)
@@ -75,7 +82,17 @@ export default async (req) => {
 
   // Same response for a wrong token and a disabled feed: distinguishing them
   // would tell someone probing that they had guessed a real link.
-  if (!feed || !feed.enabled || feed.token !== token) return text('Not found', 404)
+  if (!feed || !feed.enabled) return text('Not found', 404)
+  /**
+   * Which link is this?
+   *
+   * The grower link carries milestones only — dates and incubator names, safe
+   * in the hands of anyone it reaches. The staff link also carries work orders
+   * and typed events, which name fields and crews. Same feed, same on/off
+   * switch, two tokens, so widening one never widens the other.
+   */
+  const staff = feed.staff_token && token === feed.staff_token
+  if (!staff && token !== feed.token) return text('Not found', 404)
 
   let incubators = []
   let trays = []
@@ -112,6 +129,49 @@ export default async (req) => {
   }
   const inWindow = syncWindow(events, today)
 
+  /**
+   * Work orders and typed events — staff link only.
+   *
+   * Read straight from `calendar_events`, the same rows the app's own calendar
+   * shows, so a booking made in either place reaches Google without anyone
+   * entering it twice. A work order is simply one of these rows carrying a
+   * crew, a job and a field (see src/domain/workOrder.ts).
+   */
+  const extras = []
+  if (staff) {
+    try {
+      const from = addDays(today, -30)
+      const to = addDays(today, 120)
+      const [rows, fields, crews] = await Promise.all([
+        get(
+          `calendar_events?select=id,title,start_date,end_date,start_time,notes,field_id,crew_id,task&start_date=lte.${to}&order=start_date`,
+        ),
+        get('fields?select=id,name'),
+        get('crews?select=id,name'),
+      ])
+      const nameOf = (list, id) => list.find((r) => r.id === id)?.name ?? null
+      for (const e of rows) {
+        const last = e.end_date && e.end_date > e.start_date ? e.end_date : e.start_date
+        // Ended more than a month ago: history, not a calendar.
+        if (last < from) continue
+        const who = [nameOf(fields, e.field_id), nameOf(crews, e.crew_id)].filter(Boolean).join(' · ')
+        extras.push({
+          uid: `event-${e.id}@tnt-operations`,
+          start: e.start_date,
+          // All-day DTEND is exclusive, so a job through the 12th ends on the 13th.
+          end: addDays(last, 1),
+          summary: [JOB_LABEL[e.task] ?? null, e.title].filter(Boolean).join(': '),
+          description: [who, e.start_time ? `Starts ${e.start_time}` : null, e.notes]
+            .filter(Boolean)
+            .join(' — ') || 'From TNT Operations.',
+        })
+      }
+    } catch {
+      // A calendar that loses its milestones because a work order query failed
+      // is worse than one missing the work orders.
+    }
+  }
+
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '') + 'Z'
   const lines = [
     'BEGIN:VCALENDAR',
@@ -119,7 +179,7 @@ export default async (req) => {
     'PRODID:-//TNT Operations//Incubation//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:TNT Operations — Incubation',
+    `X-WR-CALNAME:TNT Operations — ${staff ? 'Schedule' : 'Incubation'}`,
     'X-WR-TIMEZONE:America/Edmonton',
     // A hint to clients about polling frequency. Google largely ignores it,
     // but Apple and Outlook honour it.
@@ -146,6 +206,20 @@ export default async (req) => {
       'END:VEVENT',
     )
   }
+  for (const e of extras) {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${e.uid}`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${e.start.replace(/-/g, '')}`,
+      `DTEND;VALUE=DATE:${e.end.replace(/-/g, '')}`,
+      fold(`SUMMARY:${esc(e.summary)}`),
+      fold(`DESCRIPTION:${esc(e.description)}`),
+      'TRANSP:TRANSPARENT',
+      'END:VEVENT',
+    )
+  }
+
   lines.push('END:VCALENDAR')
 
   // Best-effort usage stamp, so the UI can say whether anything is subscribed.

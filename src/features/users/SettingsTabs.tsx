@@ -663,11 +663,14 @@ function SignatureCard() {
  * leaving people to work out.
  */
 function CalendarFeedCard() {
-  const { calendarFeed: feed, regenerateFeedToken, setFeedEnabled } = useData()
+  const { calendarFeed: feed, regenerateFeedToken, regenerateStaffFeedToken, setFeedEnabled } = useData()
   const s = useSession()
   const isAdmin = s.user.role === 'admin'
   const [revealed, setRevealed] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [staffRevealed, setStaffRevealed] = useState(false)
+  const [staffCopied, setStaffCopied] = useState(false)
+  const [staffBusy, setStaffBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -683,6 +686,7 @@ function CalendarFeedCard() {
   }
 
   const url = `${window.location.origin}/.netlify/functions/calendar-feed?token=${feed.token}`
+  const staffUrl = `${window.location.origin}/.netlify/functions/calendar-feed?token=${feed.staffToken ?? ''}`
 
   const copy = async () => {
     try {
@@ -784,6 +788,67 @@ function CalendarFeedCard() {
       )}
 
       {error && <p className="text-xs text-danger">{error}</p>}
+
+      {/* The staff link. Same feed, wider contents, its own token — so handing
+          a grower the calendar never hands them the crew schedule. */}
+      {feed.staffToken && (
+        <div className="space-y-2 border-t border-subtle pt-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 font-medium text-primary">
+                <CalendarDays size={16} className="text-muted" />
+                Staff link — schedule included
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                Everything above, plus work orders and calendar events, with their field and crew. For staff only:
+                whoever holds this link can read the schedule without signing in.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(staffUrl)
+                    setStaffCopied(true)
+                    setTimeout(() => setStaffCopied(false), 2500)
+                  } catch {
+                    setStaffRevealed(true)
+                  }
+                }}
+              >
+                <Check size={15} className={staffCopied ? '' : 'hidden'} />
+                {staffCopied ? 'Copied' : 'Copy link'}
+              </Button>
+              <Button variant="ghost" onClick={() => setStaffRevealed((v) => !v)}>
+                {staffRevealed ? 'Hide' : 'Show'}
+              </Button>
+            </div>
+          </div>
+          {staffRevealed && (
+            <code className="block break-all rounded bg-inset p-2 text-xs text-secondary">{staffUrl}</code>
+          )}
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                disabled={staffBusy}
+                onClick={async () => {
+                  setStaffBusy(true)
+                  setError('')
+                  const r = await regenerateStaffFeedToken()
+                  setStaffBusy(false)
+                  if (!r.ok) setError(r.error ?? 'Could not issue a new staff link')
+                  else setStaffRevealed(true)
+                }}
+              >
+                <RefreshCw size={15} /> {staffBusy ? 'Working…' : 'Issue a new staff link'}
+              </Button>
+              <span className="text-xs text-faint">Only the staff link changes; the one above keeps working.</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -142,6 +142,7 @@ export interface SettingsSlice {
   calendarFeed: CalendarFeed | null
   /** Issue a new link, instantly invalidating the old one. Admins only. */
   regenerateFeedToken: () => Promise<SettingsResult>
+  regenerateStaffFeedToken: () => Promise<SettingsResult>
   /** Turn the feed off without losing the link. */
   setFeedEnabled: (enabled: boolean) => Promise<SettingsResult>
 
@@ -257,6 +258,7 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
       const r = feed.data as Row
       setFeed({
         token: r.token ?? '',
+        staffToken: (r.staff_token as string | null) ?? null,
         enabled: r.enabled !== false,
         lastFetchedAt: r.last_fetched_at ?? null,
         fetchCount: Number(r.fetch_count ?? 0),
@@ -323,6 +325,15 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
     const { data, error } = await sbase.rpc('regenerate_calendar_feed_token')
     if (error) return { ok: false, error: error.message }
     setFeed((f) => (f ? { ...f, token: String(data), fetchCount: 0, lastFetchedAt: null } : f))
+    return { ok: true }
+  }, [sbase])
+
+  /** Rotate the staff link only — the grower link keeps working. */
+  const regenerateStaffFeedToken = useCallback(async (): Promise<SettingsResult> => {
+    if (!sbase) return { ok: false, error: 'Not connected' }
+    const { data, error } = await sbase.rpc('regenerate_staff_calendar_feed_token')
+    if (error) return { ok: false, error: error.message }
+    setFeed((f) => (f ? { ...f, staffToken: String(data) } : f))
     return { ok: true }
   }, [sbase])
 
@@ -463,6 +474,7 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
       qboStatus,
       calendarFeed,
       regenerateFeedToken,
+      regenerateStaffFeedToken,
       setFeedEnabled,
       gcalStatus,
       setGcalSyncEnabled,
@@ -475,7 +487,7 @@ export function useSettings(currentUserId: string | null, live: boolean): Settin
     }),
     [
       company, saveCompany, accessOverrides, saveAccessOverrides, mySignature, saveMySignature,
-      deleteMySignature, documentSignatures, signDocument, voidSignature, qboStatus, calendarFeed, regenerateFeedToken, setFeedEnabled, gcalStatus, setGcalSyncEnabled,
+      deleteMySignature, documentSignatures, signDocument, voidSignature, qboStatus, calendarFeed, regenerateFeedToken, regenerateStaffFeedToken, setFeedEnabled, gcalStatus, setGcalSyncEnabled,
       userPresence, archivedUsers, archiveUser, restoreUser, settingsLoading, loadSettings,
     ],
   )
